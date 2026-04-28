@@ -1,0 +1,102 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TeamRole {
+  ADMIN
+  INSTRUCTOR
+  ASSISTANT
+  DANCER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+model User {
+  id          String   @id @default(cuid())
+  clerkUserId String   @unique
+  email       String   @unique
+  name        String?
+  imageUrl    String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  teamMembers      TeamMember[]
+  createdProjects  Project[]   @relation("ProjectCreatedBy")
+  createdRehearsals Rehearsal[] @relation("RehearsalCreatedBy")
+}
+
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members   TeamMember[]
+  projects  Project[]
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  teamId    String
+  userId    String
+  role      TeamRole @default(DANCER)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  team      Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, userId])
+  @@index([teamId])
+  @@index([userId])
+}
+
+model Project {
+  id              String        @id @default(cuid())
+  teamId          String
+  title           String
+  description     String?
+  status          ProjectStatus @default(ACTIVE)
+  createdByUserId String
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  team            Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdBy       User          @relation("ProjectCreatedBy", fields: [createdByUserId], references: [id])
+
+  rehearsals      Rehearsal[]
+
+  @@index([teamId])
+  @@index([createdByUserId])
+}
+
+model Rehearsal {
+  id              String   @id @default(cuid())
+  projectId       String
+  title           String
+  description     String?
+  rehearsalDate   DateTime
+  createdByUserId String
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy       User     @relation("RehearsalCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([projectId])
+  @@index([createdByUserId])
+  @@index([rehearsalDate])
+}
