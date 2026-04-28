@@ -1,0 +1,135 @@
+import { auth } from "@clerk/nextjs/server"
+import { notFound, redirect } from "next/navigation"
+
+import { ensureDbUser } from "@/lib/auth/ensure-db-user"
+import { getRehearsalForUser } from "@/lib/rehearsals/get-rehearsal-for-user"
+
+import { UploadVideoForm } from "./upload-video-form"
+import { RehearsalWorkspace } from "./rehearsal-workspace"
+
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+
+type RehearsalPageProps = {
+  params: Promise<{
+    rehearsalId: string
+  }>
+}
+
+export default async function RehearsalPage({ params }: RehearsalPageProps) {
+  const { userId } = await auth()
+
+  if (!userId) {
+    redirect("/sign-in")
+  }
+
+  const dbUser = await ensureDbUser()
+
+  if (!dbUser) {
+    redirect("/sign-in")
+  }
+
+  const { rehearsalId } = await params
+
+  const rehearsal = await getRehearsalForUser(rehearsalId, dbUser.id)
+
+  if (!rehearsal) {
+    notFound()
+  }
+
+  const membership = rehearsal.project.team.members[0]
+
+  return (
+    <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-6">
+      <section className="space-y-2">
+        <h1 className="text-3xl font-semibold tracking-tight">
+          {rehearsal.title}
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Project: {rehearsal.project.title}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Team: {rehearsal.project.team.name}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Your role: {membership?.role ?? "UNKNOWN"}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          {new Intl.DateTimeFormat("en-US", {
+            dateStyle: "medium",
+            timeStyle: "short",
+          }).format(rehearsal.rehearsalDate)}
+        </p>
+        {rehearsal.description ? (
+          <p className="text-sm text-muted-foreground">
+            {rehearsal.description}
+          </p>
+        ) : null}
+      </section>
+
+      <section className="space-y-4">
+        <div className="space-y-1">
+          <h2 className="text-xl font-semibold tracking-tight">Video</h2>
+          <p className="text-sm text-muted-foreground">
+            Upload and manage the rehearsal video for this session.
+          </p>
+        </div>
+
+        <UploadVideoForm
+          rehearsalId={rehearsal.id}
+          hasExistingVideo={!!rehearsal.videoAsset}
+        />
+
+        {!rehearsal.videoAsset ? (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">No video uploaded yet</CardTitle>
+              <CardDescription>
+                Upload a rehearsal video to attach media to this session.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        ) : (
+          <div className="space-y-4">
+            <RehearsalWorkspace
+              rehearsalId={rehearsal.id}
+              fileName={rehearsal.videoAsset.originalFileName}
+              notes={rehearsal.notes.map((note) => ({
+                id: note.id,
+                bodyText: note.bodyText,
+                timestampMs: note.timestampMs,
+                createdAt: note.createdAt,
+                author: {
+                  id: note.author.id,
+                  name: note.author.name,
+                  email: note.author.email,
+                },
+              }))}
+            />
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Video details</CardTitle>
+                <CardDescription>
+                  Status: {rehearsal.videoAsset.status}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-2 text-sm text-muted-foreground">
+                <p>MIME type: {rehearsal.videoAsset.mimeType}</p>
+                <p>
+                  Size: {rehearsal.videoAsset.fileSizeBytes.toString()} bytes
+                </p>
+                <p>Object path: {rehearsal.videoAsset.objectPath}</p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+      </section>
+    </main>
+  )
+}

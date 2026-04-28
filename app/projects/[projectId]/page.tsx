@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { notFound, redirect } from "next/navigation";
-
+import Link from "next/link";
 import { ensureDbUser } from "@/lib/auth/ensure-db-user";
 import { db } from "@/lib/db";
 import { getProjectForUser } from "@/lib/projects/get-project-for-user";
@@ -88,26 +88,28 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-2">
             {rehearsals.map((rehearsal) => (
-              <Card key={rehearsal.id}>
-                <CardHeader>
-                  <CardTitle className="text-base">{rehearsal.title}</CardTitle>
-                  <CardDescription>
-                    {new Intl.DateTimeFormat("en-US", {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    }).format(rehearsal.rehearsalDate)}
-                  </CardDescription>
-                </CardHeader>
-                {rehearsal.description ? (
-                  <CardContent>
-                    <p className="text-sm text-muted-foreground">
-                      {rehearsal.description}
-                    </p>
-                  </CardContent>
-                ) : null}
-              </Card>
+              <Link key={rehearsal.id} href={`/rehearsals/${rehearsal.id}`}>
+                <Card className="transition-colors hover:bg-muted/50">
+                  <CardHeader>
+                    <CardTitle className="text-base">{rehearsal.title}</CardTitle>
+                    <CardDescription>
+                      {new Intl.DateTimeFormat("en-US", {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      }).format(rehearsal.rehearsalDate)}
+                    </CardDescription>
+                  </CardHeader>
+                  {rehearsal.description ? (
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground">
+                        {rehearsal.description}
+                      </p>
+                    </CardContent>
+                  ) : null}
+                </Card>
+              </Link>
             ))}
           </div>
         )}

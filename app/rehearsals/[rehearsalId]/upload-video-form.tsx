@@ -1,0 +1,221 @@
+"use client";
+
+import { useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+
+type UploadVideoFormProps = {
+  rehearsalId: string;
+  hasExistingVideo: boolean;
+};
+
+type ApiSuccess<T> = {
+  ok: true;
+  data: T;
+};
+
+type ApiError = {
+  ok: false;
+  error: {
+    code: string;
+    message: string;
+  };
+};
+
+type ApiResponse<T> = ApiSuccess<T> | ApiError;
+
+type UploadUrlData = {
+  videoAssetId: string;
+  uploadUrl: string;
+  objectPath: string;
+};
+
+type CompleteUploadData = {
+  videoAssetId: string;
+  status: string;
+};
+
+type UploadUrlResponse = ApiResponse<UploadUrlData>;
+type CompleteUploadResponse = ApiResponse<CompleteUploadData>;
+
+export function UploadVideoForm({
+  rehearsalId,
+  hasExistingVideo,
+}: UploadVideoFormProps) {
+  const router = useRouter();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [isPending, startTransition] = useTransition();
+
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
+  const handleUpload = () => {
+    if (!selectedFile) {
+      setError("Please choose a video file.");
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        setError(null);
+        setStatusMessage("Preparing upload...");
+
+        const uploadUrlResponse = await fetch(
+          `/api/rehearsals/${rehearsalId}/video/upload-url`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              fileName: selectedFile.name,
+              contentType: selectedFile.type,
+              fileSizeBytes: selectedFile.size,
+            }),
+          }
+        );
+
+        const uploadUrlData =
+          (await uploadUrlResponse.json()) as UploadUrlResponse;
+
+        if (!uploadUrlData.ok) {
+          throw new Error(uploadUrlData.error.message);
+        }
+
+        setStatusMessage("Uploading video...");
+
+        const gcsUploadResponse = await fetch(uploadUrlData.data.uploadUrl, {
+          method: "PUT",
+          headers: {
+            "Content-Type": selectedFile.type,
+          },
+          body: selectedFile,
+        });
+
+        if (!gcsUploadResponse.ok) {
+          throw new Error("Failed to upload file to storage.");
+        }
+
+        setStatusMessage("Finalizing upload...");
+
+        const completeResponse = await fetch(
+          `/api/video-assets/${uploadUrlData.data.videoAssetId}/complete`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              durationMs: null,
+            }),
+          }
+        );
+
+        const completeData =
+          (await completeResponse.json()) as CompleteUploadResponse;
+
+        if (!completeData.ok) {
+          throw new Error(completeData.error.message);
+        }
+
+        setStatusMessage("Upload complete.");
+        setSelectedFile(null);
+
+        if (inputRef.current) {
+          inputRef.current.value = "";
+        }
+
+        router.refresh();
+      } catch (err) {
+        console.error(err);
+        setStatusMessage(null);
+        setError(
+          err instanceof Error ? err.message : "Something went wrong."
+        );
+      }
+    });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>
+          {hasExistingVideo ? "Replace video" : "Upload video"}
+        </CardTitle>
+        <CardDescription>
+          Upload one rehearsal video for this rehearsal.
+        </CardDescription>
+      </CardHeader>
+
+      <CardContent>
+        <div className="space-y-6">
+          <FieldGroup>
+            <Field data-invalid={!!error}>
+              <FieldLabel htmlFor="video">Video file</FieldLabel>
+              <FieldContent>
+                <Input
+                  ref={inputRef}
+                  id="video"
+                  type="file"
+                  accept="video/mp4,video/quicktime,video/webm"
+                  disabled={isPending}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    setSelectedFile(file);
+                    setError(null);
+                    setStatusMessage(null);
+                  }}
+                />
+                <FieldDescription>
+                  Supported formats: MP4, MOV, WEBM.
+                </FieldDescription>
+                <FieldError errors={error ? [{ message: error }] : []} />
+              </FieldContent>
+            </Field>
+          </FieldGroup>
+
+          {selectedFile ? (
+            <div className="text-sm text-muted-foreground">
+              Selected: {selectedFile.name} ({selectedFile.size.toLocaleString()}{" "}
+              bytes)
+            </div>
+          ) : null}
+
+          {statusMessage ? (
+            <p className="text-sm text-muted-foreground">{statusMessage}</p>
+          ) : null}
+
+          <Button
+            type="button"
+            disabled={!selectedFile || isPending}
+            onClick={handleUpload}
+          >
+            {isPending
+              ? "Uploading..."
+              : hasExistingVideo
+              ? "Replace video"
+              : "Upload video"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

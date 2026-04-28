@@ -19,43 +19,51 @@ enum ProjectStatus {
   ARCHIVED
 }
 
+enum VideoAssetStatus {
+  UPLOADING
+  READY
+  FAILED
+}
+
 model User {
-  id          String   @id @default(cuid())
-  clerkUserId String   @unique
-  email       String   @unique
+  id          String  @id @default(cuid())
+  clerkUserId String  @unique
+  email       String  @unique
   name        String?
   imageUrl    String?
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  teamMembers      TeamMember[]
-  createdProjects  Project[]   @relation("ProjectCreatedBy")
-  createdRehearsals Rehearsal[] @relation("RehearsalCreatedBy")
+  teamMembers         TeamMember[]
+  createdProjects     Project[]    @relation("ProjectCreatedBy")
+  createdRehearsals   Rehearsal[]  @relation("RehearsalCreatedBy")
+  uploadedVideoAssets VideoAsset[]
+  notes               Note[]
 }
 
 model Team {
-  id        String   @id @default(cuid())
-  name      String
+  id   String @id @default(cuid())
+  name String
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members   TeamMember[]
-  projects  Project[]
+  members  TeamMember[]
+  projects Project[]
 }
 
 model TeamMember {
-  id        String   @id @default(cuid())
-  teamId    String
-  userId    String
-  role      TeamRole @default(DANCER)
+  id     String   @id @default(cuid())
+  teamId String
+  userId String
+  role   TeamRole @default(DANCER)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  team      Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([teamId, userId])
   @@index([teamId])
@@ -70,13 +78,13 @@ model Project {
   status          ProjectStatus @default(ACTIVE)
   createdByUserId String
 
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  team            Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  createdBy       User          @relation("ProjectCreatedBy", fields: [createdByUserId], references: [id])
+  team      Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdBy User @relation("ProjectCreatedBy", fields: [createdByUserId], references: [id])
 
-  rehearsals      Rehearsal[]
+  rehearsals Rehearsal[]
 
   @@index([teamId])
   @@index([createdByUserId])
@@ -90,13 +98,59 @@ model Rehearsal {
   rehearsalDate   DateTime
   createdByUserId String
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdBy       User     @relation("RehearsalCreatedBy", fields: [createdByUserId], references: [id])
+  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy  User        @relation("RehearsalCreatedBy", fields: [createdByUserId], references: [id])
+  videoAsset VideoAsset?
+  notes      Note[]
 
   @@index([projectId])
   @@index([createdByUserId])
   @@index([rehearsalDate])
+}
+
+model VideoAsset {
+  id               String           @id @default(cuid())
+  rehearsalId      String           @unique
+  bucketName       String
+  objectPath       String
+  originalFileName String
+  mimeType         String
+  fileSizeBytes    BigInt
+  durationMs       Int?
+  uploadedByUserId String
+  status           VideoAssetStatus @default(UPLOADING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rehearsal  Rehearsal @relation(fields: [rehearsalId], references: [id], onDelete: Cascade)
+  uploadedBy User      @relation(fields: [uploadedByUserId], references: [id])
+  notes      Note[]
+
+  @@index([uploadedByUserId])
+  @@index([status])
+}
+
+model Note {
+  id           String @id @default(cuid())
+  rehearsalId  String
+  videoAssetId String
+  authorUserId String
+  bodyText     String
+  timestampMs  Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rehearsal  Rehearsal  @relation(fields: [rehearsalId], references: [id], onDelete: Cascade)
+  videoAsset VideoAsset @relation(fields: [videoAssetId], references: [id], onDelete: Cascade)
+  author     User       @relation(fields: [authorUserId], references: [id])
+
+  @@index([rehearsalId])
+  @@index([videoAssetId])
+  @@index([authorUserId])
+  @@index([timestampMs])
 }
