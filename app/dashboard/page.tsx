@@ -48,6 +48,19 @@ export default async function DashboardPage() {
       </section>
 
       <section>
+        <Link href="/my-notes">
+          <Card className="transition-colors hover:bg-muted/50">
+            <CardHeader>
+              <CardTitle className="text-base">My notes</CardTitle>
+              <CardDescription>
+                See feedback assigned to you and update its status.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </Link>
+      </section>
+
+      <section>
         <CreateTeamForm />
       </section>
 
