@@ -1,18 +1,7 @@
-export const NOTE_STATUSES = [
-  "OPEN",
-  "IN_PROGRESS",
-  "ADDRESSED",
-  "RESOLVED",
-] as const;
+import type { NoteStatus } from "@/lib/notes/statuses";
 
-export type NoteStatus = (typeof NOTE_STATUSES)[number];
-
-export const NOTE_STATUS_LABELS: Record<NoteStatus, string> = {
-  OPEN: "Open",
-  IN_PROGRESS: "In progress",
-  ADDRESSED: "Addressed",
-  RESOLVED: "Resolved",
-};
+export { NOTE_STATUSES, NOTE_STATUS_LABELS } from "@/lib/notes/statuses";
+export type { NoteStatus } from "@/lib/notes/statuses";
 
 export const DEFAULT_EXPANDED_STATUSES: Record<NoteStatus, boolean> = {
   OPEN: true,

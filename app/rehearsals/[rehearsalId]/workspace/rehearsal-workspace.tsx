@@ -18,6 +18,7 @@ import type {
 
 import { AddNoteCard } from "./add-note-card"
 import { NotesListCard } from "./notes-list-card"
+import { NotesSummary } from "./notes-summary"
 import { RehearsalVideoCard } from "./rehearsal-video-card"
 import type { AssignableMember, NoteItem } from "./types"
 import { clamp } from "./utils"
@@ -271,7 +272,13 @@ export function RehearsalWorkspace({
         </div>
       </div>
 
-      <NotesListCard notes={sortedNotes} onJumpToTimestamp={jumpToTimestamp} />
+      <NotesSummary notes={sortedNotes} />
+
+      <NotesListCard
+        notes={sortedNotes}
+        assignableMembers={assignableMembers}
+        onJumpToTimestamp={jumpToTimestamp}
+      />
     </div>
   )
 }
