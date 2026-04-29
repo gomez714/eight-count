@@ -1,45 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 
+import type {
+  CompleteUploadRequest,
+  CompleteUploadResponse,
+} from "@/lib/api/contracts";
+import { apiError } from "@/lib/api/responses";
 import { db } from "@/lib/db";
-
-type RequestBody = {
-  durationMs?: number | null;
-};
-
-type CompleteUploadData = {
-  videoAssetId: string;
-  status: string;
-};
-
-type ApiSuccess<T> = {
-  ok: true;
-  data: T;
-};
-
-type ApiError = {
-  ok: false;
-  error: {
-    code: string;
-    message: string;
-  };
-};
-
-type CompleteUploadResponse = ApiSuccess<CompleteUploadData> | ApiError;
-
-function jsonError(
-  status: number,
-  code: string,
-  message: string
-): NextResponse<CompleteUploadResponse> {
-  return NextResponse.json(
-    {
-      ok: false,
-      error: { code, message },
-    },
-    { status }
-  );
-}
 
 export async function POST(
   request: NextRequest,
@@ -49,7 +16,7 @@ export async function POST(
     const { userId } = await auth();
 
     if (!userId) {
-      return jsonError(401, "UNAUTHORIZED", "Unauthorized");
+      return apiError(401, "UNAUTHORIZED", "Unauthorized");
     }
 
     const dbUser = await db.user.findUnique({
@@ -59,7 +26,7 @@ export async function POST(
     });
 
     if (!dbUser) {
-      return jsonError(401, "USER_NOT_FOUND", "User not found");
+      return apiError(401, "USER_NOT_FOUND", "User not found");
     }
 
     const { videoAssetId } = await context.params;
@@ -82,14 +49,16 @@ export async function POST(
     });
 
     if (!videoAsset) {
-      return jsonError(
+      return apiError(
         404,
         "VIDEO_ASSET_NOT_FOUND",
         "Video asset not found or access denied"
       );
     }
 
-    const body = (await request.json().catch(() => ({}))) as RequestBody;
+    const body = (await request
+      .json()
+      .catch(() => ({}))) as Partial<CompleteUploadRequest>;
     const durationMs = body.durationMs;
 
     const normalizedDurationMs =
@@ -119,7 +88,7 @@ export async function POST(
   } catch (error) {
     console.error("Failed to complete video upload:", error);
 
-    return jsonError(
+    return apiError(
       500,
       "COMPLETE_UPLOAD_FAILED",
       error instanceof Error ? error.message : "Failed to complete video upload"

@@ -21,39 +21,17 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 
+import type {
+  CompleteUploadRequest,
+  CompleteUploadResponse,
+  UploadUrlRequest,
+  UploadUrlResponse,
+} from "@/lib/api/contracts";
+
 type UploadVideoFormProps = {
   rehearsalId: string;
   hasExistingVideo: boolean;
 };
-
-type ApiSuccess<T> = {
-  ok: true;
-  data: T;
-};
-
-type ApiError = {
-  ok: false;
-  error: {
-    code: string;
-    message: string;
-  };
-};
-
-type ApiResponse<T> = ApiSuccess<T> | ApiError;
-
-type UploadUrlData = {
-  videoAssetId: string;
-  uploadUrl: string;
-  objectPath: string;
-};
-
-type CompleteUploadData = {
-  videoAssetId: string;
-  status: string;
-};
-
-type UploadUrlResponse = ApiResponse<UploadUrlData>;
-type CompleteUploadResponse = ApiResponse<CompleteUploadData>;
 
 export function UploadVideoForm({
   rehearsalId,
@@ -78,6 +56,12 @@ export function UploadVideoForm({
         setError(null);
         setStatusMessage("Preparing upload...");
 
+        const uploadUrlRequestBody: UploadUrlRequest = {
+          fileName: selectedFile.name,
+          contentType: selectedFile.type,
+          fileSizeBytes: selectedFile.size,
+        };
+
         const uploadUrlResponse = await fetch(
           `/api/rehearsals/${rehearsalId}/video/upload-url`,
           {
@@ -85,11 +69,7 @@ export function UploadVideoForm({
             headers: {
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({
-              fileName: selectedFile.name,
-              contentType: selectedFile.type,
-              fileSizeBytes: selectedFile.size,
-            }),
+            body: JSON.stringify(uploadUrlRequestBody),
           }
         );
 
@@ -116,6 +96,10 @@ export function UploadVideoForm({
 
         setStatusMessage("Finalizing upload...");
 
+        const completeRequestBody: CompleteUploadRequest = {
+          durationMs: null,
+        };
+
         const completeResponse = await fetch(
           `/api/video-assets/${uploadUrlData.data.videoAssetId}/complete`,
           {
@@ -123,9 +107,7 @@ export function UploadVideoForm({
             headers: {
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({
-              durationMs: null,
-            }),
+            body: JSON.stringify(completeRequestBody),
           }
         );
 

@@ -1,0 +1,46 @@
+import type { ApiResponse } from "./responses"
+
+export type CreateNoteRequest = {
+  bodyText: string
+  timestampMs: number
+}
+
+export type CreateNoteData = {
+  note: unknown
+}
+
+export type CreateNoteResponse = ApiResponse<CreateNoteData>
+
+export type UploadUrlRequest = {
+  fileName: string
+  contentType: string
+  fileSizeBytes: number
+}
+
+export type UploadUrlData = {
+  videoAssetId: string
+  uploadUrl: string
+  objectPath: string
+}
+
+export type UploadUrlResponse = ApiResponse<UploadUrlData>
+
+export type CompleteUploadRequest = {
+  durationMs?: number | null
+}
+
+export type CompleteUploadData = {
+  videoAssetId: string
+  status: string
+}
+
+export type CompleteUploadResponse = ApiResponse<CompleteUploadData>
+
+export type PlaybackData = {
+  playbackUrl: string
+  videoAssetId: string
+  mimeType: string
+  originalFileName: string
+}
+
+export type PlaybackResponse = ApiResponse<PlaybackData>

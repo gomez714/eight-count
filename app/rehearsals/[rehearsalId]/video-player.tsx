@@ -10,34 +10,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
+import type { PlaybackResponse } from "@/lib/api/contracts";
+
 type VideoPlayerProps = {
   rehearsalId: string;
   fileName: string;
 };
-
-type ApiSuccess<T> = {
-  ok: true;
-  data: T;
-};
-
-type ApiError = {
-  ok: false;
-  error: {
-    code: string;
-    message: string;
-  };
-};
-
-type ApiResponse<T> = ApiSuccess<T> | ApiError;
-
-type PlaybackData = {
-  playbackUrl: string;
-  videoAssetId: string;
-  mimeType: string;
-  originalFileName: string;
-};
-
-type PlaybackResponse = ApiResponse<PlaybackData>;
 
 export function VideoPlayer({ rehearsalId, fileName }: VideoPlayerProps) {
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null);

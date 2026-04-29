@@ -5,7 +5,7 @@ import { ensureDbUser } from "@/lib/auth/ensure-db-user"
 import { getRehearsalForUser } from "@/lib/rehearsals/get-rehearsal-for-user"
 
 import { UploadVideoForm } from "./upload-video-form"
-import { RehearsalWorkspace } from "./rehearsal-workspace"
+import { RehearsalWorkspace } from "./workspace/rehearsal-workspace"
 
 import {
   Card,
