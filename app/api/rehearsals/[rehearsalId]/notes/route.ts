@@ -42,7 +42,9 @@ export async function POST(
       );
     }
 
-    if (rehearsal.videoAsset?.status !== "READY") {
+    const videoAsset = rehearsal.videoAsset;
+
+    if (videoAsset?.status !== "READY") {
       return apiError(
         409,
         "VIDEO_NOT_READY",
@@ -54,6 +56,9 @@ export async function POST(
 
     const bodyText = body.bodyText?.trim();
     const timestampMs = body.timestampMs;
+    const assigneeUserIds = Array.isArray(body.assigneeUserIds)
+      ? [...new Set(body.assigneeUserIds.filter(Boolean))]
+      : [];
 
     if (!bodyText) {
       return apiError(400, "BODY_TEXT_REQUIRED", "bodyText is required");
@@ -71,17 +76,62 @@ export async function POST(
       );
     }
 
-    const note = await db.note.create({
-      data: {
-        rehearsalId: rehearsal.id,
-        videoAssetId: rehearsal.videoAsset.id,
-        authorUserId: dbUser.id,
-        bodyText,
-        timestampMs: Math.floor(timestampMs),
-      },
-      include: {
-        author: true,
-      },
+    const teamMemberUserIds = new Set(
+      rehearsal.project.team.members.map((member) => member.userId)
+    );
+
+    const invalidAssignee = assigneeUserIds.find(
+      (assigneeUserId) => !teamMemberUserIds.has(assigneeUserId)
+    );
+
+    if (invalidAssignee) {
+      return apiError(
+        400,
+        "INVALID_ASSIGNEE",
+        "One or more assignees are not members of this team"
+      );
+    }
+
+    const note = await db.$transaction(async (tx) => {
+      const createdNote = await tx.note.create({
+        data: {
+          rehearsalId: rehearsal.id,
+          videoAssetId: videoAsset.id,
+          authorUserId: dbUser.id,
+          bodyText,
+          timestampMs: Math.floor(timestampMs),
+        },
+      });
+
+      for (const assigneeUserId of assigneeUserIds) {
+        await tx.noteAssignment.create({
+          data: {
+            noteId: createdNote.id,
+            userId: assigneeUserId,
+            status: {
+              create: {
+                status: "OPEN",
+                updatedByUserId: dbUser.id,
+              },
+            },
+          },
+        });
+      }
+
+      return tx.note.findUniqueOrThrow({
+        where: {
+          id: createdNote.id,
+        },
+        include: {
+          author: true,
+          assignments: {
+            include: {
+              user: true,
+              status: true,
+            },
+          },
+        },
+      });
     });
 
     return NextResponse.json<CreateNoteResponse>({

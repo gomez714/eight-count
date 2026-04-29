@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import {
   Card,
@@ -6,15 +6,15 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
+} from "@/components/ui/card";
 
-import type { NoteItem } from "./types"
-import { formatTimestamp } from "./utils"
+import type { NoteItem } from "./types";
+import { formatTimestamp } from "./utils";
 
 type NotesListCardProps = {
-  notes: NoteItem[]
-  onJumpToTimestamp: (timestampMs: number) => void
-}
+  notes: NoteItem[];
+  onJumpToTimestamp: (timestampMs: number) => void;
+};
 
 export function NotesListCard({ notes, onJumpToTimestamp }: NotesListCardProps) {
   return (
@@ -47,14 +47,34 @@ export function NotesListCard({ notes, onJumpToTimestamp }: NotesListCardProps) 
                     {note.author.name || note.author.email}
                   </span>
                 </div>
+
                 <p className="mt-2 text-sm text-muted-foreground">
                   {note.bodyText}
                 </p>
+
+                {note.assignments.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {note.assignments.map((assignment) => {
+                      const status = assignment.status?.status ?? "OPEN";
+
+                      return (
+                        <span
+                          key={assignment.id}
+                          className="rounded-full border px-2 py-1 text-xs text-muted-foreground"
+                        >
+                          {(assignment.user.name || assignment.user.email) +
+                            " • " +
+                            status}
+                        </span>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </button>
             ))}
           </div>
         )}
       </CardContent>
     </Card>
-  )
+  );
 }

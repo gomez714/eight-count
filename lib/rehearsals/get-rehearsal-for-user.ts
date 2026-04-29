@@ -20,8 +20,8 @@ export async function getRehearsalForUser(rehearsalId: string, userId: string) {
           team: {
             include: {
               members: {
-                where: {
-                  userId,
+                include: {
+                  user: true,
                 },
               },
             },
@@ -32,6 +32,12 @@ export async function getRehearsalForUser(rehearsalId: string, userId: string) {
       notes: {
         include: {
           author: true,
+          assignments: {
+            include: {
+              user: true,
+              status: true,
+            },
+          },
         },
         orderBy: {
           timestampMs: "asc",

@@ -99,6 +99,14 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
             <RehearsalWorkspace
               rehearsalId={rehearsal.id}
               fileName={rehearsal.videoAsset.originalFileName}
+              assignableMembers={rehearsal.project.team.members.map(
+                (member) => ({
+                  id: member.user.id,
+                  name: member.user.name,
+                  email: member.user.email,
+                  role: member.role,
+                })
+              )}
               notes={rehearsal.notes.map((note) => ({
                 id: note.id,
                 bodyText: note.bodyText,
@@ -109,6 +117,20 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
                   name: note.author.name,
                   email: note.author.email,
                 },
+                assignments: note.assignments.map((assignment) => ({
+                  id: assignment.id,
+                  user: {
+                    id: assignment.user.id,
+                    name: assignment.user.name,
+                    email: assignment.user.email,
+                  },
+                  status: assignment.status
+                    ? {
+                        id: assignment.status.id,
+                        status: assignment.status.status,
+                      }
+                    : null,
+                })),
               }))}
             />
 

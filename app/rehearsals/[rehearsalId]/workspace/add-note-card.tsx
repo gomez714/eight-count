@@ -1,13 +1,13 @@
-"use client"
+"use client";
 
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
+} from "@/components/ui/card";
 import {
   Field,
   FieldContent,
@@ -15,26 +15,33 @@ import {
   FieldError,
   FieldGroup,
   FieldLabel,
-} from "@/components/ui/field"
-import { Textarea } from "@/components/ui/textarea"
+} from "@/components/ui/field";
+import { Textarea } from "@/components/ui/textarea";
+import type { AssignableMember } from "./types";
 
-import { formatTimestamp } from "./utils"
+import { formatTimestamp } from "./utils";
 
 type AddNoteCardProps = {
-  selectedTimestampMs: number
-  noteText: string
-  onNoteTextChange: (value: string) => void
-  noteError: string | null
-  isPending: boolean
-  disabled: boolean
-  onCapture: () => void
-  onSubmit: () => void
-}
+  selectedTimestampMs: number;
+  noteText: string;
+  onNoteTextChange: (value: string) => void;
+  selectedAssigneeUserIds: string[];
+  assignableMembers: AssignableMember[];
+  onToggleAssignee: (userId: string) => void;
+  noteError: string | null;
+  isPending: boolean;
+  disabled: boolean;
+  onCapture: () => void;
+  onSubmit: () => void;
+};
 
 export function AddNoteCard({
   selectedTimestampMs,
   noteText,
   onNoteTextChange,
+  selectedAssigneeUserIds,
+  assignableMembers,
+  onToggleAssignee,
   noteError,
   isPending,
   disabled,
@@ -84,6 +91,49 @@ export function AddNoteCard({
               />
             </FieldContent>
           </Field>
+
+          <Field>
+            <FieldLabel>Assign to team members</FieldLabel>
+            <FieldContent>
+              <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border p-3">
+                {assignableMembers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No assignable members available.
+                  </p>
+                ) : (
+                  assignableMembers.map((member) => {
+                    const checked = selectedAssigneeUserIds.includes(member.id);
+
+                    return (
+                      <label
+                        key={member.id}
+                        className="flex cursor-pointer items-start gap-3 rounded-md p-2 hover:bg-muted/50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => onToggleAssignee(member.id)}
+                          disabled={isPending}
+                          className="mt-1"
+                        />
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium">
+                            {member.name || member.email}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {member.email} • {member.role}
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+              <FieldDescription>
+                Leave this empty for an unassigned general note.
+              </FieldDescription>
+            </FieldContent>
+          </Field>
         </FieldGroup>
 
         <div className="mt-auto flex flex-wrap gap-3 pt-2">
@@ -102,5 +152,5 @@ export function AddNoteCard({
         </div>
       </CardContent>
     </Card>
-  )
+  );
 }

@@ -25,6 +25,13 @@ enum VideoAssetStatus {
   FAILED
 }
 
+enum NoteStatus {
+  OPEN
+  IN_PROGRESS
+  ADDRESSED
+  RESOLVED
+}
+
 model User {
   id          String  @id @default(cuid())
   clerkUserId String  @unique
@@ -35,11 +42,13 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  teamMembers         TeamMember[]
-  createdProjects     Project[]    @relation("ProjectCreatedBy")
-  createdRehearsals   Rehearsal[]  @relation("RehearsalCreatedBy")
-  uploadedVideoAssets VideoAsset[]
-  notes               Note[]
+  teamMembers              TeamMember[]
+  createdProjects          Project[]               @relation("ProjectCreatedBy")
+  createdRehearsals        Rehearsal[]             @relation("RehearsalCreatedBy")
+  uploadedVideoAssets      VideoAsset[]
+  notes                    Note[]                  @relation("NoteAuthor")
+  noteAssignments          NoteAssignment[]        @relation("AssignedNoteUser")
+  noteStatusUpdates        NoteAssignmentStatus[]  @relation("NoteStatusUpdatedBy")
 }
 
 model Team {
@@ -81,9 +90,8 @@ model Project {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  team      Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  createdBy User @relation("ProjectCreatedBy", fields: [createdByUserId], references: [id])
-
+  team       Team        @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdBy  User        @relation("ProjectCreatedBy", fields: [createdByUserId], references: [id])
   rehearsals Rehearsal[]
 
   @@index([teamId])
@@ -145,12 +153,45 @@ model Note {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  rehearsal  Rehearsal  @relation(fields: [rehearsalId], references: [id], onDelete: Cascade)
-  videoAsset VideoAsset @relation(fields: [videoAssetId], references: [id], onDelete: Cascade)
-  author     User       @relation(fields: [authorUserId], references: [id])
+  rehearsal   Rehearsal        @relation(fields: [rehearsalId], references: [id], onDelete: Cascade)
+  videoAsset  VideoAsset       @relation(fields: [videoAssetId], references: [id], onDelete: Cascade)
+  author      User             @relation("NoteAuthor", fields: [authorUserId], references: [id])
+  assignments NoteAssignment[]
 
   @@index([rehearsalId])
   @@index([videoAssetId])
   @@index([authorUserId])
   @@index([timestampMs])
+}
+
+model NoteAssignment {
+  id        String @id @default(cuid())
+  noteId     String
+  userId     String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  note      Note                   @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  user      User                   @relation("AssignedNoteUser", fields: [userId], references: [id])
+  status    NoteAssignmentStatus?
+
+  @@unique([noteId, userId])
+  @@index([noteId])
+  @@index([userId])
+}
+
+model NoteAssignmentStatus {
+  id               String     @id @default(cuid())
+  noteAssignmentId String     @unique
+  status           NoteStatus @default(OPEN)
+  updatedByUserId  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  noteAssignment NoteAssignment @relation(fields: [noteAssignmentId], references: [id], onDelete: Cascade)
+  updatedBy      User?          @relation("NoteStatusUpdatedBy", fields: [updatedByUserId], references: [id])
+
+  @@index([status])
 }

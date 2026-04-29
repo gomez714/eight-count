@@ -19,19 +19,21 @@ import type {
 import { AddNoteCard } from "./add-note-card"
 import { NotesListCard } from "./notes-list-card"
 import { RehearsalVideoCard } from "./rehearsal-video-card"
-import type { NoteItem } from "./types"
+import type { AssignableMember, NoteItem } from "./types"
 import { clamp } from "./utils"
 
 type RehearsalWorkspaceProps = {
   rehearsalId: string
   fileName: string
   notes: NoteItem[]
+  assignableMembers: AssignableMember[]
 }
 
 export function RehearsalWorkspace({
   rehearsalId,
   fileName,
   notes,
+  assignableMembers,
 }: RehearsalWorkspaceProps) {
   const router = useRouter()
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -47,6 +49,9 @@ export function RehearsalWorkspace({
   const [selectedTimestampMs, setSelectedTimestampMs] = useState(0)
   const [currentPlaybackMs, setCurrentPlaybackMs] = useState(0)
   const [videoDurationMs, setVideoDurationMs] = useState(0)
+  const [selectedAssigneeUserIds, setSelectedAssigneeUserIds] = useState<
+    string[]
+  >([])
   const [noteError, setNoteError] = useState<string | null>(null)
 
   const [isPending, startTransition] = useTransition()
@@ -173,6 +178,14 @@ export function RehearsalWorkspace({
     }
   }
 
+  const handleToggleAssignee = (userId: string) => {
+    setSelectedAssigneeUserIds((prev) =>
+      prev.includes(userId)
+        ? prev.filter((id) => id !== userId)
+        : [...prev, userId]
+    )
+  }
+
   const handleCreateNote = () => {
     if (!noteText.trim()) {
       setNoteError("Please enter a note.")
@@ -186,6 +199,7 @@ export function RehearsalWorkspace({
         const requestBody: CreateNoteRequest = {
           bodyText: noteText,
           timestampMs: selectedTimestampMs,
+          assigneeUserIds: selectedAssigneeUserIds,
         }
 
         const response = await fetch(`/api/rehearsals/${rehearsalId}/notes`, {
@@ -207,6 +221,7 @@ export function RehearsalWorkspace({
         }
 
         setNoteText("")
+        setSelectedAssigneeUserIds([])
         router.refresh()
       } catch (err) {
         setNoteError(
@@ -244,6 +259,9 @@ export function RehearsalWorkspace({
             selectedTimestampMs={selectedTimestampMs}
             noteText={noteText}
             onNoteTextChange={setNoteText}
+            selectedAssigneeUserIds={selectedAssigneeUserIds}
+            assignableMembers={assignableMembers}
+            onToggleAssignee={handleToggleAssignee}
             noteError={noteError}
             isPending={isPending}
             disabled={!playbackUrl || isPending}
@@ -253,10 +271,7 @@ export function RehearsalWorkspace({
         </div>
       </div>
 
-      <NotesListCard
-        notes={sortedNotes}
-        onJumpToTimestamp={jumpToTimestamp}
-      />
+      <NotesListCard notes={sortedNotes} onJumpToTimestamp={jumpToTimestamp} />
     </div>
   )
 }

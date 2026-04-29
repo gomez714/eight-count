@@ -3,6 +3,7 @@ import type { ApiResponse } from "./responses"
 export type CreateNoteRequest = {
   bodyText: string
   timestampMs: number
+  assigneeUserIds?: string[];
 }
 
 export type CreateNoteData = {
