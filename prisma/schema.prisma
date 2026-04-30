@@ -32,6 +32,12 @@ enum NoteStatus {
   RESOLVED
 }
 
+enum NoteTargetKind {
+  EVERYONE
+  GROUP
+  USER
+}
+
 model User {
   id          String  @id @default(cuid())
   clerkUserId String  @unique
@@ -49,6 +55,7 @@ model User {
   notes                    Note[]                  @relation("NoteAuthor")
   noteAssignments          NoteAssignment[]        @relation("AssignedNoteUser")
   noteStatusUpdates        NoteAssignmentStatus[]  @relation("NoteStatusUpdatedBy")
+  noteTargets              NoteTarget[]            @relation("NoteTargetUser")
 }
 
 model Team {
@@ -71,8 +78,9 @@ model TeamMember {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team             Team                 @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectGroupships ProjectGroupMember[]
 
   @@unique([teamId, userId])
   @@index([teamId])
@@ -93,9 +101,42 @@ model Project {
   team       Team        @relation(fields: [teamId], references: [id], onDelete: Cascade)
   createdBy  User        @relation("ProjectCreatedBy", fields: [createdByUserId], references: [id])
   rehearsals Rehearsal[]
+  groups     ProjectGroup[]
 
   @@index([teamId])
   @@index([createdByUserId])
+}
+
+model ProjectGroup {
+  id          String  @id @default(cuid())
+  projectId   String
+  name        String
+  description String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project     Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  members     ProjectGroupMember[]
+  noteTargets NoteTarget[]
+
+  @@unique([projectId, name])
+  @@index([projectId])
+}
+
+model ProjectGroupMember {
+  id             String @id @default(cuid())
+  projectGroupId String
+  teamMemberId   String
+
+  createdAt DateTime @default(now())
+
+  group      ProjectGroup @relation(fields: [projectGroupId], references: [id], onDelete: Cascade)
+  teamMember TeamMember   @relation(fields: [teamMemberId], references: [id], onDelete: Cascade)
+
+  @@unique([projectGroupId, teamMemberId])
+  @@index([projectGroupId])
+  @@index([teamMemberId])
 }
 
 model Rehearsal {
@@ -157,6 +198,7 @@ model Note {
   videoAsset  VideoAsset       @relation(fields: [videoAssetId], references: [id], onDelete: Cascade)
   author      User             @relation("NoteAuthor", fields: [authorUserId], references: [id])
   assignments NoteAssignment[]
+  targets     NoteTarget[]
 
   @@index([rehearsalId])
   @@index([videoAssetId])
@@ -194,4 +236,22 @@ model NoteAssignmentStatus {
   updatedBy      User?          @relation("NoteStatusUpdatedBy", fields: [updatedByUserId], references: [id])
 
   @@index([status])
+}
+
+model NoteTarget {
+  id             String         @id @default(cuid())
+  noteId         String
+  kind           NoteTargetKind
+  userId         String?
+  projectGroupId String?
+
+  createdAt DateTime @default(now())
+
+  note  Note          @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  user  User?         @relation("NoteTargetUser", fields: [userId], references: [id], onDelete: SetNull)
+  group ProjectGroup? @relation(fields: [projectGroupId], references: [id], onDelete: SetNull)
+
+  @@index([noteId])
+  @@index([userId])
+  @@index([projectGroupId])
 }

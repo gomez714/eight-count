@@ -45,6 +45,20 @@ export default async function MyNotesPage() {
           name: assignment.note.author.name,
           email: assignment.note.author.email,
         },
+        targets: assignment.note.targets.map((target) => ({
+          id: target.id,
+          kind: target.kind,
+          user: target.user
+            ? {
+                id: target.user.id,
+                name: target.user.name,
+                email: target.user.email,
+              }
+            : null,
+          group: target.group
+            ? { id: target.group.id, name: target.group.name }
+            : null,
+        })),
         rehearsal: {
           id: assignment.note.rehearsal.id,
           title: assignment.note.rehearsal.title,

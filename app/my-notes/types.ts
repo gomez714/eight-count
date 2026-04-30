@@ -10,6 +10,17 @@ export const DEFAULT_EXPANDED_STATUSES: Record<NoteStatus, boolean> = {
   RESOLVED: false,
 };
 
+export type AssignedNoteTarget = {
+  id: string;
+  kind: "EVERYONE" | "GROUP" | "USER";
+  user: {
+    id: string;
+    name: string | null;
+    email: string;
+  } | null;
+  group: { id: string; name: string } | null;
+};
+
 export type AssignedNoteRow = {
   id: string;
   status: NoteStatus;
@@ -23,6 +34,7 @@ export type AssignedNoteRow = {
       name: string | null;
       email: string;
     };
+    targets: AssignedNoteTarget[];
     rehearsal: {
       id: string;
       title: string;

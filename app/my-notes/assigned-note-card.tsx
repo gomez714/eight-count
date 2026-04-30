@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 
+import { AudienceChips } from "@/components/audience-chips";
 import {
   Card,
   CardContent,
@@ -43,6 +44,13 @@ export function AssignedNoteCard({ row }: AssignedNoteCardProps) {
 
   const { note, status } = row;
   const rehearsalDate = new Date(note.rehearsal.rehearsalDate);
+
+  // Only EVERYONE / GROUP targets convey extra audience context here;
+  // an individual USER target is redundant (the note is in the user's
+  // own inbox precisely because they were targeted).
+  const audienceTargets = note.targets.filter(
+    (target) => target.kind !== "USER"
+  );
 
   const handleStatusChange = (nextStatus: string) => {
     if (nextStatus === status) {
@@ -115,8 +123,11 @@ export function AssignedNoteCard({ row }: AssignedNoteCardProps) {
           </Select>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-3">
         <p className="text-sm whitespace-pre-wrap">{note.bodyText}</p>
+        {audienceTargets.length > 0 ? (
+          <AudienceChips targets={audienceTargets} />
+        ) : null}
       </CardContent>
     </Card>
   );

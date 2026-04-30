@@ -1,8 +1,18 @@
 import type { ApiResponse } from "./responses"
 
+export type NoteTargetInput =
+  | { kind: "EVERYONE" }
+  | { kind: "USER"; userId: string }
+  | { kind: "GROUP"; projectGroupId: string }
+
 export type CreateNoteRequest = {
   bodyText: string
   timestampMs: number
+  targets?: NoteTargetInput[]
+  /**
+   * @deprecated Use `targets` instead. Kept for one release for
+   * back-compat; server transforms entries into `USER`-kind targets.
+   */
   assigneeUserIds?: string[];
 }
 

@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation"
 import type {
   CreateNoteRequest,
   CreateNoteResponse,
+  NoteTargetInput,
   PlaybackResponse,
 } from "@/lib/api/contracts"
 
@@ -20,7 +21,7 @@ import { AddNoteCard } from "./add-note-card"
 import { NotesListCard } from "./notes-list-card"
 import { NotesSummary } from "./notes-summary"
 import { RehearsalVideoCard } from "./rehearsal-video-card"
-import type { AssignableMember, NoteItem } from "./types"
+import type { AssignableMember, AvailableGroup, NoteItem } from "./types"
 import { clamp } from "./utils"
 
 type RehearsalWorkspaceProps = {
@@ -28,6 +29,8 @@ type RehearsalWorkspaceProps = {
   fileName: string
   notes: NoteItem[]
   assignableMembers: AssignableMember[]
+  availableGroups: AvailableGroup[]
+  canAuthorNotes: boolean
 }
 
 export function RehearsalWorkspace({
@@ -35,6 +38,8 @@ export function RehearsalWorkspace({
   fileName,
   notes,
   assignableMembers,
+  availableGroups,
+  canAuthorNotes,
 }: RehearsalWorkspaceProps) {
   const router = useRouter()
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -50,6 +55,8 @@ export function RehearsalWorkspace({
   const [selectedTimestampMs, setSelectedTimestampMs] = useState(0)
   const [currentPlaybackMs, setCurrentPlaybackMs] = useState(0)
   const [videoDurationMs, setVideoDurationMs] = useState(0)
+  const [isFullCast, setIsFullCast] = useState(false)
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([])
   const [selectedAssigneeUserIds, setSelectedAssigneeUserIds] = useState<
     string[]
   >([])
@@ -187,6 +194,25 @@ export function RehearsalWorkspace({
     )
   }
 
+  const handleToggleFullCast = (next: boolean) => {
+    setIsFullCast(next)
+    if (next) {
+      // Full cast subsumes any group/individual selection.
+      setSelectedGroupIds([])
+      setSelectedAssigneeUserIds([])
+    }
+  }
+
+  const handleToggleGroup = (groupId: string) => {
+    setSelectedGroupIds((prev) =>
+      prev.includes(groupId)
+        ? prev.filter((id) => id !== groupId)
+        : [...prev, groupId]
+    )
+    // Selecting a group implies we're not in full-cast mode.
+    if (isFullCast) setIsFullCast(false)
+  }
+
   const handleCreateNote = () => {
     if (!noteText.trim()) {
       setNoteError("Please enter a note.")
@@ -197,10 +223,26 @@ export function RehearsalWorkspace({
       try {
         setNoteError(null)
 
+        let targets: NoteTargetInput[]
+        if (isFullCast) {
+          targets = [{ kind: "EVERYONE" }]
+        } else {
+          targets = [
+            ...selectedGroupIds.map((projectGroupId) => ({
+              kind: "GROUP" as const,
+              projectGroupId,
+            })),
+            ...selectedAssigneeUserIds.map((userId) => ({
+              kind: "USER" as const,
+              userId,
+            })),
+          ]
+        }
+
         const requestBody: CreateNoteRequest = {
           bodyText: noteText,
           timestampMs: selectedTimestampMs,
-          assigneeUserIds: selectedAssigneeUserIds,
+          targets,
         }
 
         const response = await fetch(`/api/rehearsals/${rehearsalId}/notes`, {
@@ -223,6 +265,8 @@ export function RehearsalWorkspace({
 
         setNoteText("")
         setSelectedAssigneeUserIds([])
+        setSelectedGroupIds([])
+        setIsFullCast(false)
         router.refresh()
       } catch (err) {
         setNoteError(
@@ -256,19 +300,31 @@ export function RehearsalWorkspace({
         </div>
 
         <div className="lg:col-span-1 lg:h-full">
-          <AddNoteCard
-            selectedTimestampMs={selectedTimestampMs}
-            noteText={noteText}
-            onNoteTextChange={setNoteText}
-            selectedAssigneeUserIds={selectedAssigneeUserIds}
-            assignableMembers={assignableMembers}
-            onToggleAssignee={handleToggleAssignee}
-            noteError={noteError}
-            isPending={isPending}
-            disabled={!playbackUrl || isPending}
-            onCapture={captureCurrentTimestamp}
-            onSubmit={handleCreateNote}
-          />
+          {canAuthorNotes ? (
+            <AddNoteCard
+              selectedTimestampMs={selectedTimestampMs}
+              noteText={noteText}
+              onNoteTextChange={setNoteText}
+              selectedAssigneeUserIds={selectedAssigneeUserIds}
+              assignableMembers={assignableMembers}
+              availableGroups={availableGroups}
+              selectedGroupIds={selectedGroupIds}
+              onToggleAssignee={handleToggleAssignee}
+              onToggleGroup={handleToggleGroup}
+              isFullCast={isFullCast}
+              onToggleFullCast={handleToggleFullCast}
+              noteError={noteError}
+              isPending={isPending}
+              disabled={!playbackUrl || isPending}
+              onCapture={captureCurrentTimestamp}
+              onSubmit={handleCreateNote}
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center rounded-lg border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
+              Only admins, instructors, and assistants can author notes.
+              You can still review and address notes assigned to you.
+            </div>
+          )}
         </div>
       </div>
 

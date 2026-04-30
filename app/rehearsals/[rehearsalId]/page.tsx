@@ -42,7 +42,13 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
     notFound()
   }
 
-  const membership = rehearsal.project.team.members[0]
+  const membership = rehearsal.project.team.members.find(
+    (member) => member.userId === dbUser.id
+  )
+  const canAuthorNotes =
+    membership?.role === "ADMIN" ||
+    membership?.role === "INSTRUCTOR" ||
+    membership?.role === "ASSISTANT"
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-6">
@@ -99,6 +105,7 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
             <RehearsalWorkspace
               rehearsalId={rehearsal.id}
               fileName={rehearsal.videoAsset.originalFileName}
+              canAuthorNotes={canAuthorNotes}
               assignableMembers={rehearsal.project.team.members.map(
                 (member) => ({
                   id: member.user.id,
@@ -107,6 +114,13 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
                   role: member.role,
                 })
               )}
+              availableGroups={rehearsal.project.groups.map((group) => ({
+                id: group.id,
+                name: group.name,
+                memberUserIds: group.members.map(
+                  (groupMember) => groupMember.teamMember.userId
+                ),
+              }))}
               notes={rehearsal.notes.map((note) => ({
                 id: note.id,
                 bodyText: note.bodyText,
@@ -129,6 +143,20 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
                         id: assignment.status.id,
                         status: assignment.status.status,
                       }
+                    : null,
+                })),
+                targets: note.targets.map((target) => ({
+                  id: target.id,
+                  kind: target.kind,
+                  user: target.user
+                    ? {
+                        id: target.user.id,
+                        name: target.user.name,
+                        email: target.user.email,
+                      }
+                    : null,
+                  group: target.group
+                    ? { id: target.group.id, name: target.group.name }
                     : null,
                 })),
               }))}

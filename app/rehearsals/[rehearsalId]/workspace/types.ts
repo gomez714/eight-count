@@ -20,6 +20,24 @@ export type NoteAssignmentItem = {
   status: NoteAssignmentStatusItem | null;
 };
 
+export type NoteTargetItem = {
+  id: string;
+  kind: "EVERYONE" | "GROUP" | "USER";
+  user: {
+    id: string;
+    name: string | null;
+    email: string;
+  } | null;
+  group: { id: string; name: string } | null;
+};
+
+export type AvailableGroup = {
+  id: string;
+  name: string;
+  /** User IDs of group members (resolved from TeamMember -> User). */
+  memberUserIds: string[];
+};
+
 export type NoteItem = {
   id: string;
   bodyText: string;
@@ -31,4 +49,5 @@ export type NoteItem = {
     email: string;
   };
   assignments: NoteAssignmentItem[];
+  targets: NoteTargetItem[];
 };

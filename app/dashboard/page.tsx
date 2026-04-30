@@ -47,13 +47,23 @@ export default async function DashboardPage() {
         </p>
       </section>
 
-      <section>
+      <section className="grid gap-4 md:grid-cols-2">
         <Link href="/my-notes">
           <Card className="transition-colors hover:bg-muted/50">
             <CardHeader>
               <CardTitle className="text-base">My notes</CardTitle>
               <CardDescription>
                 See feedback assigned to you and update its status.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </Link>
+        <Link href="/notes-by-me">
+          <Card className="transition-colors hover:bg-muted/50">
+            <CardHeader>
+              <CardTitle className="text-base">Notes by me</CardTitle>
+              <CardDescription>
+                Track progress on the notes you&apos;ve sent across rehearsals.
               </CardDescription>
             </CardHeader>
           </Card>

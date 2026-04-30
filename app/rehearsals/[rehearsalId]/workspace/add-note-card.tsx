@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo } from "react";
+
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -17,8 +19,9 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
-import type { AssignableMember } from "./types";
 
+import { AudiencePicker } from "./audience-picker";
+import type { AssignableMember, AvailableGroup } from "./types";
 import { formatTimestamp } from "./utils";
 
 type AddNoteCardProps = {
@@ -27,7 +30,12 @@ type AddNoteCardProps = {
   onNoteTextChange: (value: string) => void;
   selectedAssigneeUserIds: string[];
   assignableMembers: AssignableMember[];
+  availableGroups: AvailableGroup[];
+  selectedGroupIds: string[];
   onToggleAssignee: (userId: string) => void;
+  onToggleGroup: (groupId: string) => void;
+  isFullCast: boolean;
+  onToggleFullCast: (next: boolean) => void;
   noteError: string | null;
   isPending: boolean;
   disabled: boolean;
@@ -35,19 +43,62 @@ type AddNoteCardProps = {
   onSubmit: () => void;
 };
 
+function describeRecipientCount(count: number): string {
+  const noun = count === 1 ? "person" : "people";
+  return `Will notify ${count} ${noun}.`;
+}
+
 export function AddNoteCard({
   selectedTimestampMs,
   noteText,
   onNoteTextChange,
   selectedAssigneeUserIds,
   assignableMembers,
+  availableGroups,
+  selectedGroupIds,
   onToggleAssignee,
+  onToggleGroup,
+  isFullCast,
+  onToggleFullCast,
   noteError,
   isPending,
   disabled,
   onCapture,
   onSubmit,
 }: AddNoteCardProps) {
+  const fullCastCount = assignableMembers.length;
+
+  // Live "will notify N people" preview based on the current selection.
+  const recipientCount = useMemo(() => {
+    if (isFullCast) return fullCastCount;
+
+    const groupLookup = new Map(
+      availableGroups.map((group) => [group.id, group])
+    );
+
+    const recipients = new Set<string>();
+    for (const groupId of selectedGroupIds) {
+      const group = groupLookup.get(groupId);
+      if (!group) continue;
+      for (const userId of group.memberUserIds) recipients.add(userId);
+    }
+    for (const userId of selectedAssigneeUserIds) {
+      recipients.add(userId);
+    }
+    return recipients.size;
+  }, [
+    isFullCast,
+    fullCastCount,
+    availableGroups,
+    selectedGroupIds,
+    selectedAssigneeUserIds,
+  ]);
+
+  const hasAnySelection =
+    isFullCast ||
+    selectedGroupIds.length > 0 ||
+    selectedAssigneeUserIds.length > 0;
+
   return (
     <Card className="h-full">
       <CardHeader>
@@ -93,44 +144,23 @@ export function AddNoteCard({
           </Field>
 
           <Field>
-            <FieldLabel>Assign to team members</FieldLabel>
+            <FieldLabel>Audience</FieldLabel>
             <FieldContent>
-              <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border p-3">
-                {assignableMembers.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No assignable members available.
-                  </p>
-                ) : (
-                  assignableMembers.map((member) => {
-                    const checked = selectedAssigneeUserIds.includes(member.id);
-
-                    return (
-                      <label
-                        key={member.id}
-                        className="flex cursor-pointer items-start gap-3 rounded-md p-2 hover:bg-muted/50"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => onToggleAssignee(member.id)}
-                          disabled={isPending}
-                          className="mt-1"
-                        />
-                        <div className="min-w-0">
-                          <div className="text-sm font-medium">
-                            {member.name || member.email}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {member.email} • {member.role}
-                          </div>
-                        </div>
-                      </label>
-                    );
-                  })
-                )}
-              </div>
+              <AudiencePicker
+                assignableMembers={assignableMembers}
+                availableGroups={availableGroups}
+                selectedGroupIds={selectedGroupIds}
+                selectedAssigneeUserIds={selectedAssigneeUserIds}
+                isFullCast={isFullCast}
+                disabled={isPending}
+                onToggleFullCast={onToggleFullCast}
+                onToggleGroup={onToggleGroup}
+                onToggleMember={onToggleAssignee}
+              />
               <FieldDescription>
-                Leave this empty for an unassigned general note.
+                {hasAnySelection
+                  ? describeRecipientCount(recipientCount)
+                  : "Pick \"Full cast\", a group, or specific members. Leave empty for an unassigned general note."}
               </FieldDescription>
             </FieldContent>
           </Field>

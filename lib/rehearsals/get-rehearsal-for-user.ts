@@ -26,6 +26,18 @@ export async function getRehearsalForUser(rehearsalId: string, userId: string) {
               },
             },
           },
+          groups: {
+            include: {
+              members: {
+                include: {
+                  teamMember: true,
+                },
+              },
+            },
+            orderBy: {
+              createdAt: "asc",
+            },
+          },
         },
       },
       videoAsset: true,
@@ -36,6 +48,12 @@ export async function getRehearsalForUser(rehearsalId: string, userId: string) {
             include: {
               user: true,
               status: true,
+            },
+          },
+          targets: {
+            include: {
+              user: true,
+              group: true,
             },
           },
         },

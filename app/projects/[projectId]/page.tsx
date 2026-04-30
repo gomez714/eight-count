@@ -3,9 +3,14 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { ensureDbUser } from "@/lib/auth/ensure-db-user";
 import { db } from "@/lib/db";
+import { getProjectGroups } from "@/lib/groups/get-project-groups";
 import { getProjectForUser } from "@/lib/projects/get-project-for-user";
 
 import { CreateRehearsalForm } from "./create-rehearsal-form";
+import {
+  ProjectGroupsSection,
+  type TeamMemberOption,
+} from "./project-groups-section";
 import {
   Card,
   CardContent,
@@ -41,16 +46,51 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     notFound();
   }
 
-  const rehearsals = await db.rehearsal.findMany({
-    where: {
-      projectId: project.id,
-    },
-    orderBy: {
-      rehearsalDate: "desc",
-    },
-  });
+  const [rehearsals, groups, allTeamMembers] = await Promise.all([
+    db.rehearsal.findMany({
+      where: {
+        projectId: project.id,
+      },
+      orderBy: {
+        rehearsalDate: "desc",
+      },
+    }),
+    getProjectGroups(project.id),
+    db.teamMember.findMany({
+      where: {
+        teamId: project.team.id,
+      },
+      include: {
+        user: true,
+      },
+      orderBy: {
+        createdAt: "asc",
+      },
+    }),
+  ]);
 
   const membership = project.team.members[0];
+  const canManageGroups =
+    membership?.role === "ADMIN" || membership?.role === "INSTRUCTOR";
+
+  const teamMemberOptions: TeamMemberOption[] = allTeamMembers.map(
+    (member) => ({
+      teamMemberId: member.id,
+      userId: member.user.id,
+      name: member.user.name,
+      email: member.user.email,
+      role: member.role,
+    })
+  );
+
+  const groupItems = groups.map((group) => ({
+    id: group.id,
+    name: group.name,
+    description: group.description,
+    memberTeamMemberIds: group.members.map(
+      (groupMember) => groupMember.teamMemberId
+    ),
+  }));
 
   return (
     <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-6">
@@ -70,6 +110,13 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
       <section>
         <CreateRehearsalForm projectId={project.id} />
       </section>
+
+      <ProjectGroupsSection
+        projectId={project.id}
+        canManage={canManageGroups}
+        groups={groupItems}
+        teamMembers={teamMemberOptions}
+      />
 
       <section className="space-y-4">
         <div className="space-y-1">

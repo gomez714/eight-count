@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import { AudienceChips } from "@/components/audience-chips";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -75,6 +76,18 @@ type NoteRowProps = {
 };
 
 function NoteRow({ note, onJumpToTimestamp }: NoteRowProps) {
+  // Audience targets that aren't individual users — these convey intent
+  // (e.g. "Full cast", "Front line") that the per-user status chips below
+  // can't express. Individual USER targets are already represented via
+  // their per-recipient status chip, so we omit them here to avoid
+  // redundancy.
+  const audienceTargets = note.targets.filter(
+    (target) => target.kind !== "USER"
+  );
+
+  const hasAudienceIntent = audienceTargets.length > 0;
+  const hasAssignments = note.assignments.length > 0;
+
   return (
     <button
       type="button"
@@ -92,7 +105,11 @@ function NoteRow({ note, onJumpToTimestamp }: NoteRowProps) {
 
       <p className="mt-2 text-sm text-muted-foreground">{note.bodyText}</p>
 
-      {note.assignments.length > 0 ? (
+      {hasAudienceIntent ? (
+        <AudienceChips className="mt-3" targets={audienceTargets} />
+      ) : null}
+
+      {hasAssignments ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {note.assignments.map((assignment) => {
             const status = assignment.status?.status ?? "OPEN";
@@ -107,13 +124,15 @@ function NoteRow({ note, onJumpToTimestamp }: NoteRowProps) {
             );
           })}
         </div>
-      ) : (
+      ) : null}
+
+      {!hasAudienceIntent && !hasAssignments ? (
         <div className="mt-3">
           <span className="inline-flex items-center rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground">
             Unassigned
           </span>
         </div>
-      )}
+      ) : null}
     </button>
   );
 }

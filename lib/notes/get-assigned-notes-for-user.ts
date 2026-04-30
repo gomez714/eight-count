@@ -10,6 +10,12 @@ export async function getAssignedNotesForUser(userId: string) {
       note: {
         include: {
           author: true,
+          targets: {
+            include: {
+              user: true,
+              group: true,
+            },
+          },
           rehearsal: {
             include: {
               project: {
