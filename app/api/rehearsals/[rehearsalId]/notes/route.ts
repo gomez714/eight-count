@@ -4,99 +4,17 @@ import { auth } from "@clerk/nextjs/server";
 import type {
   CreateNoteRequest,
   CreateNoteResponse,
-  NoteTargetInput,
 } from "@/lib/api/contracts";
 import { apiError } from "@/lib/api/responses";
 import { db } from "@/lib/db";
+import {
+  dedupeTargets,
+  normalizeTargets,
+  resolveTargetsToUserIds,
+  validateGroupTargets,
+  validateUserTargets,
+} from "@/lib/notes/resolve-targets";
 import { getRehearsalForUser } from "@/lib/rehearsals/get-rehearsal-for-user";
-
-type NormalizedTarget =
-  | { kind: "EVERYONE" }
-  | { kind: "USER"; userId: string }
-  | { kind: "GROUP"; projectGroupId: string };
-
-function parseTarget(target: NoteTargetInput): NormalizedTarget | null {
-  if (!target || typeof target !== "object") return null;
-
-  if (target.kind === "EVERYONE") {
-    return { kind: "EVERYONE" };
-  }
-
-  if (target.kind === "USER" && typeof target.userId === "string") {
-    return { kind: "USER", userId: target.userId };
-  }
-
-  if (
-    target.kind === "GROUP" &&
-    typeof target.projectGroupId === "string"
-  ) {
-    return { kind: "GROUP", projectGroupId: target.projectGroupId };
-  }
-
-  return null;
-}
-
-function normalizeTargets(body: Partial<CreateNoteRequest>): NormalizedTarget[] {
-  const out: NormalizedTarget[] = [];
-
-  if (Array.isArray(body.targets)) {
-    for (const target of body.targets) {
-      const parsed = parseTarget(target);
-      if (parsed) out.push(parsed);
-    }
-  }
-
-  // Back-compat: legacy `assigneeUserIds` becomes USER targets.
-  const legacy = body.assigneeUserIds;
-  if (Array.isArray(legacy)) {
-    for (const userId of legacy) {
-      if (typeof userId === "string" && userId) {
-        out.push({ kind: "USER", userId });
-      }
-    }
-  }
-
-  return out;
-}
-
-function targetKey(target: NormalizedTarget): string {
-  if (target.kind === "EVERYONE") return "EVERYONE";
-  if (target.kind === "USER") return `USER:${target.userId}`;
-  return `GROUP:${target.projectGroupId}`;
-}
-
-function dedupeTargets(targets: NormalizedTarget[]): NormalizedTarget[] {
-  const seen = new Set<string>();
-  const out: NormalizedTarget[] = [];
-  for (const target of targets) {
-    const key = targetKey(target);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(target);
-  }
-  return out;
-}
-
-function resolveTargetsToUserIds(
-  targets: NormalizedTarget[],
-  teamMemberUserIds: Set<string>,
-  groupUserIdsByGroupId: Map<string, string[]>
-): Set<string> {
-  const resolved = new Set<string>();
-  for (const target of targets) {
-    if (target.kind === "EVERYONE") {
-      for (const userId of teamMemberUserIds) resolved.add(userId);
-    } else if (target.kind === "USER") {
-      resolved.add(target.userId);
-    } else {
-      const memberUserIds = groupUserIdsByGroupId.get(target.projectGroupId);
-      if (memberUserIds) {
-        for (const userId of memberUserIds) resolved.add(userId);
-      }
-    }
-  }
-  return resolved;
-}
 
 export async function POST(
   request: NextRequest,
@@ -183,37 +101,21 @@ export async function POST(
       teamMembers.map((member) => member.userId)
     );
 
-    // Validate USER targets are members of this team.
-    const invalidUserTarget = targets.find(
-      (target) =>
-        target.kind === "USER" && !teamMemberUserIds.has(target.userId)
-    );
-    if (invalidUserTarget) {
-      return apiError(
-        400,
-        "INVALID_ASSIGNEE",
-        "One or more assignees are not members of this team"
-      );
+    const userTargetCheck = validateUserTargets(targets, teamMemberUserIds);
+    if (!userTargetCheck.ok) {
+      return apiError(400, userTargetCheck.code, userTargetCheck.message);
     }
 
-    // Validate GROUP targets belong to this rehearsal's project, then build
-    // a lookup of resolved user IDs per group for fan-out.
     const projectGroups = rehearsal.project.groups;
     const groupIdsForProject = new Set(
       projectGroups.map((group) => group.id)
     );
-    const invalidGroupTarget = targets.find(
-      (target) =>
-        target.kind === "GROUP" &&
-        !groupIdsForProject.has(target.projectGroupId)
-    );
-    if (invalidGroupTarget) {
-      return apiError(
-        400,
-        "INVALID_GROUP",
-        "One or more groups don't belong to this project"
-      );
+
+    const groupTargetCheck = validateGroupTargets(targets, groupIdsForProject);
+    if (!groupTargetCheck.ok) {
+      return apiError(400, groupTargetCheck.code, groupTargetCheck.message);
     }
+
     const groupUserIdsByGroupId = new Map<string, string[]>(
       projectGroups.map((group) => [
         group.id,

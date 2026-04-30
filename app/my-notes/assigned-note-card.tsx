@@ -45,6 +45,14 @@ export function AssignedNoteCard({ row }: AssignedNoteCardProps) {
   const { note, status } = row;
   const rehearsalDate = new Date(note.rehearsal.rehearsalDate);
 
+  // Show an "Edited" indicator when the note has been updated meaningfully
+  // after creation. Allow a small skew because Prisma stamps updatedAt on
+  // create as well, and clock granularity can produce tiny differences.
+  const noteUpdatedAt = new Date(note.updatedAt);
+  const noteCreatedAt = new Date(note.createdAt);
+  const wasEdited =
+    noteUpdatedAt.getTime() - noteCreatedAt.getTime() > 1000;
+
   // Only EVERYONE / GROUP targets convey extra audience context here;
   // an individual USER target is redundant (the note is in the user's
   // own inbox precisely because they were targeted).
@@ -102,6 +110,20 @@ export function AssignedNoteCard({ row }: AssignedNoteCardProps) {
               </span>
               {" · From "}
               {note.author.name || note.author.email}
+              {wasEdited ? (
+                <>
+                  {" · "}
+                  <span
+                    className="italic"
+                    title={`Edited ${new Intl.DateTimeFormat("en-US", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    }).format(noteUpdatedAt)}`}
+                  >
+                    Edited
+                  </span>
+                </>
+              ) : null}
             </p>
           </div>
 

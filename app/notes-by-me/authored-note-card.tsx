@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import { AudienceChips } from "@/components/audience-chips";
+import { NoteActionsMenu } from "@/components/note-actions-menu";
 import {
   Card,
   CardContent,
@@ -16,6 +17,8 @@ import type { AuthoredNoteRow } from "./types";
 
 type AuthoredNoteCardProps = {
   row: AuthoredNoteRow;
+  onEdit: (row: AuthoredNoteRow) => void;
+  onDelete: (row: AuthoredNoteRow) => void | Promise<void>;
 };
 
 function formatTimestamp(ms: number) {
@@ -25,7 +28,22 @@ function formatTimestamp(ms: number) {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
-export function AuthoredNoteCard({ row }: AuthoredNoteCardProps) {
+function buildPendingDeleteWarning(
+  row: AuthoredNoteRow
+): string | undefined {
+  const total = row.assignments.length;
+  if (total === 0) return undefined;
+  const engaged = row.assignments.filter((a) => a.status !== "OPEN").length;
+  if (engaged === 0) return undefined;
+  const noun = engaged === 1 ? "person has" : "people have";
+  return `${engaged} ${noun} already responded to this note. Deleting it will remove their progress permanently.`;
+}
+
+export function AuthoredNoteCard({
+  row,
+  onEdit,
+  onDelete,
+}: AuthoredNoteCardProps) {
   const rehearsalDate = new Date(row.rehearsal.rehearsalDate);
 
   const totalAssignments = row.assignments.length;
@@ -69,23 +87,30 @@ export function AuthoredNoteCard({ row }: AuthoredNoteCardProps) {
             </p>
           </div>
 
-          {totalAssignments > 0 ? (
-            <span
-              className={cn(
-                "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-                allAddressed
-                  ? "bg-foreground text-background"
-                  : "border border-border text-muted-foreground"
-              )}
-              data-progress={allAddressed ? "complete" : "in-progress"}
-            >
-              {addressedCount}/{totalAssignments} addressed
-            </span>
-          ) : (
-            <span className="inline-flex items-center rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground">
-              Unassigned
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {totalAssignments > 0 ? (
+              <span
+                className={cn(
+                  "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                  allAddressed
+                    ? "bg-foreground text-background"
+                    : "border border-border text-muted-foreground"
+                )}
+                data-progress={allAddressed ? "complete" : "in-progress"}
+              >
+                {addressedCount}/{totalAssignments} addressed
+              </span>
+            ) : (
+              <span className="inline-flex items-center rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground">
+                Unassigned
+              </span>
+            )}
+            <NoteActionsMenu
+              onEdit={() => onEdit(row)}
+              onDelete={() => onDelete(row)}
+              pendingDeleteWarning={buildPendingDeleteWarning(row)}
+            />
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-3">

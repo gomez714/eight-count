@@ -9,13 +9,22 @@ import {
   useTransition,
 } from "react"
 import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 
 import type {
   CreateNoteRequest,
   CreateNoteResponse,
+  DeleteNoteResponse,
   NoteTargetInput,
   PlaybackResponse,
+  UpdateNoteRequest,
+  UpdateNoteResponse,
 } from "@/lib/api/contracts"
+import {
+  EditNoteSheet,
+  type EditNoteFormValues,
+  type EditableNote,
+} from "@/components/edit-note-sheet"
 
 import { AddNoteCard } from "./add-note-card"
 import { NotesListCard } from "./notes-list-card"
@@ -31,6 +40,41 @@ type RehearsalWorkspaceProps = {
   assignableMembers: AssignableMember[]
   availableGroups: AvailableGroup[]
   canAuthorNotes: boolean
+  currentUserId: string
+}
+
+function toEditableNote(note: NoteItem): EditableNote {
+  return {
+    id: note.id,
+    bodyText: note.bodyText,
+    timestampMs: note.timestampMs,
+    targets: note.targets.map((target) => ({
+      kind: target.kind,
+      user: target.user ? { id: target.user.id } : null,
+      group: target.group ? { id: target.group.id } : null,
+    })),
+    assignments: note.assignments.map((assignment) => ({
+      userId: assignment.user.id,
+      status: assignment.status?.status ?? "OPEN",
+      displayName: assignment.user.name || assignment.user.email,
+    })),
+  }
+}
+
+function buildTargetsFromSelection(values: EditNoteFormValues): NoteTargetInput[] {
+  if (values.isFullCast) {
+    return [{ kind: "EVERYONE" }]
+  }
+  return [
+    ...values.selectedGroupIds.map((projectGroupId) => ({
+      kind: "GROUP" as const,
+      projectGroupId,
+    })),
+    ...values.selectedAssigneeUserIds.map((userId) => ({
+      kind: "USER" as const,
+      userId,
+    })),
+  ]
 }
 
 export function RehearsalWorkspace({
@@ -40,6 +84,7 @@ export function RehearsalWorkspace({
   assignableMembers,
   availableGroups,
   canAuthorNotes,
+  currentUserId,
 }: RehearsalWorkspaceProps) {
   const router = useRouter()
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -62,7 +107,11 @@ export function RehearsalWorkspace({
   >([])
   const [noteError, setNoteError] = useState<string | null>(null)
 
+  const [editingNote, setEditingNote] = useState<NoteItem | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
+
   const [isPending, startTransition] = useTransition()
+  const [isEditPending, startEditTransition] = useTransition()
 
   useEffect(() => {
     let isMounted = true
@@ -276,6 +325,89 @@ export function RehearsalWorkspace({
     })
   }
 
+  const handleOpenEdit = (note: NoteItem) => {
+    setEditError(null)
+    setEditingNote(note)
+  }
+
+  const handleEditOpenChange = (open: boolean) => {
+    if (!open) {
+      setEditingNote(null)
+      setEditError(null)
+    }
+  }
+
+  const handleSubmitEdit = (values: EditNoteFormValues) => {
+    if (!editingNote) return
+
+    startEditTransition(async () => {
+      try {
+        setEditError(null)
+
+        const requestBody: UpdateNoteRequest = {
+          bodyText: values.bodyText,
+          timestampMs: values.timestampMs,
+          targets: buildTargetsFromSelection(values),
+        }
+
+        const response = await fetch(`/api/notes/${editingNote.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        })
+
+        const data = (await response.json()) as UpdateNoteResponse
+
+        if (!data.ok) {
+          throw new Error(data.error.message)
+        }
+
+        if (!response.ok) {
+          throw new Error("Failed to update note.")
+        }
+
+        setEditingNote(null)
+        toast.success("Note updated")
+        router.refresh()
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to update note."
+        setEditError(message)
+      }
+    })
+  }
+
+  const handleDeleteNote = async (note: NoteItem) => {
+    try {
+      const response = await fetch(`/api/notes/${note.id}`, {
+        method: "DELETE",
+      })
+
+      const data = (await response.json()) as DeleteNoteResponse
+
+      if (!data.ok) {
+        throw new Error(data.error.message)
+      }
+
+      if (!response.ok) {
+        throw new Error("Failed to delete note.")
+      }
+
+      toast.success("Note deleted")
+      router.refresh()
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to delete note."
+      toast.error(message)
+      throw err
+    }
+  }
+
+  const getCurrentPlayheadMs = () => {
+    const seconds = videoRef.current?.currentTime ?? 0
+    return Math.floor(seconds * 1000)
+  }
+
   return (
     <div className="space-y-6">
       <div className="grid gap-6 lg:grid-cols-3 lg:items-stretch">
@@ -333,7 +465,22 @@ export function RehearsalWorkspace({
       <NotesListCard
         notes={sortedNotes}
         assignableMembers={assignableMembers}
+        currentUserId={currentUserId}
         onJumpToTimestamp={jumpToTimestamp}
+        onEditNote={handleOpenEdit}
+        onDeleteNote={handleDeleteNote}
+      />
+
+      <EditNoteSheet
+        open={editingNote !== null}
+        onOpenChange={handleEditOpenChange}
+        note={editingNote ? toEditableNote(editingNote) : null}
+        assignableMembers={assignableMembers}
+        availableGroups={availableGroups}
+        onUseCurrentPlayhead={getCurrentPlayheadMs}
+        isPending={isEditPending}
+        errorMessage={editError}
+        onSubmit={handleSubmitEdit}
       />
     </div>
   )

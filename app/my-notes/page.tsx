@@ -40,6 +40,7 @@ export default async function MyNotesPage() {
         bodyText: assignment.note.bodyText,
         timestampMs: assignment.note.timestampMs,
         createdAt: assignment.note.createdAt,
+        updatedAt: assignment.note.updatedAt,
         author: {
           id: assignment.note.author.id,
           name: assignment.note.author.name,

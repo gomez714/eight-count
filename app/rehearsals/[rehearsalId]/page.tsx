@@ -106,6 +106,7 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
               rehearsalId={rehearsal.id}
               fileName={rehearsal.videoAsset.originalFileName}
               canAuthorNotes={canAuthorNotes}
+              currentUserId={dbUser.id}
               assignableMembers={rehearsal.project.team.members.map(
                 (member) => ({
                   id: member.user.id,

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { AudienceChips } from "@/components/audience-chips";
+import { NoteActionsMenu } from "@/components/note-actions-menu";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -70,12 +71,33 @@ function matchesAssignee(note: NoteItem, assigneeUserId: string): boolean {
   );
 }
 
+function buildPendingDeleteWarning(note: NoteItem): string | undefined {
+  const total = note.assignments.length;
+  if (total === 0) return undefined;
+  const engaged = note.assignments.filter(
+    (assignment) =>
+      assignment.status && assignment.status.status !== "OPEN"
+  ).length;
+  if (engaged === 0) return undefined;
+  const noun = engaged === 1 ? "person has" : "people have";
+  return `${engaged} ${noun} already responded to this note. Deleting it will remove their progress permanently.`;
+}
+
 type NoteRowProps = {
   note: NoteItem;
+  canEdit: boolean;
   onJumpToTimestamp: (timestampMs: number) => void;
+  onEdit: (note: NoteItem) => void;
+  onDelete: (note: NoteItem) => void | Promise<void>;
 };
 
-function NoteRow({ note, onJumpToTimestamp }: NoteRowProps) {
+function NoteRow({
+  note,
+  canEdit,
+  onJumpToTimestamp,
+  onEdit,
+  onDelete,
+}: NoteRowProps) {
   // Audience targets that aren't individual users — these convey intent
   // (e.g. "Full cast", "Front line") that the per-user status chips below
   // can't express. Individual USER targets are already represented via
@@ -89,18 +111,28 @@ function NoteRow({ note, onJumpToTimestamp }: NoteRowProps) {
   const hasAssignments = note.assignments.length > 0;
 
   return (
-    <button
-      type="button"
-      onClick={() => onJumpToTimestamp(note.timestampMs)}
-      className="flex w-full flex-col rounded-lg border p-4 text-left transition-colors hover:bg-muted/50"
-    >
+    <article className="flex w-full flex-col rounded-lg border p-4">
       <div className="flex items-center justify-between gap-3">
-        <span className="font-medium">
+        <button
+          type="button"
+          onClick={() => onJumpToTimestamp(note.timestampMs)}
+          className="rounded font-medium hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+          aria-label={`Jump to ${formatTimestamp(note.timestampMs)}`}
+        >
           {formatTimestamp(note.timestampMs)}
-        </span>
-        <span className="text-xs text-muted-foreground">
-          {note.author.name || note.author.email}
-        </span>
+        </button>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {note.author.name || note.author.email}
+          </span>
+          {canEdit ? (
+            <NoteActionsMenu
+              onEdit={() => onEdit(note)}
+              onDelete={() => onDelete(note)}
+              pendingDeleteWarning={buildPendingDeleteWarning(note)}
+            />
+          ) : null}
+        </div>
       </div>
 
       <p className="mt-2 text-sm text-muted-foreground">{note.bodyText}</p>
@@ -133,20 +165,26 @@ function NoteRow({ note, onJumpToTimestamp }: NoteRowProps) {
           </span>
         </div>
       ) : null}
-    </button>
+    </article>
   );
 }
 
 type NotesListCardProps = {
   notes: NoteItem[];
   assignableMembers: AssignableMember[];
+  currentUserId: string;
   onJumpToTimestamp: (timestampMs: number) => void;
+  onEditNote: (note: NoteItem) => void;
+  onDeleteNote: (note: NoteItem) => void | Promise<void>;
 };
 
 export function NotesListCard({
   notes,
   assignableMembers,
+  currentUserId,
   onJumpToTimestamp,
+  onEditNote,
+  onDeleteNote,
 }: NotesListCardProps) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("ALL");
@@ -213,7 +251,10 @@ export function NotesListCard({
           <NoteRow
             key={note.id}
             note={note}
+            canEdit={note.author.id === currentUserId}
             onJumpToTimestamp={onJumpToTimestamp}
+            onEdit={onEditNote}
+            onDelete={onDeleteNote}
           />
         ))}
       </div>

@@ -29,6 +29,7 @@ export type AssignedNoteRow = {
     bodyText: string;
     timestampMs: number;
     createdAt: string | Date;
+    updatedAt: string | Date;
     author: {
       id: string;
       name: string | null;

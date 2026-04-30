@@ -55,3 +55,41 @@ export type PlaybackData = {
 }
 
 export type PlaybackResponse = ApiResponse<PlaybackData>
+
+export type UpdateNoteRequest = {
+  bodyText: string
+  timestampMs: number
+  targets: NoteTargetInput[]
+}
+
+export type UpdateNoteData = {
+  note: unknown
+}
+
+export type UpdateNoteResponse = ApiResponse<UpdateNoteData>
+
+export type DeleteNoteData = {
+  noteId: string
+}
+
+export type DeleteNoteResponse = ApiResponse<DeleteNoteData>
+
+export type AudienceMember = {
+  id: string
+  name: string | null
+  email: string
+  role: "ADMIN" | "INSTRUCTOR" | "ASSISTANT" | "DANCER"
+}
+
+export type AudienceGroup = {
+  id: string
+  name: string
+  memberUserIds: string[]
+}
+
+export type AudienceData = {
+  assignableMembers: AudienceMember[]
+  availableGroups: AudienceGroup[]
+}
+
+export type AudienceResponse = ApiResponse<AudienceData>
