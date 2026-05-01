@@ -44,6 +44,7 @@ export async function getRehearsalForUser(rehearsalId: string, userId: string) {
       notes: {
         include: {
           author: true,
+          audioAsset: true,
           assignments: {
             include: {
               user: true,
@@ -58,7 +59,7 @@ export async function getRehearsalForUser(rehearsalId: string, userId: string) {
           },
         },
         orderBy: {
-          timestampMs: "asc",
+          startTimestampMs: "asc",
         },
       },
     },

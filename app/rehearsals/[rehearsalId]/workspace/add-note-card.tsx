@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
+import type { NoteTargetInput } from "@/lib/api/contracts";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -19,12 +20,16 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 import { AudiencePicker } from "./audience-picker";
 import type { AssignableMember, AvailableGroup } from "./types";
 import { formatTimestamp } from "./utils";
+import { VoiceNoteRecorder } from "./voice-note-recorder";
 
 type AddNoteCardProps = {
+  rehearsalId: string;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
   selectedTimestampMs: number;
   noteText: string;
   onNoteTextChange: (value: string) => void;
@@ -41,6 +46,7 @@ type AddNoteCardProps = {
   disabled: boolean;
   onCapture: () => void;
   onSubmit: () => void;
+  onVoiceNoteSaved: () => void;
 };
 
 function describeRecipientCount(count: number): string {
@@ -48,7 +54,11 @@ function describeRecipientCount(count: number): string {
   return `Will notify ${count} ${noun}.`;
 }
 
+type Mode = "TEXT" | "VOICE";
+
 export function AddNoteCard({
+  rehearsalId,
+  videoRef,
   selectedTimestampMs,
   noteText,
   onNoteTextChange,
@@ -65,10 +75,12 @@ export function AddNoteCard({
   disabled,
   onCapture,
   onSubmit,
+  onVoiceNoteSaved,
 }: AddNoteCardProps) {
+  const [mode, setMode] = useState<Mode>("TEXT");
+
   const fullCastCount = assignableMembers.length;
 
-  // Live "will notify N people" preview based on the current selection.
   const recipientCount = useMemo(() => {
     if (isFullCast) return fullCastCount;
 
@@ -99,6 +111,20 @@ export function AddNoteCard({
     selectedGroupIds.length > 0 ||
     selectedAssigneeUserIds.length > 0;
 
+  const buildTargets = (): NoteTargetInput[] => {
+    if (isFullCast) return [{ kind: "EVERYONE" }];
+    return [
+      ...selectedGroupIds.map((projectGroupId) => ({
+        kind: "GROUP" as const,
+        projectGroupId,
+      })),
+      ...selectedAssigneeUserIds.map((userId) => ({
+        kind: "USER" as const,
+        userId,
+      })),
+    ];
+  };
+
   return (
     <Card className="h-full">
       <CardHeader>
@@ -107,41 +133,92 @@ export function AddNoteCard({
           Capture the current timestamp, then leave feedback tied to that
           moment.
         </CardDescription>
+        <div
+          className="mt-3 inline-flex w-fit gap-1 rounded-md border bg-muted/40 p-1"
+          role="tablist"
+          aria-label="Note type"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "TEXT"}
+            onClick={() => setMode("TEXT")}
+            className={cn(
+              "rounded-sm px-3 py-1 text-sm transition-colors",
+              mode === "TEXT"
+                ? "bg-background shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Text
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === "VOICE"}
+            onClick={() => setMode("VOICE")}
+            className={cn(
+              "rounded-sm px-3 py-1 text-sm transition-colors",
+              mode === "VOICE"
+                ? "bg-background shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Voice
+          </button>
+        </div>
       </CardHeader>
 
       <CardContent className="flex h-full flex-col gap-6">
         <FieldGroup className="flex flex-1 flex-col gap-4">
-          <Field>
-            <FieldLabel>Selected timestamp</FieldLabel>
-            <FieldContent>
-              <div className="text-sm font-medium">
-                {formatTimestamp(selectedTimestampMs)}
-              </div>
-              <FieldDescription>
-                Capturing a timestamp pauses the video automatically.
-              </FieldDescription>
-            </FieldContent>
-          </Field>
+          {mode === "TEXT" ? (
+            <>
+              <Field>
+                <FieldLabel>Selected timestamp</FieldLabel>
+                <FieldContent>
+                  <div className="text-sm font-medium">
+                    {formatTimestamp(selectedTimestampMs)}
+                  </div>
+                  <FieldDescription>
+                    Capturing a timestamp pauses the video automatically.
+                  </FieldDescription>
+                </FieldContent>
+              </Field>
 
-          <Field className="flex flex-1 flex-col">
-            <FieldLabel htmlFor="noteText">Note</FieldLabel>
-            <FieldContent className="flex flex-1 flex-col">
-              <Textarea
-                id="noteText"
-                value={noteText}
-                onChange={(event) => onNoteTextChange(event.target.value)}
-                placeholder="Timing is late entering this phrase"
-                disabled={isPending}
-                className="flex-1 resize-none md:min-h-[150px]"
-              />
-              <FieldDescription>
-                Leave a clear correction or reminder for this exact moment.
-              </FieldDescription>
-              <FieldError
-                errors={noteError ? [{ message: noteError }] : []}
-              />
-            </FieldContent>
-          </Field>
+              <Field className="flex flex-1 flex-col">
+                <FieldLabel htmlFor="noteText">Note</FieldLabel>
+                <FieldContent className="flex flex-1 flex-col">
+                  <Textarea
+                    id="noteText"
+                    value={noteText}
+                    onChange={(event) => onNoteTextChange(event.target.value)}
+                    placeholder="Timing is late entering this phrase"
+                    disabled={isPending}
+                    className="flex-1 resize-none md:min-h-[150px]"
+                  />
+                  <FieldDescription>
+                    Leave a clear correction or reminder for this exact moment.
+                  </FieldDescription>
+                  <FieldError
+                    errors={noteError ? [{ message: noteError }] : []}
+                  />
+                </FieldContent>
+              </Field>
+            </>
+          ) : (
+            <Field>
+              <FieldLabel>Recording</FieldLabel>
+              <FieldContent>
+                <VoiceNoteRecorder
+                  rehearsalId={rehearsalId}
+                  videoRef={videoRef}
+                  buildTargets={buildTargets}
+                  onSaved={onVoiceNoteSaved}
+                  disabled={disabled}
+                />
+              </FieldContent>
+            </Field>
+          )}
 
           <Field>
             <FieldLabel>Audience</FieldLabel>
@@ -166,20 +243,22 @@ export function AddNoteCard({
           </Field>
         </FieldGroup>
 
-        <div className="mt-auto flex flex-wrap gap-3 pt-2">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onCapture}
-            disabled={disabled}
-          >
-            Capture current timestamp
-          </Button>
+        {mode === "TEXT" ? (
+          <div className="mt-auto flex flex-wrap gap-3 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onCapture}
+              disabled={disabled}
+            >
+              Capture current timestamp
+            </Button>
 
-          <Button type="button" onClick={onSubmit} disabled={disabled}>
-            {isPending ? "Saving..." : "Add note"}
-          </Button>
-        </div>
+            <Button type="button" onClick={onSubmit} disabled={disabled}>
+              {isPending ? "Saving..." : "Add note"}
+            </Button>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );

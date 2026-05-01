@@ -5,6 +5,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 
 import { AudienceChips } from "@/components/audience-chips";
+import { VoiceNotePlayer } from "@/app/rehearsals/[rehearsalId]/workspace/voice-note-player";
 import {
   Card,
   CardContent,
@@ -106,7 +107,7 @@ export function AssignedNoteCard({ row }: AssignedNoteCardProps) {
               }).format(rehearsalDate)}
               {" · "}
               <span className="font-medium">
-                {formatTimestamp(note.timestampMs)}
+                {formatTimestamp(note.startTimestampMs)}
               </span>
               {" · From "}
               {note.author.name || note.author.email}
@@ -146,7 +147,14 @@ export function AssignedNoteCard({ row }: AssignedNoteCardProps) {
         </div>
       </CardHeader>
       <CardContent className="space-y-3">
-        <p className="text-sm whitespace-pre-wrap">{note.bodyText}</p>
+        {note.noteType === "VOICE" && note.audioAsset ? (
+          <VoiceNotePlayer
+            audioAssetId={note.audioAsset.id}
+            durationMs={note.audioAsset.durationMs}
+          />
+        ) : (
+          <p className="text-sm whitespace-pre-wrap">{note.bodyText}</p>
+        )}
         {audienceTargets.length > 0 ? (
           <AudienceChips targets={audienceTargets} />
         ) : null}

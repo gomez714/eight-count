@@ -37,8 +37,17 @@ export default async function MyNotesPage() {
       status,
       note: {
         id: assignment.note.id,
+        noteType: assignment.note.noteType,
         bodyText: assignment.note.bodyText,
-        timestampMs: assignment.note.timestampMs,
+        startTimestampMs: assignment.note.startTimestampMs,
+        endTimestampMs: assignment.note.endTimestampMs,
+        audioAsset: assignment.note.audioAsset
+          ? {
+              id: assignment.note.audioAsset.id,
+              mimeType: assignment.note.audioAsset.mimeType,
+              durationMs: assignment.note.audioAsset.durationMs,
+            }
+          : null,
         createdAt: assignment.note.createdAt,
         updatedAt: assignment.note.updatedAt,
         author: {

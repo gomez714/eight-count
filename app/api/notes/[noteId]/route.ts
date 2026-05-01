@@ -86,23 +86,51 @@ export async function PATCH(
       );
     }
 
-    const body = (await request.json()) as Partial<UpdateNoteRequest>;
-    const bodyText = body.bodyText?.trim();
-    const timestampMs = body.timestampMs;
+    const body = (await request.json()) as Partial<
+      UpdateNoteRequest & {
+        bodyText?: string;
+        startTimestampMs?: number;
+        endTimestampMs?: number;
+      }
+    >;
 
-    if (!bodyText) {
-      return apiError(400, "BODY_TEXT_REQUIRED", "bodyText is required");
-    }
+    const startTimestampMs = body.startTimestampMs;
+
     if (
-      typeof timestampMs !== "number" ||
-      !Number.isFinite(timestampMs) ||
-      timestampMs < 0
+      typeof startTimestampMs !== "number" ||
+      !Number.isFinite(startTimestampMs) ||
+      startTimestampMs < 0
     ) {
       return apiError(
         400,
-        "INVALID_TIMESTAMP_MS",
-        "timestampMs must be a non-negative number"
+        "INVALID_START_TIMESTAMP_MS",
+        "startTimestampMs must be a non-negative number"
       );
+    }
+
+    let bodyText: string | null = note.bodyText;
+    let endTimestampMs: number | null = null;
+
+    if (note.noteType === "VOICE") {
+      const candidateEndMs = body.endTimestampMs;
+      if (
+        typeof candidateEndMs !== "number" ||
+        !Number.isFinite(candidateEndMs) ||
+        candidateEndMs < startTimestampMs
+      ) {
+        return apiError(
+          400,
+          "INVALID_END_TIMESTAMP_MS",
+          "endTimestampMs must be a number >= startTimestampMs"
+        );
+      }
+      endTimestampMs = Math.floor(candidateEndMs);
+    } else {
+      const candidateBody = body.bodyText?.trim();
+      if (!candidateBody) {
+        return apiError(400, "BODY_TEXT_REQUIRED", "bodyText is required");
+      }
+      bodyText = candidateBody;
     }
 
     const targets = dedupeTargets(
@@ -165,7 +193,8 @@ export async function PATCH(
         where: { id: note.id },
         data: {
           bodyText,
-          timestampMs: Math.floor(timestampMs),
+          startTimestampMs: Math.floor(startTimestampMs),
+          endTimestampMs,
         },
       });
 
@@ -210,6 +239,14 @@ export async function PATCH(
         where: { id: note.id },
         include: {
           author: true,
+          audioAsset: {
+            select: {
+              id: true,
+              mimeType: true,
+              durationMs: true,
+              status: true,
+            },
+          },
           assignments: {
             include: { user: true, status: true },
           },
@@ -255,7 +292,7 @@ export async function DELETE(
 
     const note = await db.note.findUnique({
       where: { id: noteId },
-      select: { id: true, authorUserId: true },
+      select: { id: true, authorUserId: true, audioAssetId: true },
     });
     if (!note) {
       return apiError(404, "NOTE_NOT_FOUND", "Note not found");
@@ -268,7 +305,12 @@ export async function DELETE(
       );
     }
 
-    await db.note.delete({ where: { id: note.id } });
+    await db.$transaction(async (tx) => {
+      await tx.note.delete({ where: { id: note.id } });
+      if (note.audioAssetId) {
+        await tx.audioAsset.delete({ where: { id: note.audioAssetId } });
+      }
+    });
 
     return NextResponse.json<DeleteNoteResponse>({
       ok: true,

@@ -73,25 +73,85 @@ export async function POST(
       );
     }
 
-    const body = (await request.json()) as Partial<CreateNoteRequest>;
+    const body = (await request.json()) as Partial<
+      CreateNoteRequest & {
+        bodyText?: string;
+        startTimestampMs?: number;
+        endTimestampMs?: number;
+        audioAssetId?: string;
+        noteType?: "TEXT" | "VOICE";
+      }
+    >;
 
-    const bodyText = body.bodyText?.trim();
-    const timestampMs = body.timestampMs;
-
-    if (!bodyText) {
-      return apiError(400, "BODY_TEXT_REQUIRED", "bodyText is required");
-    }
+    const noteType = body.noteType ?? "TEXT";
+    const startTimestampMs = body.startTimestampMs;
 
     if (
-      typeof timestampMs !== "number" ||
-      !Number.isFinite(timestampMs) ||
-      timestampMs < 0
+      typeof startTimestampMs !== "number" ||
+      !Number.isFinite(startTimestampMs) ||
+      startTimestampMs < 0
     ) {
       return apiError(
         400,
-        "INVALID_TIMESTAMP_MS",
-        "timestampMs must be a non-negative number"
+        "INVALID_START_TIMESTAMP_MS",
+        "startTimestampMs must be a non-negative number"
       );
+    }
+
+    let bodyText: string | null = null;
+    let audioAssetIdToAttach: string | null = null;
+    let endTimestampMs: number | null = null;
+
+    if (noteType === "VOICE") {
+      const candidateAudioAssetId = body.audioAssetId?.trim();
+      const candidateEndMs = body.endTimestampMs;
+
+      if (!candidateAudioAssetId) {
+        return apiError(
+          400,
+          "AUDIO_ASSET_REQUIRED",
+          "audioAssetId is required for voice notes"
+        );
+      }
+
+      if (
+        typeof candidateEndMs !== "number" ||
+        !Number.isFinite(candidateEndMs) ||
+        candidateEndMs < startTimestampMs
+      ) {
+        return apiError(
+          400,
+          "INVALID_END_TIMESTAMP_MS",
+          "endTimestampMs must be a number >= startTimestampMs"
+        );
+      }
+
+      const audioAsset = await db.audioAsset.findFirst({
+        where: {
+          id: candidateAudioAssetId,
+          rehearsalId: rehearsal.id,
+          uploadedByUserId: dbUser.id,
+          status: "READY",
+          note: null,
+        },
+      });
+
+      if (!audioAsset) {
+        return apiError(
+          400,
+          "AUDIO_ASSET_NOT_AVAILABLE",
+          "Audio asset not found, not ready, or already attached to a note"
+        );
+      }
+
+      audioAssetIdToAttach = audioAsset.id;
+      endTimestampMs = Math.floor(candidateEndMs);
+    } else {
+      const candidateBody = body.bodyText?.trim();
+      if (!candidateBody) {
+        return apiError(400, "BODY_TEXT_REQUIRED", "bodyText is required");
+      }
+      bodyText = candidateBody;
     }
 
     const targets = dedupeTargets(normalizeTargets(body));
@@ -137,8 +197,11 @@ export async function POST(
           rehearsalId: rehearsal.id,
           videoAssetId: videoAsset.id,
           authorUserId: dbUser.id,
+          noteType,
           bodyText,
-          timestampMs: Math.floor(timestampMs),
+          startTimestampMs: Math.floor(startTimestampMs),
+          endTimestampMs,
+          audioAssetId: audioAssetIdToAttach,
         },
       });
 
@@ -178,6 +241,14 @@ export async function POST(
         },
         include: {
           author: true,
+          audioAsset: {
+            select: {
+              id: true,
+              mimeType: true,
+              durationMs: true,
+              status: true,
+            },
+          },
           assignments: {
             include: {
               user: true,

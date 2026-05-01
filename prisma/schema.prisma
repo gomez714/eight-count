@@ -25,6 +25,17 @@ enum VideoAssetStatus {
   FAILED
 }
 
+enum AudioAssetStatus {
+  UPLOADING
+  READY
+  FAILED
+}
+
+enum NoteType {
+  TEXT
+  VOICE
+}
+
 enum NoteStatus {
   OPEN
   IN_PROGRESS
@@ -52,6 +63,7 @@ model User {
   createdProjects          Project[]               @relation("ProjectCreatedBy")
   createdRehearsals        Rehearsal[]             @relation("RehearsalCreatedBy")
   uploadedVideoAssets      VideoAsset[]
+  uploadedAudioAssets      AudioAsset[]
   notes                    Note[]                  @relation("NoteAuthor")
   noteAssignments          NoteAssignment[]        @relation("AssignedNoteUser")
   noteStatusUpdates        NoteAssignmentStatus[]  @relation("NoteStatusUpdatedBy")
@@ -150,10 +162,11 @@ model Rehearsal {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdBy  User        @relation("RehearsalCreatedBy", fields: [createdByUserId], references: [id])
-  videoAsset VideoAsset?
-  notes      Note[]
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy   User         @relation("RehearsalCreatedBy", fields: [createdByUserId], references: [id])
+  videoAsset  VideoAsset?
+  audioAssets AudioAsset[]
+  notes       Note[]
 
   @@index([projectId])
   @@index([createdByUserId])
@@ -183,13 +196,40 @@ model VideoAsset {
   @@index([status])
 }
 
+model AudioAsset {
+  id               String           @id @default(cuid())
+  rehearsalId      String
+  bucketName       String
+  objectPath       String
+  originalFileName String
+  mimeType         String
+  fileSizeBytes    BigInt
+  durationMs       Int?
+  uploadedByUserId String
+  status           AudioAssetStatus @default(UPLOADING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  rehearsal  Rehearsal @relation(fields: [rehearsalId], references: [id], onDelete: Cascade)
+  uploadedBy User      @relation(fields: [uploadedByUserId], references: [id])
+  note       Note?
+
+  @@index([rehearsalId])
+  @@index([uploadedByUserId])
+  @@index([status])
+}
+
 model Note {
-  id           String @id @default(cuid())
-  rehearsalId  String
-  videoAssetId String
-  authorUserId String
-  bodyText     String
-  timestampMs  Int
+  id               String   @id @default(cuid())
+  rehearsalId      String
+  videoAssetId     String
+  authorUserId     String
+  noteType         NoteType @default(TEXT)
+  bodyText         String?
+  startTimestampMs Int
+  endTimestampMs   Int?
+  audioAssetId     String?  @unique
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -197,13 +237,14 @@ model Note {
   rehearsal   Rehearsal        @relation(fields: [rehearsalId], references: [id], onDelete: Cascade)
   videoAsset  VideoAsset       @relation(fields: [videoAssetId], references: [id], onDelete: Cascade)
   author      User             @relation("NoteAuthor", fields: [authorUserId], references: [id])
+  audioAsset  AudioAsset?      @relation(fields: [audioAssetId], references: [id])
   assignments NoteAssignment[]
   targets     NoteTarget[]
 
   @@index([rehearsalId])
   @@index([videoAssetId])
   @@index([authorUserId])
-  @@index([timestampMs])
+  @@index([startTimestampMs])
 }
 
 model NoteAssignment {

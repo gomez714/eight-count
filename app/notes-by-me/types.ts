@@ -21,10 +21,19 @@ export type AuthoredNoteAssignment = {
   };
 };
 
+export type AuthoredNoteAudio = {
+  id: string;
+  mimeType: string;
+  durationMs: number | null;
+};
+
 export type AuthoredNoteRow = {
   id: string;
-  bodyText: string;
-  timestampMs: number;
+  noteType: "TEXT" | "VOICE";
+  bodyText: string | null;
+  startTimestampMs: number;
+  endTimestampMs: number | null;
+  audioAsset: AuthoredNoteAudio | null;
   createdAt: string | Date;
   targets: AuthoredNoteTarget[];
   assignments: AuthoredNoteAssignment[];

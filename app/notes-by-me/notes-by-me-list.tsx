@@ -69,8 +69,17 @@ function matches(row: AuthoredNoteRow, filter: ProgressFilter): boolean {
 function toEditableNote(row: AuthoredNoteRow): EditableNote {
   return {
     id: row.id,
+    noteType: row.noteType,
     bodyText: row.bodyText,
-    timestampMs: row.timestampMs,
+    startTimestampMs: row.startTimestampMs,
+    endTimestampMs: row.endTimestampMs,
+    audioAsset: row.audioAsset
+      ? {
+          id: row.audioAsset.id,
+          mimeType: row.audioAsset.mimeType,
+          durationMs: row.audioAsset.durationMs,
+        }
+      : null,
     targets: row.targets.map((target) => ({
       kind: target.kind,
       user: target.user ? { id: target.user.id } : null,
@@ -190,11 +199,21 @@ export function NotesByMeList({ notes }: NotesByMeListProps) {
       try {
         setEditError(null);
 
-        const requestBody: UpdateNoteRequest = {
-          bodyText: values.bodyText,
-          timestampMs: values.timestampMs,
-          targets: buildTargetsFromSelection(values),
-        };
+        const requestBody: UpdateNoteRequest =
+          editingRow.noteType === "VOICE"
+            ? {
+                noteType: "VOICE",
+                startTimestampMs: values.startTimestampMs,
+                endTimestampMs:
+                  values.endTimestampMs ?? values.startTimestampMs,
+                targets: buildTargetsFromSelection(values),
+              }
+            : {
+                noteType: "TEXT",
+                bodyText: values.bodyText ?? "",
+                startTimestampMs: values.startTimestampMs,
+                targets: buildTargetsFromSelection(values),
+              };
 
         const response = await fetch(`/api/notes/${editingRow.id}`, {
           method: "PATCH",

@@ -7,6 +7,7 @@ import type {
   AssignableMember,
   AvailableGroup,
 } from "@/app/rehearsals/[rehearsalId]/workspace/types";
+import { VoiceNotePlayer } from "@/app/rehearsals/[rehearsalId]/workspace/voice-note-player";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,8 +40,9 @@ import { Textarea } from "@/components/ui/textarea";
 import type { NoteStatus } from "@/lib/notes/statuses";
 
 export type EditNoteFormValues = {
-  bodyText: string;
-  timestampMs: number;
+  bodyText: string | null;
+  startTimestampMs: number;
+  endTimestampMs: number | null;
   isFullCast: boolean;
   selectedGroupIds: string[];
   selectedAssigneeUserIds: string[];
@@ -52,10 +54,19 @@ export type EditableNoteAssignment = {
   displayName: string;
 };
 
+export type EditableNoteAudio = {
+  id: string;
+  mimeType: string;
+  durationMs: number | null;
+};
+
 export type EditableNote = {
   id: string;
-  bodyText: string;
-  timestampMs: number;
+  noteType: "TEXT" | "VOICE";
+  bodyText: string | null;
+  startTimestampMs: number;
+  endTimestampMs: number | null;
+  audioAsset: EditableNoteAudio | null;
   targets: Array<{
     kind: "EVERYONE" | "GROUP" | "USER";
     user: { id: string } | null;
@@ -168,12 +179,21 @@ function EditNoteForm({
   onCancel,
 }: EditNoteFormProps) {
   const initialAudience = useMemo(() => deriveInitialAudience(note), [note]);
+  const isVoice = note.noteType === "VOICE";
 
-  const [bodyText, setBodyText] = useState(note.bodyText);
-  const [timestampInput, setTimestampInput] = useState(() =>
-    formatMsToMmSs(note.timestampMs)
+  const [bodyText, setBodyText] = useState(note.bodyText ?? "");
+  const [startTimestampInput, setStartTimestampInput] = useState(() =>
+    formatMsToMmSs(note.startTimestampMs)
   );
-  const [timestampError, setTimestampError] = useState<string | null>(null);
+  const [endTimestampInput, setEndTimestampInput] = useState(() =>
+    note.endTimestampMs !== null ? formatMsToMmSs(note.endTimestampMs) : ""
+  );
+  const [startTimestampError, setStartTimestampError] = useState<string | null>(
+    null
+  );
+  const [endTimestampError, setEndTimestampError] = useState<string | null>(
+    null
+  );
   const [bodyError, setBodyError] = useState<string | null>(null);
   const [isFullCast, setIsFullCast] = useState(initialAudience.isFullCast);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>(
@@ -257,39 +277,63 @@ function EditNoteForm({
 
   const [confirmDropOpen, setConfirmDropOpen] = useState(false);
 
-  const handleUsePlayhead = () => {
+  const handleUseStartPlayhead = () => {
     if (!onUseCurrentPlayhead) return;
     const ms = onUseCurrentPlayhead();
-    setTimestampInput(formatMsToMmSs(ms));
-    setTimestampError(null);
+    setStartTimestampInput(formatMsToMmSs(ms));
+    setStartTimestampError(null);
   };
 
-  const validate = (): {
-    trimmed: string;
-    parsedMs: number;
-  } | null => {
+  const handleUseEndPlayhead = () => {
+    if (!onUseCurrentPlayhead) return;
+    const ms = onUseCurrentPlayhead();
+    setEndTimestampInput(formatMsToMmSs(ms));
+    setEndTimestampError(null);
+  };
+
+  type ValidatedValues = {
+    bodyText: string | null;
+    startMs: number;
+    endMs: number | null;
+  };
+
+  const validate = (): ValidatedValues | null => {
     setBodyError(null);
-    setTimestampError(null);
+    setStartTimestampError(null);
+    setEndTimestampError(null);
+
+    const startMs = parseMmSsToMs(startTimestampInput);
+    if (startMs === null) {
+      setStartTimestampError("Use M:SS format, e.g. 1:23.");
+      return null;
+    }
+
+    if (isVoice) {
+      const endMs = parseMmSsToMs(endTimestampInput);
+      if (endMs === null) {
+        setEndTimestampError("Use M:SS format, e.g. 1:23.");
+        return null;
+      }
+      if (endMs < startMs) {
+        setEndTimestampError("End must be at or after the start.");
+        return null;
+      }
+      return { bodyText: null, startMs, endMs };
+    }
 
     const trimmed = bodyText.trim();
     if (!trimmed) {
       setBodyError("Please enter a note.");
       return null;
     }
-
-    const parsedMs = parseMmSsToMs(timestampInput);
-    if (parsedMs === null) {
-      setTimestampError("Use M:SS format, e.g. 1:23.");
-      return null;
-    }
-
-    return { trimmed, parsedMs };
+    return { bodyText: trimmed, startMs, endMs: null };
   };
 
-  const submit = async (trimmed: string, parsedMs: number) => {
+  const submit = async (validated: ValidatedValues) => {
     await onSubmit({
-      bodyText: trimmed,
-      timestampMs: parsedMs,
+      bodyText: validated.bodyText,
+      startTimestampMs: validated.startMs,
+      endTimestampMs: validated.endMs,
       isFullCast,
       selectedGroupIds,
       selectedAssigneeUserIds,
@@ -307,7 +351,7 @@ function EditNoteForm({
       return;
     }
 
-    await submit(validated.trimmed, validated.parsedMs);
+    await submit(validated);
   };
 
   const handleConfirmDrop = async () => {
@@ -317,7 +361,7 @@ function EditNoteForm({
       return;
     }
     setConfirmDropOpen(false);
-    await submit(validated.trimmed, validated.parsedMs);
+    await submit(validated);
   };
 
   return (
@@ -325,15 +369,17 @@ function EditNoteForm({
       <div className="flex-1 overflow-y-auto px-4">
         <FieldGroup className="flex flex-col gap-4 py-2">
           <Field>
-            <FieldLabel htmlFor="editTimestamp">Timestamp</FieldLabel>
+            <FieldLabel htmlFor="editStartTimestamp">
+              {isVoice ? "Start timestamp" : "Timestamp"}
+            </FieldLabel>
             <FieldContent>
               <div className="flex items-center gap-2">
                 <Input
-                  id="editTimestamp"
-                  value={timestampInput}
+                  id="editStartTimestamp"
+                  value={startTimestampInput}
                   onChange={(event) => {
-                    setTimestampInput(event.target.value);
-                    setTimestampError(null);
+                    setStartTimestampInput(event.target.value);
+                    setStartTimestampError(null);
                   }}
                   placeholder="0:00"
                   disabled={isPending}
@@ -344,7 +390,7 @@ function EditNoteForm({
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={handleUsePlayhead}
+                    onClick={handleUseStartPlayhead}
                     disabled={isPending}
                   >
                     Use current playhead
@@ -355,26 +401,84 @@ function EditNoteForm({
                 Format: minutes:seconds (e.g. 1:23).
               </FieldDescription>
               <FieldError
-                errors={timestampError ? [{ message: timestampError }] : []}
+                errors={
+                  startTimestampError
+                    ? [{ message: startTimestampError }]
+                    : []
+                }
               />
             </FieldContent>
           </Field>
 
-          <Field>
-            <FieldLabel htmlFor="editBodyText">Note</FieldLabel>
-            <FieldContent>
-              <Textarea
-                id="editBodyText"
-                value={bodyText}
-                onChange={(event) => setBodyText(event.target.value)}
-                disabled={isPending}
-                className="min-h-[120px] resize-none"
-              />
-              <FieldError
-                errors={bodyError ? [{ message: bodyError }] : []}
-              />
-            </FieldContent>
-          </Field>
+          {isVoice ? (
+            <Field>
+              <FieldLabel htmlFor="editEndTimestamp">End timestamp</FieldLabel>
+              <FieldContent>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="editEndTimestamp"
+                    value={endTimestampInput}
+                    onChange={(event) => {
+                      setEndTimestampInput(event.target.value);
+                      setEndTimestampError(null);
+                    }}
+                    placeholder="0:00"
+                    disabled={isPending}
+                    className="w-28"
+                  />
+                  {onUseCurrentPlayhead ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleUseEndPlayhead}
+                      disabled={isPending}
+                    >
+                      Use current playhead
+                    </Button>
+                  ) : null}
+                </div>
+                <FieldError
+                  errors={
+                    endTimestampError ? [{ message: endTimestampError }] : []
+                  }
+                />
+              </FieldContent>
+            </Field>
+          ) : null}
+
+          {isVoice && note.audioAsset ? (
+            <Field>
+              <FieldLabel>Recording</FieldLabel>
+              <FieldContent>
+                <VoiceNotePlayer
+                  audioAssetId={note.audioAsset.id}
+                  durationMs={note.audioAsset.durationMs}
+                />
+                <FieldDescription>
+                  To replace the audio, delete this note and record a new one.
+                </FieldDescription>
+              </FieldContent>
+            </Field>
+          ) : null}
+
+          {!isVoice ? (
+            <Field>
+              <FieldLabel htmlFor="editBodyText">Note</FieldLabel>
+              <FieldContent>
+                <Textarea
+                  id="editBodyText"
+                  value={bodyText}
+                  onChange={(event) => setBodyText(event.target.value)}
+                  disabled={isPending}
+                  className="min-h-[120px] resize-none"
+                />
+                <FieldError
+                  errors={bodyError ? [{ message: bodyError }] : []}
+                />
+              </FieldContent>
+            </Field>
+          ) : null}
 
           <Field>
             <FieldLabel>Audience</FieldLabel>

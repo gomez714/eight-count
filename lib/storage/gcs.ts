@@ -57,6 +57,35 @@ export function buildRehearsalVideoObjectPath({
   ].join("/");
 }
 
+type BuildRehearsalAudioObjectPathParams = {
+  teamId: string;
+  projectId: string;
+  rehearsalId: string;
+  audioAssetId: string;
+  originalFileName: string;
+};
+
+export function buildRehearsalAudioObjectPath({
+  teamId,
+  projectId,
+  rehearsalId,
+  audioAssetId,
+  originalFileName,
+}: BuildRehearsalAudioObjectPathParams) {
+  const safeFileName = sanitizeFileName(originalFileName || "audio");
+
+  return [
+    "teams",
+    teamId,
+    "projects",
+    projectId,
+    "rehearsals",
+    rehearsalId,
+    "audio",
+    `${audioAssetId}-${safeFileName}`,
+  ].join("/");
+}
+
 type CreateSignedUploadUrlParams = {
   objectPath: string;
   contentType: string;

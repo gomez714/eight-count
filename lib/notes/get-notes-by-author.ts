@@ -12,6 +12,7 @@ export async function getNotesByAuthor(authorUserId: string) {
     },
     include: {
       author: true,
+      audioAsset: true,
       targets: {
         include: {
           user: true,

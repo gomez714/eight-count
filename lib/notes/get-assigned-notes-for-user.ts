@@ -10,6 +10,7 @@ export async function getAssignedNotesForUser(userId: string) {
       note: {
         include: {
           author: true,
+          audioAsset: true,
           targets: {
             include: {
               user: true,
@@ -36,7 +37,7 @@ export async function getAssignedNotesForUser(userId: string) {
     orderBy: [
       {
         note: {
-          timestampMs: "asc",
+          startTimestampMs: "asc",
         },
       },
     ],

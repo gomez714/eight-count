@@ -124,9 +124,20 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
               }))}
               notes={rehearsal.notes.map((note) => ({
                 id: note.id,
+                noteType: note.noteType,
                 bodyText: note.bodyText,
-                timestampMs: note.timestampMs,
+                startTimestampMs: note.startTimestampMs,
+                endTimestampMs: note.endTimestampMs,
+                audioAsset: note.audioAsset
+                  ? {
+                      id: note.audioAsset.id,
+                      mimeType: note.audioAsset.mimeType,
+                      durationMs: note.audioAsset.durationMs,
+                      status: note.audioAsset.status,
+                    }
+                  : null,
                 createdAt: note.createdAt,
+                updatedAt: note.updatedAt,
                 author: {
                   id: note.author.id,
                   name: note.author.name,

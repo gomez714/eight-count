@@ -38,11 +38,22 @@ export type AvailableGroup = {
   memberUserIds: string[];
 };
 
+export type AudioAssetItem = {
+  id: string;
+  mimeType: string;
+  durationMs: number | null;
+  status: "UPLOADING" | "READY" | "FAILED";
+};
+
 export type NoteItem = {
   id: string;
-  bodyText: string;
-  timestampMs: number;
+  noteType: "TEXT" | "VOICE";
+  bodyText: string | null;
+  startTimestampMs: number;
+  endTimestampMs: number | null;
+  audioAsset: AudioAssetItem | null;
   createdAt: string | Date;
+  updatedAt: string | Date;
   author: {
     id: string;
     name: string | null;

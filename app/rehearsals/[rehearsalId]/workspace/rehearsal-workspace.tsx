@@ -46,8 +46,17 @@ type RehearsalWorkspaceProps = {
 function toEditableNote(note: NoteItem): EditableNote {
   return {
     id: note.id,
+    noteType: note.noteType,
     bodyText: note.bodyText,
-    timestampMs: note.timestampMs,
+    startTimestampMs: note.startTimestampMs,
+    endTimestampMs: note.endTimestampMs,
+    audioAsset: note.audioAsset
+      ? {
+          id: note.audioAsset.id,
+          mimeType: note.audioAsset.mimeType,
+          durationMs: note.audioAsset.durationMs,
+        }
+      : null,
     targets: note.targets.map((target) => ({
       kind: target.kind,
       user: target.user ? { id: target.user.id } : null,
@@ -159,7 +168,7 @@ export function RehearsalWorkspace({
   }, [rehearsalId])
 
   const sortedNotes = useMemo(
-    () => [...notes].sort((a, b) => a.timestampMs - b.timestampMs),
+    () => [...notes].sort((a, b) => a.startTimestampMs - b.startTimestampMs),
     [notes]
   )
 
@@ -289,8 +298,9 @@ export function RehearsalWorkspace({
         }
 
         const requestBody: CreateNoteRequest = {
+          noteType: "TEXT",
           bodyText: noteText,
-          timestampMs: selectedTimestampMs,
+          startTimestampMs: selectedTimestampMs,
           targets,
         }
 
@@ -344,11 +354,20 @@ export function RehearsalWorkspace({
       try {
         setEditError(null)
 
-        const requestBody: UpdateNoteRequest = {
-          bodyText: values.bodyText,
-          timestampMs: values.timestampMs,
-          targets: buildTargetsFromSelection(values),
-        }
+        const requestBody: UpdateNoteRequest =
+          editingNote.noteType === "VOICE"
+            ? {
+                noteType: "VOICE",
+                startTimestampMs: values.startTimestampMs,
+                endTimestampMs: values.endTimestampMs ?? values.startTimestampMs,
+                targets: buildTargetsFromSelection(values),
+              }
+            : {
+                noteType: "TEXT",
+                bodyText: values.bodyText ?? "",
+                startTimestampMs: values.startTimestampMs,
+                targets: buildTargetsFromSelection(values),
+              }
 
         const response = await fetch(`/api/notes/${editingNote.id}`, {
           method: "PATCH",
@@ -434,6 +453,8 @@ export function RehearsalWorkspace({
         <div className="lg:col-span-1 lg:h-full">
           {canAuthorNotes ? (
             <AddNoteCard
+              rehearsalId={rehearsalId}
+              videoRef={videoRef}
               selectedTimestampMs={selectedTimestampMs}
               noteText={noteText}
               onNoteTextChange={setNoteText}
@@ -450,6 +471,13 @@ export function RehearsalWorkspace({
               disabled={!playbackUrl || isPending}
               onCapture={captureCurrentTimestamp}
               onSubmit={handleCreateNote}
+              onVoiceNoteSaved={() => {
+                setSelectedAssigneeUserIds([])
+                setSelectedGroupIds([])
+                setIsFullCast(false)
+                router.refresh()
+                toast.success("Voice note added")
+              }}
             />
           ) : (
             <div className="flex h-full items-center justify-center rounded-lg border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
@@ -466,6 +494,7 @@ export function RehearsalWorkspace({
         notes={sortedNotes}
         assignableMembers={assignableMembers}
         currentUserId={currentUserId}
+        videoRef={videoRef}
         onJumpToTimestamp={jumpToTimestamp}
         onEditNote={handleOpenEdit}
         onDeleteNote={handleDeleteNote}

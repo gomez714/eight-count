@@ -24,6 +24,7 @@ import { isActiveStatus } from "@/lib/notes/statuses";
 import { StatusChip } from "./status-chip";
 import type { AssignableMember, NoteItem } from "./types";
 import { formatTimestamp } from "./utils";
+import { VoiceNotePlayer } from "./voice-note-player";
 
 type StatusFilter = "ALL" | "UNRESOLVED" | "RESOLVED" | "UNASSIGNED";
 
@@ -86,6 +87,7 @@ function buildPendingDeleteWarning(note: NoteItem): string | undefined {
 type NoteRowProps = {
   note: NoteItem;
   canEdit: boolean;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
   onJumpToTimestamp: (timestampMs: number) => void;
   onEdit: (note: NoteItem) => void;
   onDelete: (note: NoteItem) => void | Promise<void>;
@@ -94,6 +96,7 @@ type NoteRowProps = {
 function NoteRow({
   note,
   canEdit,
+  videoRef,
   onJumpToTimestamp,
   onEdit,
   onDelete,
@@ -115,11 +118,11 @@ function NoteRow({
       <div className="flex items-center justify-between gap-3">
         <button
           type="button"
-          onClick={() => onJumpToTimestamp(note.timestampMs)}
+          onClick={() => onJumpToTimestamp(note.startTimestampMs)}
           className="rounded font-medium hover:underline focus-visible:outline-2 focus-visible:outline-ring"
-          aria-label={`Jump to ${formatTimestamp(note.timestampMs)}`}
+          aria-label={`Jump to ${formatTimestamp(note.startTimestampMs)}`}
         >
-          {formatTimestamp(note.timestampMs)}
+          {formatTimestamp(note.startTimestampMs)}
         </button>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
@@ -135,7 +138,18 @@ function NoteRow({
         </div>
       </div>
 
-      <p className="mt-2 text-sm text-muted-foreground">{note.bodyText}</p>
+      <div className="mt-2">
+        {note.noteType === "VOICE" && note.audioAsset ? (
+          <VoiceNotePlayer
+            audioAssetId={note.audioAsset.id}
+            durationMs={note.audioAsset.durationMs}
+            videoRef={videoRef}
+            startTimestampMs={note.startTimestampMs}
+          />
+        ) : (
+          <p className="text-sm text-muted-foreground">{note.bodyText}</p>
+        )}
+      </div>
 
       {hasAudienceIntent ? (
         <AudienceChips className="mt-3" targets={audienceTargets} />
@@ -173,6 +187,7 @@ type NotesListCardProps = {
   notes: NoteItem[];
   assignableMembers: AssignableMember[];
   currentUserId: string;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
   onJumpToTimestamp: (timestampMs: number) => void;
   onEditNote: (note: NoteItem) => void;
   onDeleteNote: (note: NoteItem) => void | Promise<void>;
@@ -182,6 +197,7 @@ export function NotesListCard({
   notes,
   assignableMembers,
   currentUserId,
+  videoRef,
   onJumpToTimestamp,
   onEditNote,
   onDeleteNote,
@@ -252,6 +268,7 @@ export function NotesListCard({
             key={note.id}
             note={note}
             canEdit={note.author.id === currentUserId}
+            videoRef={videoRef}
             onJumpToTimestamp={onJumpToTimestamp}
             onEdit={onEditNote}
             onDelete={onDeleteNote}

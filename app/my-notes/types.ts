@@ -21,13 +21,22 @@ export type AssignedNoteTarget = {
   group: { id: string; name: string } | null;
 };
 
+export type AssignedNoteAudio = {
+  id: string;
+  mimeType: string;
+  durationMs: number | null;
+};
+
 export type AssignedNoteRow = {
   id: string;
   status: NoteStatus;
   note: {
     id: string;
-    bodyText: string;
-    timestampMs: number;
+    noteType: "TEXT" | "VOICE";
+    bodyText: string | null;
+    startTimestampMs: number;
+    endTimestampMs: number | null;
+    audioAsset: AssignedNoteAudio | null;
     createdAt: string | Date;
     updatedAt: string | Date;
     author: {

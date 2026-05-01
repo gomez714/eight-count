@@ -5,16 +5,27 @@ export type NoteTargetInput =
   | { kind: "USER"; userId: string }
   | { kind: "GROUP"; projectGroupId: string }
 
-export type CreateNoteRequest = {
+export type CreateTextNoteRequest = {
+  noteType?: "TEXT"
   bodyText: string
-  timestampMs: number
+  startTimestampMs: number
   targets?: NoteTargetInput[]
   /**
    * @deprecated Use `targets` instead. Kept for one release for
    * back-compat; server transforms entries into `USER`-kind targets.
    */
-  assigneeUserIds?: string[];
+  assigneeUserIds?: string[]
 }
+
+export type CreateVoiceNoteRequest = {
+  noteType: "VOICE"
+  audioAssetId: string
+  startTimestampMs: number
+  endTimestampMs: number
+  targets?: NoteTargetInput[]
+}
+
+export type CreateNoteRequest = CreateTextNoteRequest | CreateVoiceNoteRequest
 
 export type CreateNoteData = {
   note: unknown
@@ -56,11 +67,55 @@ export type PlaybackData = {
 
 export type PlaybackResponse = ApiResponse<PlaybackData>
 
-export type UpdateNoteRequest = {
+export type AudioUploadUrlRequest = {
+  fileName: string
+  contentType: string
+  fileSizeBytes: number
+}
+
+export type AudioUploadUrlData = {
+  audioAssetId: string
+  uploadUrl: string
+  objectPath: string
+}
+
+export type AudioUploadUrlResponse = ApiResponse<AudioUploadUrlData>
+
+export type AudioCompleteUploadRequest = {
+  durationMs?: number | null
+}
+
+export type AudioCompleteUploadData = {
+  audioAssetId: string
+  status: string
+}
+
+export type AudioCompleteUploadResponse = ApiResponse<AudioCompleteUploadData>
+
+export type AudioPlaybackData = {
+  playbackUrl: string
+  audioAssetId: string
+  mimeType: string
+  durationMs: number | null
+}
+
+export type AudioPlaybackResponse = ApiResponse<AudioPlaybackData>
+
+export type UpdateTextNoteRequest = {
+  noteType?: "TEXT"
   bodyText: string
-  timestampMs: number
+  startTimestampMs: number
   targets: NoteTargetInput[]
 }
+
+export type UpdateVoiceNoteRequest = {
+  noteType: "VOICE"
+  startTimestampMs: number
+  endTimestampMs: number
+  targets: NoteTargetInput[]
+}
+
+export type UpdateNoteRequest = UpdateTextNoteRequest | UpdateVoiceNoteRequest
 
 export type UpdateNoteData = {
   note: unknown

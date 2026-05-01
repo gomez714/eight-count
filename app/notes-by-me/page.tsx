@@ -24,8 +24,17 @@ export default async function NotesByMePage() {
 
   const rows: AuthoredNoteRow[] = notes.map((note) => ({
     id: note.id,
+    noteType: note.noteType,
     bodyText: note.bodyText,
-    timestampMs: note.timestampMs,
+    startTimestampMs: note.startTimestampMs,
+    endTimestampMs: note.endTimestampMs,
+    audioAsset: note.audioAsset
+      ? {
+          id: note.audioAsset.id,
+          mimeType: note.audioAsset.mimeType,
+          durationMs: note.audioAsset.durationMs,
+        }
+      : null,
     createdAt: note.createdAt,
     targets: note.targets.map((target) => ({
       id: target.id,

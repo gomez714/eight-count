@@ -152,21 +152,31 @@ export function RehearsalVideoCard({
               if (videoDurationMs <= 0) return null
 
               const left = clamp(
-                (note.timestampMs / videoDurationMs) * 100,
+                (note.startTimestampMs / videoDurationMs) * 100,
                 0,
                 100
               )
+
+              let summary: string
+              if (note.noteType === "VOICE") {
+                const durationLabel = note.audioAsset?.durationMs
+                  ? formatTimestamp(note.audioAsset.durationMs)
+                  : "—"
+                summary = `Voice note (${durationLabel})`
+              } else {
+                summary = note.bodyText ?? ""
+              }
 
               return (
                 <button
                   key={note.id}
                   type="button"
-                  title={`${formatTimestamp(note.timestampMs)} — ${note.bodyText}`}
+                  title={`${formatTimestamp(note.startTimestampMs)} — ${summary}`}
                   className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border border-background bg-primary shadow-sm"
                   style={{ left: `${left}%` }}
                   onClick={(event) => {
                     event.stopPropagation()
-                    onJumpToTimestamp(note.timestampMs)
+                    onJumpToTimestamp(note.startTimestampMs)
                   }}
                 />
               )
