@@ -1,5 +1,6 @@
 "use client";
 
+import { FileText, Mic } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { AudienceChips } from "@/components/audience-chips";
@@ -19,47 +20,100 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { isActiveStatus } from "@/lib/notes/statuses";
+import type { NoteStatus } from "@/lib/notes/statuses";
+import { cn } from "@/lib/utils";
 
 import { StatusChip } from "./status-chip";
 import type { AssignableMember, NoteItem } from "./types";
 import { formatTimestamp } from "./utils";
 import { VoiceNotePlayer } from "./voice-note-player";
 
-type StatusFilter = "ALL" | "UNRESOLVED" | "RESOLVED" | "UNASSIGNED";
+type PillFilter =
+  | "ALL"
+  | "OPEN"
+  | "IN_PROGRESS"
+  | "ADDRESSED"
+  | "RESOLVED"
+  | "UNASSIGNED"
+  | "VOICE"
+  | "MINE";
 
-const STATUS_FILTER_LABELS: Record<StatusFilter, string> = {
+const PILL_FILTER_LABELS: Record<PillFilter, string> = {
   ALL: "All",
-  UNRESOLVED: "Unresolved",
+  OPEN: "Open",
+  IN_PROGRESS: "In progress",
+  ADDRESSED: "Addressed",
   RESOLVED: "Resolved",
   UNASSIGNED: "Unassigned",
+  VOICE: "Voice",
+  MINE: "@ me",
 };
 
-const STATUS_FILTER_ORDER: StatusFilter[] = [
+const PILL_FILTER_ORDER: PillFilter[] = [
   "ALL",
-  "UNRESOLVED",
+  "OPEN",
+  "IN_PROGRESS",
+  "ADDRESSED",
   "RESOLVED",
   "UNASSIGNED",
+  "VOICE",
+  "MINE",
 ];
 
-function matchesStatus(note: NoteItem, filter: StatusFilter): boolean {
-  if (filter === "ALL") {
-    return true;
+function matchesPillFilter(
+  note: NoteItem,
+  filter: PillFilter,
+  currentUserId: string
+): boolean {
+  if (filter === "ALL") return true;
+  if (filter === "UNASSIGNED") return note.assignments.length === 0;
+  if (filter === "VOICE") return note.noteType === "VOICE";
+  if (filter === "MINE") {
+    return note.assignments.some(
+      (assignment) => assignment.user.id === currentUserId
+    );
   }
-
-  if (filter === "UNASSIGNED") {
-    return note.assignments.length === 0;
-  }
-
-  if (note.assignments.length === 0) {
-    return false;
-  }
-
-  const hasActive = note.assignments.some((assignment) =>
-    isActiveStatus(assignment.status?.status ?? "OPEN")
+  // Status filters: note matches if any assignment has that status.
+  return note.assignments.some(
+    (assignment) => (assignment.status?.status ?? "OPEN") === filter
   );
+}
 
-  return filter === "UNRESOLVED" ? hasActive : !hasActive;
+type FilterCounts = Record<PillFilter, number>;
+
+function computeFilterCounts(
+  notes: NoteItem[],
+  currentUserId: string
+): FilterCounts {
+  const counts: FilterCounts = {
+    ALL: notes.length,
+    OPEN: 0,
+    IN_PROGRESS: 0,
+    ADDRESSED: 0,
+    RESOLVED: 0,
+    UNASSIGNED: 0,
+    VOICE: 0,
+    MINE: 0,
+  };
+  for (const note of notes) {
+    if (note.noteType === "VOICE") counts.VOICE += 1;
+    if (note.assignments.length === 0) counts.UNASSIGNED += 1;
+    if (
+      note.assignments.some(
+        (assignment) => assignment.user.id === currentUserId
+      )
+    ) {
+      counts.MINE += 1;
+    }
+    const seen = new Set<NoteStatus>();
+    for (const assignment of note.assignments) {
+      seen.add(assignment.status?.status ?? "OPEN");
+    }
+    for (const status of seen) {
+      counts[status] += 1;
+    }
+  }
+  return counts;
 }
 
 function matchesAssignee(note: NoteItem, assigneeUserId: string): boolean {
@@ -112,34 +166,55 @@ function NoteRow({
 
   const hasAudienceIntent = audienceTargets.length > 0;
   const hasAssignments = note.assignments.length > 0;
+  const isVoice = note.noteType === "VOICE";
+  const accent = isVoice ? "var(--note-voice-accent)" : "var(--primary)";
 
   return (
-    <article className="flex w-full flex-col rounded-lg border p-4">
-      <div className="flex items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={() => onJumpToTimestamp(note.startTimestampMs)}
-          className="rounded font-medium hover:underline focus-visible:outline-2 focus-visible:outline-ring"
-          aria-label={`Jump to ${formatTimestamp(note.startTimestampMs)}`}
+    <article className="relative grid grid-cols-[84px_1fr] gap-4 rounded-lg border bg-card p-4 pl-3.5">
+      <span
+        aria-hidden
+        className="absolute top-3.5 bottom-3.5 left-0 w-[3px] rounded-r"
+        style={{ backgroundColor: accent }}
+      />
+
+      <button
+        type="button"
+        onClick={() => onJumpToTimestamp(note.startTimestampMs)}
+        aria-label={`Jump to ${formatTimestamp(note.startTimestampMs)}`}
+        className="flex flex-col items-start gap-1 rounded text-left focus-visible:outline-2 focus-visible:outline-ring"
+      >
+        <span
+          className="rounded-md px-2 py-1 font-mono text-sm font-semibold"
+          style={{
+            backgroundColor: `color-mix(in oklch, ${accent} 12%, transparent)`,
+            color: "var(--foreground)",
+          }}
         >
           {formatTimestamp(note.startTimestampMs)}
-        </button>
+        </span>
+        <span className="inline-flex items-center gap-1 pl-2 text-[10.5px] text-muted-foreground">
+          {isVoice ? <Mic className="size-2.5" /> : <FileText className="size-2.5" />}
+          {isVoice ? "Voice" : "Note"}
+        </span>
+      </button>
+
+      <div className="flex min-w-0 flex-col gap-2.5">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">
+          <span className="text-sm font-semibold">
             {note.author.name || note.author.email}
           </span>
           {canEdit ? (
-            <NoteActionsMenu
-              onEdit={() => onEdit(note)}
-              onDelete={() => onDelete(note)}
-              pendingDeleteWarning={buildPendingDeleteWarning(note)}
-            />
+            <div className="ml-auto">
+              <NoteActionsMenu
+                onEdit={() => onEdit(note)}
+                onDelete={() => onDelete(note)}
+                pendingDeleteWarning={buildPendingDeleteWarning(note)}
+              />
+            </div>
           ) : null}
         </div>
-      </div>
 
-      <div className="mt-2">
-        {note.noteType === "VOICE" && note.audioAsset ? (
+        {isVoice && note.audioAsset ? (
           <VoiceNotePlayer
             audioAssetId={note.audioAsset.id}
             durationMs={note.audioAsset.durationMs}
@@ -147,39 +222,73 @@ function NoteRow({
             startTimestampMs={note.startTimestampMs}
           />
         ) : (
-          <p className="text-sm text-muted-foreground">{note.bodyText}</p>
+          <p className="text-sm leading-relaxed text-foreground">
+            {note.bodyText}
+          </p>
         )}
-      </div>
 
-      {hasAudienceIntent ? (
-        <AudienceChips className="mt-3" targets={audienceTargets} />
-      ) : null}
+        {hasAudienceIntent ? (
+          <AudienceChips targets={audienceTargets} />
+        ) : null}
 
-      {hasAssignments ? (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {note.assignments.map((assignment) => {
-            const status = assignment.status?.status ?? "OPEN";
-            const label = assignment.user.name || assignment.user.email;
+        {hasAssignments ? (
+          <div className="mt-1 flex flex-wrap items-center gap-2 border-t border-dashed border-border pt-3">
+            <span className="text-[10.5px] font-semibold tracking-wider text-muted-foreground uppercase">
+              Assigned
+            </span>
+            {note.assignments.map((assignment) => {
+              const status = assignment.status?.status ?? "OPEN";
+              const label = assignment.user.name || assignment.user.email;
 
-            return (
-              <StatusChip
-                key={assignment.id}
-                status={status}
-                label={label}
-              />
-            );
-          })}
-        </div>
-      ) : null}
+              return (
+                <StatusChip
+                  key={assignment.id}
+                  status={status}
+                  label={label}
+                />
+              );
+            })}
+          </div>
+        ) : null}
 
-      {!hasAudienceIntent && !hasAssignments ? (
-        <div className="mt-3">
-          <span className="inline-flex items-center rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground">
+        {!hasAudienceIntent && !hasAssignments ? (
+          <span className="inline-flex w-fit items-center rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground">
             Unassigned
           </span>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </article>
+  );
+}
+
+type FilterPillProps = {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+};
+
+function FilterPill({ label, count, active, onClick }: FilterPillProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      data-active={active || undefined}
+      aria-pressed={active}
+      className={cn(
+        "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium transition-colors",
+        active
+          ? "border-foreground bg-foreground text-background"
+          : "border-border bg-card text-foreground hover:bg-accent"
+      )}
+    >
+      <span>{label}</span>
+      {active ? null : (
+        <span className="text-[10.5px] font-semibold tabular-nums opacity-60">
+          {count}
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -202,25 +311,30 @@ export function NotesListCard({
   onEditNote,
   onDeleteNote,
 }: NotesListCardProps) {
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
+  const [pillFilter, setPillFilter] = useState<PillFilter>("ALL");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("ALL");
+
+  const filterCounts = useMemo(
+    () => computeFilterCounts(notes, currentUserId),
+    [notes, currentUserId]
+  );
 
   const filteredNotes = useMemo(() => {
     return notes.filter(
       (note) =>
-        matchesStatus(note, statusFilter) &&
+        matchesPillFilter(note, pillFilter, currentUserId) &&
         matchesAssignee(note, assigneeFilter)
     );
-  }, [notes, statusFilter, assigneeFilter]);
+  }, [notes, pillFilter, assigneeFilter, currentUserId]);
 
   const isAssigneeFilterDisabled =
-    statusFilter === "UNASSIGNED" || assignableMembers.length === 0;
+    pillFilter === "UNASSIGNED" || assignableMembers.length === 0;
 
   const hasActiveFilters =
-    statusFilter !== "ALL" || assigneeFilter !== "ALL";
+    pillFilter !== "ALL" || assigneeFilter !== "ALL";
 
   const clearFilters = () => {
-    setStatusFilter("ALL");
+    setPillFilter("ALL");
     setAssigneeFilter("ALL");
   };
 
@@ -286,59 +400,62 @@ export function NotesListCard({
           Timestamped feedback for this rehearsal video.
         </CardDescription>
 
-        <div className="flex flex-wrap items-center gap-3 pt-2">
-          <Select
-            value={statusFilter}
-            onValueChange={(value) => {
-              const next = value as StatusFilter;
-              setStatusFilter(next);
-              if (next === "UNASSIGNED") {
-                setAssigneeFilter("ALL");
-              }
-            }}
-          >
-            <SelectTrigger size="sm" aria-label="Filter by status">
-              <SelectValue>
-                Status: {STATUS_FILTER_LABELS[statusFilter]}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {STATUS_FILTER_ORDER.map((option) => (
-                <SelectItem key={option} value={option}>
-                  {STATUS_FILTER_LABELS[option]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-2">
+          <div className="flex flex-wrap gap-1.5">
+            {PILL_FILTER_ORDER.map((key) => (
+              <FilterPill
+                key={key}
+                label={PILL_FILTER_LABELS[key]}
+                count={filterCounts[key]}
+                active={pillFilter === key}
+                onClick={() => {
+                  setPillFilter(key);
+                  if (key === "UNASSIGNED") {
+                    setAssigneeFilter("ALL");
+                  }
+                }}
+              />
+            ))}
+          </div>
 
-          <Select
-            value={assigneeFilter}
-            onValueChange={setAssigneeFilter}
-            disabled={isAssigneeFilterDisabled}
-          >
-            <SelectTrigger size="sm" aria-label="Filter by assignee">
-              <SelectValue>Assignee: {assigneeFilterLabel}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">All</SelectItem>
-              {assignableMembers.map((member) => (
-                <SelectItem key={member.id} value={member.id}>
-                  {member.name || member.email}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {hasActiveFilters ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={clearFilters}
+          <div className="ml-auto flex flex-wrap items-center gap-3">
+            <Select
+              value={assigneeFilter}
+              onValueChange={setAssigneeFilter}
+              disabled={isAssigneeFilterDisabled}
             >
-              Clear filters
-            </Button>
-          ) : null}
+              <SelectTrigger size="sm" aria-label="Filter by assignee">
+                <SelectValue>Assignee: {assigneeFilterLabel}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">All</SelectItem>
+                {assignableMembers.map((member) => (
+                  <SelectItem key={member.id} value={member.id}>
+                    {member.name || member.email}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <span className="text-xs tabular-nums text-muted-foreground">
+              Showing{" "}
+              <span className="font-semibold text-foreground">
+                {filteredNotes.length}
+              </span>{" "}
+              of {notes.length}
+            </span>
+
+            {hasActiveFilters ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={clearFilters}
+              >
+                Clear filters
+              </Button>
+            ) : null}
+          </div>
         </div>
       </CardHeader>
       <CardContent>{renderBody()}</CardContent>

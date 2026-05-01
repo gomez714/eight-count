@@ -1,5 +1,6 @@
 "use client";
 
+import { Pause, Play } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type {
@@ -11,6 +12,14 @@ import type {
 import { Button } from "@/components/ui/button";
 
 import { formatTimestamp } from "./utils";
+
+const PREVIEW_WAVEFORM_BARS = 32;
+
+// Decorative-only pseudo-waveform; not derived from real audio data.
+const PREVIEW_BAR_HEIGHTS = Array.from(
+  { length: PREVIEW_WAVEFORM_BARS },
+  (_, i) => 35 + Math.abs(Math.sin(i * 0.7)) * 50 + (i % 3) * 5
+);
 
 const MAX_RECORDING_MS = 120_000;
 const TICK_INTERVAL_MS = 200;
@@ -66,6 +75,11 @@ export function VoiceNoteRecorder({
   const [elapsedMs, setElapsedMs] = useState(0);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [countdownValue, setCountdownValue] = useState(COUNTDOWN_SECONDS);
+  const [previewIsPlaying, setPreviewIsPlaying] = useState(false);
+  const [previewCurrentTimeMs, setPreviewCurrentTimeMs] = useState(0);
+  const [previewDurationMs, setPreviewDurationMs] = useState<number | null>(
+    null
+  );
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -192,10 +206,14 @@ export function VoiceNoteRecorder({
   }, []);
 
   // When leaving the preview state (Save / Re-record / etc.) tear down any
-  // active sync so we don't strand the video listener or muted state.
+  // active sync so we don't strand the video listener or muted state, and
+  // reset the preview transport state so the next take starts fresh.
   useEffect(() => {
     if (state !== "preview") {
       stopPreviewSync();
+      setPreviewIsPlaying(false);
+      setPreviewCurrentTimeMs(0);
+      setPreviewDurationMs(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
@@ -564,14 +582,22 @@ export function VoiceNoteRecorder({
             stopped — listen to confirm it lines up. Save to attach the note,
             or re-record to replace it.
           </p>
-          <audio
-            ref={previewAudioRef}
+          <PreviewPlayer
+            audioRef={previewAudioRef}
             src={previewUrl}
-            controls
-            className="w-full"
-            onPlay={handlePreviewAudioPlay}
-            onPause={handlePreviewAudioPauseOrEnd}
-            onEnded={handlePreviewAudioPauseOrEnd}
+            isPlaying={previewIsPlaying}
+            currentTimeMs={previewCurrentTimeMs}
+            durationMs={previewDurationMs}
+            onPlay={() => {
+              setPreviewIsPlaying(true);
+              handlePreviewAudioPlay();
+            }}
+            onPauseOrEnd={() => {
+              setPreviewIsPlaying(false);
+              handlePreviewAudioPauseOrEnd();
+            }}
+            onTimeUpdate={setPreviewCurrentTimeMs}
+            onLoadedDuration={setPreviewDurationMs}
           />
           <div className="flex flex-wrap gap-2">
             <Button
@@ -604,6 +630,141 @@ export function VoiceNoteRecorder({
           {error}
         </p>
       ) : null}
+    </div>
+  );
+}
+
+type PreviewPlayerProps = {
+  audioRef: React.RefObject<HTMLAudioElement | null>;
+  src: string;
+  isPlaying: boolean;
+  currentTimeMs: number;
+  durationMs: number | null;
+  onPlay: () => void;
+  onPauseOrEnd: () => void;
+  onTimeUpdate: (ms: number) => void;
+  onLoadedDuration: (ms: number) => void;
+};
+
+function PreviewPlayer({
+  audioRef,
+  src,
+  isPlaying,
+  currentTimeMs,
+  durationMs,
+  onPlay,
+  onPauseOrEnd,
+  onTimeUpdate,
+  onLoadedDuration,
+}: PreviewPlayerProps) {
+  const effectiveDurationMs = durationMs ?? 0;
+  const progressRatio =
+    effectiveDurationMs > 0
+      ? Math.min(1, currentTimeMs / effectiveDurationMs)
+      : 0;
+  const filledBars = Math.floor(progressRatio * PREVIEW_WAVEFORM_BARS);
+
+  const handleTogglePlay = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      audio.play().catch(() => {
+        // Surfaced via the recorder's existing error path.
+      });
+    } else {
+      audio.pause();
+    }
+  };
+
+  const handleWaveformClick = (
+    event: React.MouseEvent<HTMLButtonElement>
+  ) => {
+    const audio = audioRef.current;
+    if (!audio || effectiveDurationMs <= 0) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = Math.max(
+      0,
+      Math.min(1, (event.clientX - rect.left) / rect.width)
+    );
+    audio.currentTime = (ratio * effectiveDurationMs) / 1000;
+  };
+
+  return (
+    <div
+      className="flex items-center gap-2.5 rounded-md border px-3 py-2"
+      style={{
+        backgroundColor: "var(--note-voice-bg)",
+        borderColor:
+          "color-mix(in oklch, var(--note-voice-accent) 22%, transparent)",
+      }}
+    >
+      <button
+        type="button"
+        aria-label={isPlaying ? "Pause preview" : "Play preview"}
+        onClick={handleTogglePlay}
+        className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-white shadow-sm"
+        style={{ backgroundColor: "var(--note-voice-accent)" }}
+      >
+        {isPlaying ? (
+          <Pause className="size-3 fill-current" />
+        ) : (
+          <Play className="size-3 fill-current" />
+        )}
+      </button>
+
+      <button
+        type="button"
+        aria-label="Seek within preview"
+        onClick={handleWaveformClick}
+        className="flex h-5 flex-1 items-center gap-px"
+      >
+        {PREVIEW_BAR_HEIGHTS.map((h, i) => (
+          <span
+            key={i}
+            className="flex-1 rounded-[1px]"
+            style={{
+              height: `${h}%`,
+              backgroundColor:
+                i < filledBars
+                  ? "var(--note-voice-accent)"
+                  : "color-mix(in oklch, var(--note-voice-accent) 28%, transparent)",
+            }}
+          />
+        ))}
+      </button>
+
+      <span
+        className="shrink-0 font-mono text-[11px] tabular-nums"
+        style={{
+          color:
+            "color-mix(in oklch, var(--note-voice-accent) 78%, var(--foreground))",
+        }}
+      >
+        {effectiveDurationMs > 0
+          ? `${formatTimestamp(currentTimeMs)} / ${formatTimestamp(effectiveDurationMs)}`
+          : "—"}
+      </span>
+
+      <audio
+        ref={audioRef}
+        src={src}
+        preload="metadata"
+        className="hidden"
+        onPlay={onPlay}
+        onPause={onPauseOrEnd}
+        onEnded={onPauseOrEnd}
+        onTimeUpdate={(event) => {
+          onTimeUpdate(
+            Math.floor((event.currentTarget.currentTime ?? 0) * 1000)
+          );
+        }}
+        onLoadedMetadata={(event) => {
+          const seconds = event.currentTarget.duration;
+          if (Number.isFinite(seconds) && seconds >= 0) {
+            onLoadedDuration(Math.floor(seconds * 1000));
+          }
+        }}
+      />
     </div>
   );
 }

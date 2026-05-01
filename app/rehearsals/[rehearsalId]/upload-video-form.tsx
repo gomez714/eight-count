@@ -5,13 +5,6 @@ import { useRouter } from "next/navigation";
 
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
   Field,
   FieldContent,
   FieldDescription,
@@ -30,12 +23,16 @@ import type {
 
 type UploadVideoFormProps = {
   rehearsalId: string;
-  hasExistingVideo: boolean;
+  submitLabel?: string;
+  pendingLabel?: string;
+  onCompleted?: () => void;
 };
 
 export function UploadVideoForm({
   rehearsalId,
-  hasExistingVideo,
+  submitLabel = "Upload video",
+  pendingLabel = "Uploading...",
+  onCompleted,
 }: UploadVideoFormProps) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -126,6 +123,7 @@ export function UploadVideoForm({
         }
 
         router.refresh();
+        onCompleted?.();
       } catch (err) {
         console.error(err);
         setStatusMessage(null);
@@ -137,67 +135,52 @@ export function UploadVideoForm({
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>
-          {hasExistingVideo ? "Replace video" : "Upload video"}
-        </CardTitle>
-        <CardDescription>
-          Upload one rehearsal video for this rehearsal.
-        </CardDescription>
-      </CardHeader>
+    <div className="flex flex-col gap-4">
+      <FieldGroup>
+        <Field data-invalid={!!error}>
+          <FieldLabel htmlFor="video">Video file</FieldLabel>
+          <FieldContent>
+            <Input
+              ref={inputRef}
+              id="video"
+              type="file"
+              accept="video/mp4,video/quicktime,video/webm"
+              disabled={isPending}
+              onChange={(event) => {
+                const file = event.target.files?.[0] ?? null;
+                setSelectedFile(file);
+                setError(null);
+                setStatusMessage(null);
+              }}
+            />
+            <FieldDescription>
+              Supported formats: MP4, MOV, WEBM.
+            </FieldDescription>
+            <FieldError errors={error ? [{ message: error }] : []} />
+          </FieldContent>
+        </Field>
+      </FieldGroup>
 
-      <CardContent>
-        <div className="space-y-6">
-          <FieldGroup>
-            <Field data-invalid={!!error}>
-              <FieldLabel htmlFor="video">Video file</FieldLabel>
-              <FieldContent>
-                <Input
-                  ref={inputRef}
-                  id="video"
-                  type="file"
-                  accept="video/mp4,video/quicktime,video/webm"
-                  disabled={isPending}
-                  onChange={(event) => {
-                    const file = event.target.files?.[0] ?? null;
-                    setSelectedFile(file);
-                    setError(null);
-                    setStatusMessage(null);
-                  }}
-                />
-                <FieldDescription>
-                  Supported formats: MP4, MOV, WEBM.
-                </FieldDescription>
-                <FieldError errors={error ? [{ message: error }] : []} />
-              </FieldContent>
-            </Field>
-          </FieldGroup>
-
-          {selectedFile ? (
-            <div className="text-sm text-muted-foreground">
-              Selected: {selectedFile.name} ({selectedFile.size.toLocaleString()}{" "}
-              bytes)
-            </div>
-          ) : null}
-
-          {statusMessage ? (
-            <p className="text-sm text-muted-foreground">{statusMessage}</p>
-          ) : null}
-
-          <Button
-            type="button"
-            disabled={!selectedFile || isPending}
-            onClick={handleUpload}
-          >
-            {isPending
-              ? "Uploading..."
-              : hasExistingVideo
-              ? "Replace video"
-              : "Upload video"}
-          </Button>
+      {selectedFile ? (
+        <div className="text-sm text-muted-foreground">
+          Selected: {selectedFile.name} ({selectedFile.size.toLocaleString()}{" "}
+          bytes)
         </div>
-      </CardContent>
-    </Card>
+      ) : null}
+
+      {statusMessage ? (
+        <p className="text-sm text-muted-foreground">{statusMessage}</p>
+      ) : null}
+
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          disabled={!selectedFile || isPending}
+          onClick={handleUpload}
+        >
+          {isPending ? pendingLabel : submitLabel}
+        </Button>
+      </div>
+    </div>
   );
 }

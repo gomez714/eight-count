@@ -1,88 +1,98 @@
-import { isActiveStatus } from "@/lib/notes/statuses";
+import type { NoteStatus } from "@/lib/notes/statuses";
 
+import { StatusDot } from "./status-chip";
 import type { NoteItem } from "./types";
 
 type NotesSummaryProps = {
   notes: NoteItem[];
 };
 
-type Counts = {
-  total: number;
-  unresolved: number;
-  resolved: number;
-  unassigned: number;
-};
+type AssignmentCounts = Record<NoteStatus, number>;
 
-function computeCounts(notes: NoteItem[]): Counts {
-  let unresolved = 0;
-  let resolved = 0;
-  let unassigned = 0;
-
+function computeAssignmentCounts(notes: NoteItem[]): AssignmentCounts {
+  const counts: AssignmentCounts = {
+    OPEN: 0,
+    IN_PROGRESS: 0,
+    ADDRESSED: 0,
+    RESOLVED: 0,
+  };
   for (const note of notes) {
-    if (note.assignments.length === 0) {
-      unassigned += 1;
-      continue;
-    }
-
-    const hasActive = note.assignments.some((assignment) => {
+    for (const assignment of note.assignments) {
       const status = assignment.status?.status ?? "OPEN";
-      return isActiveStatus(status);
-    });
-
-    if (hasActive) {
-      unresolved += 1;
-    } else {
-      resolved += 1;
+      counts[status] += 1;
     }
   }
-
-  return {
-    total: notes.length,
-    unresolved,
-    resolved,
-    unassigned,
-  };
+  return counts;
 }
 
-export function NotesSummary({ notes }: NotesSummaryProps) {
-  const counts = computeCounts(notes);
+const SEGMENT_ORDER: Array<{ status: NoteStatus; color: string }> = [
+  { status: "RESOLVED", color: "var(--status-resolved-fg)" },
+  { status: "ADDRESSED", color: "var(--status-addressed-fg)" },
+  { status: "IN_PROGRESS", color: "var(--status-progress-fg)" },
+  { status: "OPEN", color: "var(--status-open-fg)" },
+];
 
-  if (counts.total === 0) {
+export function NotesSummary({ notes }: NotesSummaryProps) {
+  const counts = computeAssignmentCounts(notes);
+  const total =
+    counts.OPEN + counts.IN_PROGRESS + counts.ADDRESSED + counts.RESOLVED;
+
+  if (total === 0) {
     return null;
   }
 
-  const items: Array<{ label: string; value: number; emphasis?: boolean }> = [
-    { label: counts.total === 1 ? "note" : "notes", value: counts.total },
-    { label: "unresolved", value: counts.unresolved, emphasis: true },
-    { label: "resolved", value: counts.resolved },
-    { label: "unassigned", value: counts.unassigned },
-  ];
+  const closed = counts.ADDRESSED + counts.RESOLVED;
+  const visibleSegments = SEGMENT_ORDER.filter((seg) => counts[seg.status] > 0);
 
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border bg-card px-4 py-3 text-sm">
-      {items.map((item, index) => (
-        <span
-          key={item.label}
-          className="flex items-center gap-1.5"
-          data-emphasis={item.emphasis ? "true" : undefined}
-        >
-          <span
-            className={
-              item.emphasis
-                ? "font-semibold"
-                : "font-medium text-muted-foreground"
-            }
-          >
-            {item.value}
+    <div className="flex flex-col gap-2.5 rounded-lg border bg-card px-4 py-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <div className="flex items-baseline gap-2">
+          <span className="text-2xl leading-none font-semibold tracking-tight tabular-nums">
+            {closed}
+            <span className="font-medium text-muted-foreground">/{total}</span>
           </span>
-          <span className="text-muted-foreground">{item.label}</span>
-          {index < items.length - 1 ? (
-            <span className="ml-2 text-muted-foreground/60" aria-hidden>
-              ·
+          <span className="text-xs text-muted-foreground">
+            addressed or resolved
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1.5">
+            <StatusDot status="OPEN" />
+            <span className="font-semibold tabular-nums text-foreground">
+              {counts.OPEN}
             </span>
-          ) : null}
-        </span>
-      ))}
+            <span>open</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <StatusDot status="IN_PROGRESS" />
+            <span
+              className="font-semibold tabular-nums"
+              style={{ color: "var(--status-progress-fg)" }}
+            >
+              {counts.IN_PROGRESS}
+            </span>
+            <span>in progress</span>
+          </span>
+        </div>
+      </div>
+
+      <div
+        className="flex h-1.5 gap-px overflow-hidden rounded-full"
+        style={{ backgroundColor: "var(--status-open-bg)" }}
+      >
+        {visibleSegments.map((seg) => (
+          <span
+            key={seg.status}
+            data-status={seg.status}
+            className="h-full"
+            style={{
+              flex: counts[seg.status],
+              backgroundColor: seg.color,
+            }}
+          />
+        ))}
+      </div>
     </div>
   );
 }

@@ -29,6 +29,7 @@ import {
 import { AddNoteCard } from "./add-note-card"
 import { NotesListCard } from "./notes-list-card"
 import { NotesSummary } from "./notes-summary"
+import { RehearsalTimelineCard } from "./rehearsal-timeline-card"
 import { RehearsalVideoCard } from "./rehearsal-video-card"
 import type { AssignableMember, AvailableGroup, NoteItem } from "./types"
 import { clamp } from "./utils"
@@ -428,21 +429,26 @@ export function RehearsalWorkspace({
   }
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-6 lg:grid-cols-3 lg:items-stretch">
-        <div className="lg:col-span-2 lg:h-full">
+    <>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] lg:items-start">
+        {/* LEFT — video + timeline, sticky-top so they stay in view while scrolling the thread */}
+        <div className="flex flex-col gap-4 lg:sticky lg:top-4 lg:self-start">
           <RehearsalVideoCard
             fileName={fileName}
             playbackUrl={playbackUrl}
             isLoading={isLoadingVideo}
             error={videoError}
             videoRef={videoRef}
+            currentPlaybackMs={currentPlaybackMs}
+            videoDurationMs={videoDurationMs}
+            onDurationChange={setVideoDurationMs}
+            onCurrentTimeChange={setCurrentPlaybackMs}
+          />
+          <RehearsalTimelineCard
             timelineRef={timelineRef}
             currentPlaybackMs={currentPlaybackMs}
             videoDurationMs={videoDurationMs}
             notes={sortedNotes}
-            onDurationChange={setVideoDurationMs}
-            onCurrentTimeChange={setCurrentPlaybackMs}
             onJumpToTimestamp={jumpToTimestamp}
             onTimelinePointerDown={handleTimelinePointerDown}
             onTimelinePointerMove={handleTimelinePointerMove}
@@ -450,55 +456,58 @@ export function RehearsalWorkspace({
           />
         </div>
 
-        <div className="lg:col-span-1 lg:h-full">
+        {/* RIGHT — thread column: spine, filter+list card, sticky composer */}
+        <div className="flex min-w-0 flex-col gap-4">
+          <NotesSummary notes={sortedNotes} />
+
+          <NotesListCard
+            notes={sortedNotes}
+            assignableMembers={assignableMembers}
+            currentUserId={currentUserId}
+            videoRef={videoRef}
+            onJumpToTimestamp={jumpToTimestamp}
+            onEditNote={handleOpenEdit}
+            onDeleteNote={handleDeleteNote}
+          />
+
           {canAuthorNotes ? (
-            <AddNoteCard
-              rehearsalId={rehearsalId}
-              videoRef={videoRef}
-              selectedTimestampMs={selectedTimestampMs}
-              noteText={noteText}
-              onNoteTextChange={setNoteText}
-              selectedAssigneeUserIds={selectedAssigneeUserIds}
-              assignableMembers={assignableMembers}
-              availableGroups={availableGroups}
-              selectedGroupIds={selectedGroupIds}
-              onToggleAssignee={handleToggleAssignee}
-              onToggleGroup={handleToggleGroup}
-              isFullCast={isFullCast}
-              onToggleFullCast={handleToggleFullCast}
-              noteError={noteError}
-              isPending={isPending}
-              disabled={!playbackUrl || isPending}
-              onCapture={captureCurrentTimestamp}
-              onSubmit={handleCreateNote}
-              onVoiceNoteSaved={() => {
-                setSelectedAssigneeUserIds([])
-                setSelectedGroupIds([])
-                setIsFullCast(false)
-                router.refresh()
-                toast.success("Voice note added")
-              }}
-            />
+            <div className="sticky bottom-4 z-10">
+              <AddNoteCard
+                rehearsalId={rehearsalId}
+                videoRef={videoRef}
+                selectedTimestampMs={selectedTimestampMs}
+                noteText={noteText}
+                onNoteTextChange={setNoteText}
+                selectedAssigneeUserIds={selectedAssigneeUserIds}
+                assignableMembers={assignableMembers}
+                availableGroups={availableGroups}
+                selectedGroupIds={selectedGroupIds}
+                onToggleAssignee={handleToggleAssignee}
+                onToggleGroup={handleToggleGroup}
+                isFullCast={isFullCast}
+                onToggleFullCast={handleToggleFullCast}
+                noteError={noteError}
+                isPending={isPending}
+                disabled={!playbackUrl || isPending}
+                onCapture={captureCurrentTimestamp}
+                onSubmit={handleCreateNote}
+                onVoiceNoteSaved={() => {
+                  setSelectedAssigneeUserIds([])
+                  setSelectedGroupIds([])
+                  setIsFullCast(false)
+                  router.refresh()
+                  toast.success("Voice note added")
+                }}
+              />
+            </div>
           ) : (
-            <div className="flex h-full items-center justify-center rounded-lg border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
+            <div className="rounded-lg border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
               Only admins, instructors, and assistants can author notes.
               You can still review and address notes assigned to you.
             </div>
           )}
         </div>
       </div>
-
-      <NotesSummary notes={sortedNotes} />
-
-      <NotesListCard
-        notes={sortedNotes}
-        assignableMembers={assignableMembers}
-        currentUserId={currentUserId}
-        videoRef={videoRef}
-        onJumpToTimestamp={jumpToTimestamp}
-        onEditNote={handleOpenEdit}
-        onDeleteNote={handleDeleteNote}
-      />
 
       <EditNoteSheet
         open={editingNote !== null}
@@ -511,6 +520,6 @@ export function RehearsalWorkspace({
         errorMessage={editError}
         onSubmit={handleSubmitEdit}
       />
-    </div>
+    </>
   )
 }

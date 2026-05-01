@@ -19,6 +19,8 @@ const ALLOWED_VIDEO_TYPES = new Set([
   "video/webm",
 ]);
 
+const VIDEO_MANAGER_ROLES = new Set(["ADMIN", "INSTRUCTOR", "ASSISTANT"]);
+
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ rehearsalId: string }> }
@@ -46,6 +48,17 @@ export async function POST(
         404,
         "REHEARSAL_NOT_FOUND",
         "Rehearsal not found or access denied"
+      );
+    }
+
+    const callerMembership = rehearsal.project.team.members.find(
+      (member) => member.userId === dbUser.id
+    );
+    if (!callerMembership || !VIDEO_MANAGER_ROLES.has(callerMembership.role)) {
+      return apiError(
+        403,
+        "FORBIDDEN",
+        "Only admins, instructors, and assistants can upload rehearsal videos."
       );
     }
 
