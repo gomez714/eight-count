@@ -1,23 +1,27 @@
 import { auth } from "@clerk/nextjs/server";
 import { notFound, redirect } from "next/navigation";
-import Link from "next/link";
+
 import { ensureDbUser } from "@/lib/auth/ensure-db-user";
 import { db } from "@/lib/db";
 import { getProjectGroups } from "@/lib/groups/get-project-groups";
+import { isNoteStalled } from "@/lib/notes/stalled";
 import { getProjectForUser } from "@/lib/projects/get-project-for-user";
+import type { NoteProgressCounts } from "@/components/note-progress-bar";
+import type { NoteStatus } from "@/lib/notes/statuses";
 
-import { CreateRehearsalForm } from "./create-rehearsal-form";
+import { NewRehearsalButton } from "./new-rehearsal-button";
+import { ProjectMetaBand } from "./project-meta-band";
 import {
   ProjectGroupsSection,
   type TeamMemberOption,
 } from "./project-groups-section";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { ProjectMobileTabs } from "./project-mobile-tabs";
+import { RehearsalsSection } from "./rehearsals-section";
+import type { RehearsalRowData } from "./rehearsal-row";
+
+import { Button } from "@/components/ui/button";
+import { Users } from "lucide-react";
+import Link from "next/link";
 
 type ProjectPageProps = {
   params: Promise<{
@@ -25,7 +29,7 @@ type ProjectPageProps = {
   }>;
 };
 
-export default async function ProjectPage({ params }: ProjectPageProps) {
+export default async function ProjectPage({ params }: Readonly<ProjectPageProps>) {
   const { userId } = await auth();
 
   if (!userId) {
@@ -48,30 +52,40 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
 
   const [rehearsals, groups, allTeamMembers] = await Promise.all([
     db.rehearsal.findMany({
-      where: {
-        projectId: project.id,
-      },
-      orderBy: {
-        rehearsalDate: "desc",
+      where: { projectId: project.id },
+      orderBy: { rehearsalDate: "desc" },
+      include: {
+        videoAsset: {
+          select: { durationMs: true },
+        },
+        notes: {
+          select: {
+            id: true,
+            noteType: true,
+            createdAt: true,
+            author: { select: { id: true, name: true, email: true } },
+            assignments: {
+              select: {
+                id: true,
+                status: { select: { status: true } },
+              },
+            },
+          },
+        },
       },
     }),
     getProjectGroups(project.id),
     db.teamMember.findMany({
-      where: {
-        teamId: project.team.id,
-      },
-      include: {
-        user: true,
-      },
-      orderBy: {
-        createdAt: "asc",
-      },
+      where: { teamId: project.team.id },
+      include: { user: true },
+      orderBy: { createdAt: "asc" },
     }),
   ]);
 
   const membership = project.team.members[0];
-  const canManageGroups =
-    membership?.role === "ADMIN" || membership?.role === "INSTRUCTOR";
+  const role = membership?.role ?? null;
+  const canManageGroups = role === "ADMIN" || role === "INSTRUCTOR";
+  const canCreateRehearsal = role === "ADMIN" || role === "INSTRUCTOR";
 
   const teamMemberOptions: TeamMemberOption[] = allTeamMembers.map(
     (member) => ({
@@ -92,75 +106,138 @@ export default async function ProjectPage({ params }: ProjectPageProps) {
     ),
   }));
 
+  const stalledNow = new Date();
+
+  const rehearsalRows: RehearsalRowData[] = rehearsals.map((rehearsal, idx) => {
+    const counts: NoteProgressCounts = {
+      OPEN: 0,
+      IN_PROGRESS: 0,
+      ADDRESSED: 0,
+      RESOLVED: 0,
+    };
+    let voiceCount = 0;
+    let stalledCount = 0;
+    const contributorMap = new Map<
+      string,
+      { id: string; name: string | null; email: string }
+    >();
+
+    for (const note of rehearsal.notes) {
+      if (note.noteType === "VOICE") voiceCount += 1;
+      contributorMap.set(note.author.id, {
+        id: note.author.id,
+        name: note.author.name,
+        email: note.author.email,
+      });
+
+      const noteAssignments: { status: NoteStatus }[] = [];
+      for (const assignment of note.assignments) {
+        const status = (assignment.status?.status ?? "OPEN") as NoteStatus;
+        counts[status] += 1;
+        noteAssignments.push({ status });
+      }
+
+      if (
+        isNoteStalled({
+          createdAt: note.createdAt,
+          assignments: noteAssignments,
+          now: stalledNow,
+        })
+      ) {
+        stalledCount += 1;
+      }
+    }
+
+    return {
+      id: rehearsal.id,
+      title: rehearsal.title,
+      rehearsalDate: rehearsal.rehearsalDate,
+      hasVideo: !!rehearsal.videoAsset,
+      videoDurationMs: rehearsal.videoAsset?.durationMs ?? null,
+      noteCounts: {
+        total: rehearsal.notes.length,
+        voice: voiceCount,
+      },
+      assignmentCounts: counts,
+      contributors: [...contributorMap.values()],
+      stalledCount,
+      isCurrent: idx === 0 && rehearsals.length > 1,
+    };
+  });
+
+  const openNotesCount = rehearsalRows.reduce(
+    (acc, r) => acc + r.assignmentCounts.OPEN + r.assignmentCounts.IN_PROGRESS,
+    0
+  );
+
+  // Aggregate distinct contributors across the project for the meta band.
+  const projectContributorMap = new Map<
+    string,
+    { id: string; name: string | null; email: string }
+  >();
+  for (const row of rehearsalRows) {
+    for (const c of row.contributors) {
+      projectContributorMap.set(c.id, c);
+    }
+  }
+  const projectContributors = [...projectContributorMap.values()];
+
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-6">
-      <section className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight">{project.title}</h1>
-        <p className="text-sm text-muted-foreground">
-          Team: {project.team.name}
-        </p>
-        <p className="text-sm text-muted-foreground">
-          Your role: {membership?.role ?? "UNKNOWN"}
-        </p>
-        {project.description ? (
-          <p className="text-sm text-muted-foreground">{project.description}</p>
-        ) : null}
-      </section>
-
-      <section>
-        <CreateRehearsalForm projectId={project.id} />
-      </section>
-
-      <ProjectGroupsSection
-        projectId={project.id}
-        canManage={canManageGroups}
-        groups={groupItems}
-        teamMembers={teamMemberOptions}
+    <>
+      <ProjectMetaBand
+        team={{ id: project.team.id, name: project.team.name }}
+        project={{
+          id: project.id,
+          title: project.title,
+          description: project.description,
+          status: project.status,
+        }}
+        role={role}
+        rehearsalCount={rehearsalRows.length}
+        castCount={allTeamMembers.length}
+        openNotesCount={openNotesCount}
+        contributors={projectContributors}
+        actions={
+          <>
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              aria-label="Manage cast"
+            >
+              <Link href={`/teams/${project.team.id}`}>
+                <Users aria-hidden className="size-3.5" />
+                <span className="hidden sm:inline">Manage cast</span>
+              </Link>
+            </Button>
+            {canCreateRehearsal ? (
+              <NewRehearsalButton projectId={project.id} size="sm" />
+            ) : null}
+          </>
+        }
       />
 
-      <section className="space-y-4">
-        <div className="space-y-1">
-          <h2 className="text-xl font-semibold tracking-tight">Rehearsals</h2>
-          <p className="text-sm text-muted-foreground">
-            Rehearsals for this project will appear here.
-          </p>
-        </div>
-
-        {rehearsals.length === 0 ? (
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-sm text-muted-foreground">
-                No rehearsals yet. Create the first one above.
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-            {rehearsals.map((rehearsal) => (
-              <Link key={rehearsal.id} href={`/rehearsals/${rehearsal.id}`}>
-                <Card className="transition-colors hover:bg-muted/50">
-                  <CardHeader>
-                    <CardTitle className="text-base">{rehearsal.title}</CardTitle>
-                    <CardDescription>
-                      {new Intl.DateTimeFormat("en-US", {
-                        dateStyle: "medium",
-                        timeStyle: "short",
-                      }).format(rehearsal.rehearsalDate)}
-                    </CardDescription>
-                  </CardHeader>
-                  {rehearsal.description ? (
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground">
-                        {rehearsal.description}
-                      </p>
-                    </CardContent>
-                  ) : null}
-                </Card>
-              </Link>
-            ))}
-          </div>
-        )}
-      </section>
-    </main>
+      <main className="mx-auto w-full max-w-7xl px-6 py-6">
+        <ProjectMobileTabs
+          rehearsalCount={rehearsalRows.length}
+          groupCount={groupItems.length}
+          rehearsals={
+            <RehearsalsSection
+              projectId={project.id}
+              rehearsals={rehearsalRows}
+              canManage={canCreateRehearsal}
+            />
+          }
+          groups={
+            <ProjectGroupsSection
+              projectId={project.id}
+              canManage={canManageGroups}
+              groups={groupItems}
+              teamMembers={teamMemberOptions}
+            />
+          }
+        />
+      </main>
+    </>
   );
 }

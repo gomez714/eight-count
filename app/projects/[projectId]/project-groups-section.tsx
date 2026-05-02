@@ -1,16 +1,11 @@
 "use client";
 
+import { Pencil, Plus, Trash2, Users } from "lucide-react";
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 
+import { AvatarInitials } from "@/components/avatar-initials";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   Field,
   FieldContent,
@@ -56,36 +51,44 @@ export function ProjectGroupsSection({
   canManage,
   groups,
   teamMembers,
-}: ProjectGroupsSectionProps) {
+}: Readonly<ProjectGroupsSectionProps>) {
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   return (
-    <section className="space-y-4">
-      <div className="space-y-1">
-        <h2 className="text-xl font-semibold tracking-tight">Groups</h2>
-        <p className="text-sm text-muted-foreground">
-          Named subsets of the cast — front line, soloists, captains — that
-          you can target when leaving notes.
-        </p>
-      </div>
+    <section className="flex flex-col gap-3 rounded-lg border bg-card p-4">
+      <header className="flex items-start justify-between gap-2">
+        <div className="flex flex-col gap-0.5">
+          <h3 className="text-sm font-semibold tracking-tight">Groups</h3>
+          <p className="text-[12px] leading-snug text-muted-foreground">
+            Named subsets of the cast you can target when leaving notes.
+          </p>
+        </div>
+        {canManage && !isCreateOpen ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setIsCreateOpen(true)}
+          >
+            <Plus aria-hidden className="size-3" />
+            New
+          </Button>
+        ) : null}
+      </header>
 
-      {canManage ? (
-        <CreateGroupForm projectId={projectId} />
+      {canManage && isCreateOpen ? (
+        <CreateGroupForm
+          projectId={projectId}
+          onCancel={() => setIsCreateOpen(false)}
+          onCreated={() => setIsCreateOpen(false)}
+        />
       ) : null}
 
       {groups.length === 0 ? (
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">
-              No groups yet
-              {canManage
-                ? ". Create one above to start sending section notes."
-                : ". An admin or instructor can add groups."}
-            </p>
-          </CardContent>
-        </Card>
+        <EmptyGroups canManage={canManage} />
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="flex flex-col gap-2">
           {groups.map((group) => (
             <GroupCard
               key={group.id}
@@ -104,22 +107,34 @@ export function ProjectGroupsSection({
   );
 }
 
+function EmptyGroups({ canManage }: Readonly<{ canManage: boolean }>) {
+  return (
+    <div className="flex flex-col items-center gap-1.5 rounded-md border border-dashed bg-muted/30 px-4 py-5 text-center">
+      <Users aria-hidden className="size-4 text-muted-foreground" />
+      <p className="max-w-[220px] text-[12px] leading-snug text-muted-foreground">
+        {canManage
+          ? "No groups yet. Front line, soloists, captains — name what you'll address."
+          : "No groups yet. An admin or instructor can add them."}
+      </p>
+    </div>
+  );
+}
+
 type CreateGroupFormProps = {
   projectId: string;
+  onCancel: () => void;
+  onCreated: () => void;
 };
 
-function CreateGroupForm({ projectId }: CreateGroupFormProps) {
-  const [isOpen, setIsOpen] = useState(false);
+function CreateGroupForm({
+  projectId,
+  onCancel,
+  onCreated,
+}: Readonly<CreateGroupFormProps>) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-
-  const reset = () => {
-    setName("");
-    setDescription("");
-    setError(null);
-  };
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -144,89 +159,66 @@ function CreateGroupForm({ projectId }: CreateGroupFormProps) {
       }
 
       toast.success(`Group "${name.trim()}" created.`);
-      reset();
-      setIsOpen(false);
+      setName("");
+      setDescription("");
+      onCreated();
     });
   };
 
-  if (!isOpen) {
-    return (
-      <Button
-        type="button"
-        variant="outline"
-        onClick={() => setIsOpen(true)}
-      >
-        New group
-      </Button>
-    );
-  }
-
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">New group</CardTitle>
-        <CardDescription>
-          Give the group a name. You&apos;ll add members after it&apos;s
-          created.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="groupName">Name</FieldLabel>
-              <FieldContent>
-                <Input
-                  id="groupName"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="Front line"
-                  disabled={isPending}
-                  autoFocus
-                />
-                <FieldDescription>
-                  Choose something the rest of the team will recognize.
-                </FieldDescription>
-              </FieldContent>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="groupDescription">
-                Description
-              </FieldLabel>
-              <FieldContent>
-                <Textarea
-                  id="groupDescription"
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  placeholder="Optional: extra context about this group."
-                  disabled={isPending}
-                  className="min-h-[80px]"
-                />
-              </FieldContent>
-            </Field>
-          </FieldGroup>
-
-          {error ? <FieldError errors={[{ message: error }]} /> : null}
-
-          <div className="flex flex-wrap gap-3">
-            <Button type="submit" disabled={isPending}>
-              {isPending ? "Creating..." : "Create group"}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                reset();
-                setIsOpen(false);
-              }}
+    <form
+      onSubmit={handleSubmit}
+      className="flex flex-col gap-3 rounded-md border bg-background p-3"
+    >
+      <FieldGroup>
+        <Field>
+          <FieldLabel htmlFor="groupName">Name</FieldLabel>
+          <FieldContent>
+            <Input
+              id="groupName"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Front line"
               disabled={isPending}
-            >
-              Cancel
-            </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+              autoFocus
+            />
+            <FieldDescription>
+              Choose something the rest of the team will recognize.
+            </FieldDescription>
+          </FieldContent>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="groupDescription">Description</FieldLabel>
+          <FieldContent>
+            <Textarea
+              id="groupDescription"
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="Optional: extra context."
+              disabled={isPending}
+              className="min-h-[64px]"
+            />
+          </FieldContent>
+        </Field>
+      </FieldGroup>
+
+      {error ? <FieldError errors={[{ message: error }]} /> : null}
+
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" size="sm" disabled={isPending}>
+          {isPending ? "Creating..." : "Create group"}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onCancel}
+          disabled={isPending}
+        >
+          Cancel
+        </Button>
+      </div>
+    </form>
   );
 }
 
@@ -248,7 +240,7 @@ function GroupCard({
   isEditing,
   onEdit,
   onCloseEdit,
-}: GroupCardProps) {
+}: Readonly<GroupCardProps>) {
   const [selectedIds, setSelectedIds] = useState<string[]>(
     group.memberTeamMemberIds
   );
@@ -304,82 +296,101 @@ function GroupCard({
     });
   };
 
+  const isEmpty = currentMembers.length === 0;
+
   return (
-    <Card>
-      <CardHeader className="gap-2">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <CardTitle className="text-base">{group.name}</CardTitle>
-            {group.description ? (
-              <CardDescription>{group.description}</CardDescription>
-            ) : null}
+    <div className="flex flex-col gap-2 rounded-md border bg-background p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-[13px] font-semibold">
+              {group.name}
+            </span>
+            <span
+              className={cn(
+                "inline-flex items-center rounded-full border px-1.5 text-[10.5px] font-semibold tabular-nums",
+                isEmpty
+                  ? "border-[color:var(--status-progress-border)] bg-[color:var(--status-progress-bg)] text-[color:var(--status-progress-fg)]"
+                  : "border-border bg-muted text-muted-foreground"
+              )}
+            >
+              {isEmpty ? "empty" : currentMembers.length}
+            </span>
           </div>
-          {canManage && !isEditing ? (
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setSelectedIds(group.memberTeamMemberIds);
-                  onEdit();
-                }}
-              >
-                Edit members
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={handleDelete}
-                disabled={isDeleting}
-              >
-                {isDeleting ? "Deleting..." : "Delete"}
-              </Button>
-            </div>
+          {group.description ? (
+            <p className="text-[12px] leading-snug text-muted-foreground">
+              {group.description}
+            </p>
           ) : null}
         </div>
-      </CardHeader>
-      <CardContent>
-        {isEditing ? (
-          <div className="space-y-3">
-            <div className="max-h-64 space-y-1 overflow-y-auto rounded-md border p-2">
-              {teamMembers.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No team members available.
-                </p>
-              ) : (
-                teamMembers.map((member) => {
-                  const checked = selectedIds.includes(member.teamMemberId);
-                  return (
-                    <label
-                      key={member.teamMemberId}
-                      className="flex cursor-pointer items-start gap-3 rounded-md p-2 hover:bg-muted/50"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => handleToggle(member.teamMemberId)}
-                        disabled={isPending}
-                        className="mt-1"
-                      />
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium">
-                          {member.name || member.email}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {member.email} • {member.role}
-                        </div>
+        {canManage && !isEditing ? (
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label={`Edit ${group.name} members`}
+              onClick={() => {
+                setSelectedIds(group.memberTeamMemberIds);
+                onEdit();
+              }}
+            >
+              <Pencil className="size-3" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label={`Delete ${group.name}`}
+              onClick={handleDelete}
+              disabled={isDeleting}
+            >
+              <Trash2 className="size-3" />
+            </Button>
+          </div>
+        ) : null}
+      </div>
+
+      {isEditing ? (
+        <div className="flex flex-col gap-2">
+          <div className="max-h-56 space-y-0.5 overflow-y-auto rounded-md border bg-muted/20 p-1.5">
+            {teamMembers.length === 0 ? (
+              <p className="px-2 py-1 text-xs text-muted-foreground">
+                No team members available.
+              </p>
+            ) : (
+              teamMembers.map((member) => {
+                const checked = selectedIds.includes(member.teamMemberId);
+                return (
+                  <label
+                    key={member.teamMemberId}
+                    className="flex cursor-pointer items-start gap-2 rounded-md p-1.5 hover:bg-card"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => handleToggle(member.teamMemberId)}
+                      disabled={isPending}
+                      className="mt-1"
+                    />
+                    <div className="min-w-0">
+                      <div className="text-[12.5px] font-medium">
+                        {member.name || member.email}
                       </div>
-                    </label>
-                  );
-                })
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
+                      <div className="text-[11px] text-muted-foreground">
+                        {member.email} • {member.role}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })
+            )}
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-muted-foreground">
               {selectedIds.length} selected
-            </p>
-            <div className="flex flex-wrap gap-2">
+            </span>
+            <div className="flex flex-wrap gap-1.5">
               <Button
                 type="button"
                 size="sm"
@@ -402,34 +413,52 @@ function GroupCard({
               </Button>
             </div>
           </div>
-        ) : (
-          <MemberPills members={currentMembers} />
-        )}
-      </CardContent>
-    </Card>
+        </div>
+      ) : (
+        <MemberPills members={currentMembers} canManage={canManage} onAdd={onEdit} />
+      )}
+    </div>
   );
 }
 
 type MemberPillsProps = {
   members: TeamMemberOption[];
+  canManage: boolean;
+  onAdd: () => void;
 };
 
-function MemberPills({ members }: MemberPillsProps) {
+function MemberPills({ members, canManage, onAdd }: Readonly<MemberPillsProps>) {
   if (members.length === 0) {
+    if (canManage) {
+      return (
+        <button
+          type="button"
+          onClick={onAdd}
+          className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed bg-transparent py-1.5 text-[12px] font-medium text-muted-foreground outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Plus aria-hidden className="size-3" />
+          Add members
+        </button>
+      );
+    }
     return (
-      <p className="text-sm text-muted-foreground">No members yet.</p>
+      <p className="text-[12px] text-muted-foreground">No members yet.</p>
     );
   }
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap gap-1.5">
       {members.map((member) => (
         <span
           key={member.teamMemberId}
-          className={cn(
-            "inline-flex items-center rounded-full border border-border px-2 py-0.5 text-xs text-muted-foreground"
-          )}
+          className="inline-flex items-center gap-1.5 rounded-full border bg-muted/40 py-0.5 pl-0.5 pr-2 text-[11.5px] font-medium"
         >
+          <AvatarInitials
+            name={member.name}
+            fallback={member.email}
+            toneSeed={member.userId}
+            size={16}
+          />
           {member.name || member.email}
         </span>
       ))}

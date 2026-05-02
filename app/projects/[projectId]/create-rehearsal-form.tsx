@@ -9,13 +9,6 @@ import { createRehearsal } from "./actions";
 
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
   Field,
   FieldContent,
   FieldDescription,
@@ -33,7 +26,17 @@ const createRehearsalSchema = z.object({
 
 type CreateRehearsalFormValues = z.infer<typeof createRehearsalSchema>;
 
-export function CreateRehearsalForm({ projectId }: { projectId: string }) {
+type CreateRehearsalFormProps = {
+  projectId: string;
+  onSuccess?: () => void;
+  onCancel?: () => void;
+};
+
+export function CreateRehearsalForm({
+  projectId,
+  onSuccess,
+  onCancel,
+}: Readonly<CreateRehearsalFormProps>) {
   const [isPending, startTransition] = useTransition();
 
   const {
@@ -69,74 +72,76 @@ export function CreateRehearsalForm({ projectId }: { projectId: string }) {
       }
 
       reset();
+      onSuccess?.();
     });
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Create a rehearsal</CardTitle>
-        <CardDescription>
-          Add a rehearsal session under this project.
-        </CardDescription>
-      </CardHeader>
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      <FieldGroup>
+        <Field data-invalid={!!errors.title}>
+          <FieldLabel htmlFor="title">Rehearsal title</FieldLabel>
+          <FieldContent>
+            <Input
+              id="title"
+              placeholder="March 10 run-through"
+              disabled={isPending}
+              aria-invalid={!!errors.title}
+              {...register("title")}
+            />
+            <FieldDescription>
+              Give this rehearsal a name you can recognize later.
+            </FieldDescription>
+            <FieldError errors={[errors.title]} />
+          </FieldContent>
+        </Field>
 
-      <CardContent>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          <FieldGroup>
-            <Field data-invalid={!!errors.title}>
-              <FieldLabel htmlFor="title">Rehearsal title</FieldLabel>
-              <FieldContent>
-                <Input
-                  id="title"
-                  placeholder="March 10 run-through"
-                  disabled={isPending}
-                  aria-invalid={!!errors.title}
-                  {...register("title")}
-                />
-                <FieldDescription>
-                  Give this rehearsal a name you can recognize later.
-                </FieldDescription>
-                <FieldError errors={[errors.title]} />
-              </FieldContent>
-            </Field>
+        <Field data-invalid={!!errors.rehearsalDate}>
+          <FieldLabel htmlFor="rehearsalDate">Rehearsal date</FieldLabel>
+          <FieldContent>
+            <Input
+              id="rehearsalDate"
+              type="datetime-local"
+              disabled={isPending}
+              aria-invalid={!!errors.rehearsalDate}
+              {...register("rehearsalDate")}
+            />
+            <FieldError errors={[errors.rehearsalDate]} />
+          </FieldContent>
+        </Field>
 
-            <Field data-invalid={!!errors.rehearsalDate}>
-              <FieldLabel htmlFor="rehearsalDate">Rehearsal date</FieldLabel>
-              <FieldContent>
-                <Input
-                  id="rehearsalDate"
-                  type="datetime-local"
-                  disabled={isPending}
-                  aria-invalid={!!errors.rehearsalDate}
-                  {...register("rehearsalDate")}
-                />
-                <FieldError errors={[errors.rehearsalDate]} />
-              </FieldContent>
-            </Field>
+        <Field data-invalid={!!errors.description}>
+          <FieldLabel htmlFor="description">Description</FieldLabel>
+          <FieldContent>
+            <Input
+              id="description"
+              placeholder="Optional notes about this rehearsal"
+              disabled={isPending}
+              aria-invalid={!!errors.description}
+              {...register("description")}
+            />
+            <FieldError errors={[errors.description]} />
+          </FieldContent>
+        </Field>
+      </FieldGroup>
 
-            <Field data-invalid={!!errors.description}>
-              <FieldLabel htmlFor="description">Description</FieldLabel>
-              <FieldContent>
-                <Input
-                  id="description"
-                  placeholder="Optional notes about this rehearsal"
-                  disabled={isPending}
-                  aria-invalid={!!errors.description}
-                  {...register("description")}
-                />
-                <FieldError errors={[errors.description]} />
-              </FieldContent>
-            </Field>
-          </FieldGroup>
+      <FieldError errors={[errors.root]} />
 
-          <FieldError errors={[errors.root]} />
-
-          <Button type="submit" disabled={isPending}>
-            {isPending ? "Creating..." : "Create rehearsal"}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="submit" disabled={isPending}>
+          {isPending ? "Creating..." : "Create rehearsal"}
+        </Button>
+        {onCancel ? (
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={onCancel}
+            disabled={isPending}
+          >
+            Cancel
           </Button>
-        </form>
-      </CardContent>
-    </Card>
+        ) : null}
+      </div>
+    </form>
   );
 }

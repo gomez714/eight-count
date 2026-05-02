@@ -28,6 +28,15 @@ A web application for choreographers to leave time-stamped text and voice feedba
 - Define **project groups** (Front line, Soloists, Captains, etc.) — named subsets of the team's cast that can be targeted when leaving notes. Groups are project-scoped so cast can differ between pieces.
 - Only Admins and Instructors can create, edit, or delete groups and their membership.
 
+### Project page
+The project page is the structural bridge between a team and the rehearsal workspace — it answers "what project am I in, what's its state, and what should I do next?"
+
+- **Header band** with breadcrumb (Dashboard › team › project), title, status pill, role pill, an optional description, and primary actions: **Manage cast** and **New rehearsal**. A meta strip below the title summarizes the project at a glance: rehearsal count, cast size, open-note count (tinted to flag work in progress vs. "all clear"), and a contributor avatar stack on desktop.
+- **Rehearsals spine** is the main column — a list of rehearsal rows sorted newest-first. Each row shows a date plate, the rehearsal title, a "Current" pill on the most recent session in projects with two or more rehearsals, video duration, total note count with a coral voice-note tally, a small contributor stack, a relative-date label, and a "Stalled" chip when at least one assigned note is older than 3 days with active recipients. A right-side progress block shows `closed / total · %` with the same four-segment stacked bar used elsewhere, plus an "All notes resolved" badge when complete.
+- **Groups rail** on the right (desktop) lists the project's groups in a compact card. Admins and Instructors can create new groups inline, edit member lists, and delete groups. Empty groups get a tinted "empty" pill and an inline "Add members" CTA. Groups are the audience pool the rehearsal composer pulls from when leaving section notes.
+- **Empty state**: a fresh project with no rehearsals shows a generous panel with a "Create first rehearsal" CTA pre-wired into the same dialog that the header's New rehearsal button opens.
+- **Responsive layout**: on desktop the rehearsals spine and groups rail sit side-by-side. On mobile, the page condenses (smaller title, single-line meta strip, icon-only secondary action) and a segmented **Rehearsals / Groups** tab switcher lets the user focus on one at a time. Rehearsals is the default mobile tab.
+
 ### Rehearsals
 - Create dated rehearsal sessions within a project.
 - Upload a single rehearsal video per session (Google Cloud Storage). Only Admins, Instructors, and Assistants can upload or replace the video.
