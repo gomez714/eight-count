@@ -9,13 +9,6 @@ import { createProject } from "./actions";
 
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
   Field,
   FieldContent,
   FieldDescription,
@@ -32,7 +25,17 @@ const createProjectSchema = z.object({
 
 type CreateProjectFormValues = z.infer<typeof createProjectSchema>;
 
-export function CreateProjectForm({ teamId }: { teamId: string }) {
+type CreateProjectFormProps = {
+  teamId: string;
+  onSuccess?: () => void;
+  onCancel?: () => void;
+};
+
+export function CreateProjectForm({
+  teamId,
+  onSuccess,
+  onCancel,
+}: Readonly<CreateProjectFormProps>) {
   const [isPending, startTransition] = useTransition();
 
   const {
@@ -66,60 +69,62 @@ export function CreateProjectForm({ teamId }: { teamId: string }) {
       }
 
       reset();
+      onSuccess?.();
     });
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Create a project</CardTitle>
-        <CardDescription>
-          Add a piece, routine, or work under this team.
-        </CardDescription>
-      </CardHeader>
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      <FieldGroup>
+        <Field data-invalid={!!errors.title}>
+          <FieldLabel htmlFor="title">Project title</FieldLabel>
+          <FieldContent>
+            <Input
+              id="title"
+              placeholder="Spring Showcase Opener"
+              disabled={isPending}
+              aria-invalid={!!errors.title}
+              {...register("title")}
+            />
+            <FieldDescription>
+              This could be a piece, routine, number, or performance work.
+            </FieldDescription>
+            <FieldError errors={[errors.title]} />
+          </FieldContent>
+        </Field>
 
-      <CardContent>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          <FieldGroup>
-            <Field data-invalid={!!errors.title}>
-              <FieldLabel htmlFor="title">Project title</FieldLabel>
-              <FieldContent>
-                <Input
-                  id="title"
-                  placeholder="Spring Showcase Opener"
-                  disabled={isPending}
-                  aria-invalid={!!errors.title}
-                  {...register("title")}
-                />
-                <FieldDescription>
-                  This could be a piece, routine, number, or performance work.
-                </FieldDescription>
-                <FieldError errors={[errors.title]} />
-              </FieldContent>
-            </Field>
+        <Field data-invalid={!!errors.description}>
+          <FieldLabel htmlFor="description">Description</FieldLabel>
+          <FieldContent>
+            <Input
+              id="description"
+              placeholder="Optional notes about this project"
+              disabled={isPending}
+              aria-invalid={!!errors.description}
+              {...register("description")}
+            />
+            <FieldError errors={[errors.description]} />
+          </FieldContent>
+        </Field>
+      </FieldGroup>
 
-            <Field data-invalid={!!errors.description}>
-              <FieldLabel htmlFor="description">Description</FieldLabel>
-              <FieldContent>
-                <Input
-                  id="description"
-                  placeholder="Optional notes about this project"
-                  disabled={isPending}
-                  aria-invalid={!!errors.description}
-                  {...register("description")}
-                />
-                <FieldError errors={[errors.description]} />
-              </FieldContent>
-            </Field>
-          </FieldGroup>
+      <FieldError errors={[errors.root]} />
 
-          <FieldError errors={[errors.root]} />
-
-          <Button type="submit" disabled={isPending}>
-            {isPending ? "Creating..." : "Create project"}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="submit" disabled={isPending}>
+          {isPending ? "Creating..." : "Create project"}
+        </Button>
+        {onCancel ? (
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={onCancel}
+            disabled={isPending}
+          >
+            Cancel
           </Button>
-        </form>
-      </CardContent>
-    </Card>
+        ) : null}
+      </div>
+    </form>
   );
 }

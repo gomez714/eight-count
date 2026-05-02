@@ -22,6 +22,15 @@ A web application for choreographers to leave time-stamped text and voice feedba
 - Assign each member a role: **Admin**, **Instructor**, **Assistant**, or **Dancer**.
 - Only Admins can add new members.
 
+### Team page
+The team page is the organizational home — it answers "who is on this team and what projects exist?" It sits above the project page in the hierarchy and is intentionally lighter and more administrative than the operational pages below it.
+
+- **Header band** with breadcrumb (Dashboard › team), team mark, title, the viewer's role chip, and a compact meta strip showing **Members**, **Projects**, **Created**, the per-role glance (`3 admins · 2 instructors …`), and "Your role" at the end. The header carries no CTAs — primary actions live in the section headers below where they naturally belong, eliminating duplicates and quieting the top of the page.
+- **Role popovers**: every role chip on the page (header, member rows) is a popover trigger. Tap any chip to see what that role can do. This replaced a persistent role glossary card and surfaces the explanation contextually instead of permanently.
+- **Projects section** — the main column. Each project renders as an entry-point row (not a mini-dashboard): title, status pill, description, rehearsal count, an optional "open notes" accent (in-progress tint when there's pending work), and a relative last-activity timestamp. The list defaults to active projects; if any archived projects exist, a single inline toggle reveals or hides them (`Show archived (N)` ↔ `Hide archived`). Admins and Instructors get a `New project` button in the section header and a generous empty-state panel with a `Create first project` CTA when the team has no projects yet.
+- **Members section** — sorted by role then name in a divided card list. Each row has the avatar, name + email, a "You" pill on the viewer's own row, and the member's role chip. **Admins** see a `…` overflow menu on other members' rows (currently `Copy email`; future role/remove actions slot here without redesigning the row). The toolbar is lazy: **search** appears at ≥8 members, the **role filter** appears at ≥6 members *and* ≥3 distinct roles. Below those thresholds the section is just a clean sorted list, with a chromeless "Invite by email" footer for admins.
+- **Mobile responsive**: a segmented **Projects / Members** tab switcher lets the user focus on one section at a time. The header collapses (smaller mark, role chip moved below the title to avoid orphaning, counts compressed into a single `X members · Y projects` subtitle). Page is single-column on all sizes.
+
 ### Projects (pieces / dances)
 - Create projects inside a team to represent individual dances or pieces.
 - Attach a description and track active vs. archived status.

@@ -10,13 +10,6 @@ import { addTeamMember } from "./member-actions";
 
 import { Button } from "@/components/ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
   Field,
   FieldContent,
   FieldDescription,
@@ -49,7 +42,17 @@ const ROLE_LABELS: Record<AddTeamMemberFormValues["role"], string> = {
   DANCER: "Dancer",
 };
 
-export function AddTeamMemberForm({ teamId }: { teamId: string }) {
+type AddTeamMemberFormProps = {
+  teamId: string;
+  onSuccess?: () => void;
+  onCancel?: () => void;
+};
+
+export function AddTeamMemberForm({
+  teamId,
+  onSuccess,
+  onCancel,
+}: Readonly<AddTeamMemberFormProps>) {
   const [isPending, startTransition] = useTransition();
 
   const {
@@ -94,73 +97,75 @@ export function AddTeamMemberForm({ teamId }: { teamId: string }) {
         email: "",
         role: "DANCER",
       });
+      onSuccess?.();
     });
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Add team member</CardTitle>
-        <CardDescription>
-          Add an existing user to this team by email and assign a role.
-        </CardDescription>
-      </CardHeader>
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      <FieldGroup>
+        <Field data-invalid={!!errors.email}>
+          <FieldLabel htmlFor="email">Email</FieldLabel>
+          <FieldContent>
+            <Input
+              id="email"
+              type="email"
+              placeholder="dancer@example.com"
+              disabled={isPending}
+              aria-invalid={!!errors.email}
+              {...register("email")}
+            />
+            <FieldDescription>
+              The user must already have an account in the app.
+            </FieldDescription>
+            <FieldError errors={[errors.email]} />
+          </FieldContent>
+        </Field>
 
-      <CardContent>
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          <FieldGroup>
-            <Field data-invalid={!!errors.email}>
-              <FieldLabel htmlFor="email">Email</FieldLabel>
-              <FieldContent>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="dancer@example.com"
-                  disabled={isPending}
-                  aria-invalid={!!errors.email}
-                  {...register("email")}
-                />
-                <FieldDescription>
-                  The user must already have an account in the app.
-                </FieldDescription>
-                <FieldError errors={[errors.email]} />
-              </FieldContent>
-            </Field>
+        <Field data-invalid={!!errors.role}>
+          <FieldLabel htmlFor="role">Role</FieldLabel>
+          <FieldContent>
+            <Select
+              value={selectedRole}
+              onValueChange={(value) =>
+                setValue("role", value as AddTeamMemberFormValues["role"], {
+                  shouldValidate: true,
+                })
+              }
+              disabled={isPending}
+            >
+              <SelectTrigger id="role">
+                <SelectValue placeholder="Select a role" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ADMIN">Admin</SelectItem>
+                <SelectItem value="INSTRUCTOR">Instructor</SelectItem>
+                <SelectItem value="ASSISTANT">Assistant</SelectItem>
+                <SelectItem value="DANCER">Dancer</SelectItem>
+              </SelectContent>
+            </Select>
+            <FieldError errors={[errors.role]} />
+          </FieldContent>
+        </Field>
+      </FieldGroup>
 
-            <Field data-invalid={!!errors.role}>
-              <FieldLabel htmlFor="role">Role</FieldLabel>
-              <FieldContent>
-                <Select
-                  value={selectedRole}
-                  onValueChange={(value) =>
-                    setValue("role", value as AddTeamMemberFormValues["role"], {
-                      shouldValidate: true,
-                    })
-                  }
-                  disabled={isPending}
-                >
-                  <SelectTrigger id="role">
-                    <SelectValue placeholder="Select a role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ADMIN">Admin</SelectItem>
-                    <SelectItem value="INSTRUCTOR">Instructor</SelectItem>
-                    <SelectItem value="ASSISTANT">Assistant</SelectItem>
-                    <SelectItem value="DANCER">Dancer</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FieldError errors={[errors.role]} />
-              </FieldContent>
-            </Field>
-          </FieldGroup>
+      <FieldError errors={[errors.root]} />
 
-          <FieldError errors={[errors.root]} />
-
-          <Button type="submit" disabled={isPending}>
-            {isPending ? "Adding..." : "Add team member"}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="submit" disabled={isPending}>
+          {isPending ? "Adding..." : "Add team member"}
+        </Button>
+        {onCancel ? (
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={onCancel}
+            disabled={isPending}
+          >
+            Cancel
           </Button>
-        </form>
-      </CardContent>
-    </Card>
+        ) : null}
+      </div>
+    </form>
   );
 }
