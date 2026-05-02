@@ -67,12 +67,15 @@ export function StatusChip({ status, label }: StatusChipProps) {
   return (
     <span
       data-status={status}
-      className="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs"
+      title={label}
+      className="inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs"
       style={style}
     >
-      {label ? <span className="truncate font-medium">{label}</span> : null}
+      {label ? (
+        <span className="min-w-0 truncate font-medium">{label}</span>
+      ) : null}
       <StatusDot status={status} />
-      <span className="font-semibold">{NOTE_STATUS_LABELS[status]}</span>
+      <span className="shrink-0 font-semibold">{NOTE_STATUS_LABELS[status]}</span>
     </span>
   );
 }

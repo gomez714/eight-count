@@ -27,18 +27,14 @@ export async function POST(
 
     const { audioAssetId } = await context.params;
 
+    // Uploader-only: the user who initiated the upload (gated on
+    // AUTHOR_ROLES at upload-url time) is the only one allowed to flip
+    // status -> READY and persist durationMs. Without this, any team
+    // member who learned the asset id could overwrite the row.
     const audioAsset = await db.audioAsset.findFirst({
       where: {
         id: audioAssetId,
-        rehearsal: {
-          project: {
-            team: {
-              members: {
-                some: { userId: dbUser.id },
-              },
-            },
-          },
-        },
+        uploadedByUserId: dbUser.id,
       },
     });
 
@@ -46,7 +42,7 @@ export async function POST(
       return apiError(
         404,
         "AUDIO_ASSET_NOT_FOUND",
-        "Audio asset not found or access denied"
+        "Audio asset not found or you didn't initiate this upload"
       );
     }
 

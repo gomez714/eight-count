@@ -26,6 +26,11 @@ type VoiceNotePlayerProps = {
    */
   videoRef?: React.RefObject<HTMLVideoElement | null>;
   startTimestampMs?: number;
+  /**
+   * Fired when this player enters or leaves sync mode. The parent uses
+   * this to know when to pin the video into view (e.g. mobile sticky).
+   */
+  onSyncPlaybackChange?: (audioAssetId: string, isPlaying: boolean) => void;
 };
 
 export function VoiceNotePlayer({
@@ -33,6 +38,7 @@ export function VoiceNotePlayer({
   durationMs,
   videoRef,
   startTimestampMs,
+  onSyncPlaybackChange,
 }: VoiceNotePlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [src, setSrc] = useState<string | null>(null);
@@ -77,6 +83,7 @@ export function VoiceNotePlayer({
     previousMutedRef.current = null;
     detachVideoListener();
     isSyncingRef.current = false;
+    onSyncPlaybackChange?.(audioAssetId, false);
   };
 
   // Cleanup on unmount: tear down any active sync.
@@ -176,6 +183,7 @@ export function VoiceNotePlayer({
     videoPauseListenerRef.current = onVideoPause;
 
     isSyncingRef.current = true;
+    onSyncPlaybackChange?.(audioAssetId, true);
     video.play().catch(() => {
       // Autoplay restrictions can fail here; audio still plays alone.
     });

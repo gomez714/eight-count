@@ -7,6 +7,8 @@ import { ensureDbUser } from "@/lib/auth/ensure-db-user";
 import { db } from "@/lib/db";
 import { getTeamForUser } from "@/lib/teams/get-team-for-user";
 
+const MANAGE_ROLES = new Set(["ADMIN", "INSTRUCTOR"]);
+
 const createProjectSchema = z.object({
   teamId: z.string().min(1),
   title: z.string().trim().min(2, "Project title must be at least 2 characters."),
@@ -46,6 +48,13 @@ export async function createProject(
 
   if (!team) {
     return { error: "You do not have access to this team." };
+  }
+
+  const callerMembership = team.members[0];
+  if (!callerMembership || !MANAGE_ROLES.has(callerMembership.role)) {
+    return {
+      error: "Only admins and instructors can create projects.",
+    };
   }
 
   try {

@@ -145,6 +145,7 @@ type NoteRowProps = {
   onJumpToTimestamp: (timestampMs: number) => void;
   onEdit: (note: NoteItem) => void;
   onDelete: (note: NoteItem) => void | Promise<void>;
+  onSyncPlaybackChange?: (audioAssetId: string, isPlaying: boolean) => void;
 };
 
 function NoteRow({
@@ -154,6 +155,7 @@ function NoteRow({
   onJumpToTimestamp,
   onEdit,
   onDelete,
+  onSyncPlaybackChange,
 }: NoteRowProps) {
   // Audience targets that aren't individual users — these convey intent
   // (e.g. "Full cast", "Front line") that the per-user status chips below
@@ -220,6 +222,7 @@ function NoteRow({
             durationMs={note.audioAsset.durationMs}
             videoRef={videoRef}
             startTimestampMs={note.startTimestampMs}
+            onSyncPlaybackChange={onSyncPlaybackChange}
           />
         ) : (
           <p className="text-sm leading-relaxed text-foreground">
@@ -300,6 +303,7 @@ type NotesListCardProps = {
   onJumpToTimestamp: (timestampMs: number) => void;
   onEditNote: (note: NoteItem) => void;
   onDeleteNote: (note: NoteItem) => void | Promise<void>;
+  onSyncPlaybackChange?: (audioAssetId: string, isPlaying: boolean) => void;
 };
 
 export function NotesListCard({
@@ -310,6 +314,7 @@ export function NotesListCard({
   onJumpToTimestamp,
   onEditNote,
   onDeleteNote,
+  onSyncPlaybackChange,
 }: NotesListCardProps) {
   const [pillFilter, setPillFilter] = useState<PillFilter>("ALL");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("ALL");
@@ -386,6 +391,7 @@ export function NotesListCard({
             onJumpToTimestamp={onJumpToTimestamp}
             onEdit={onEditNote}
             onDelete={onDeleteNote}
+            onSyncPlaybackChange={onSyncPlaybackChange}
           />
         ))}
       </div>

@@ -7,6 +7,8 @@ import { ensureDbUser } from "@/lib/auth/ensure-db-user";
 import { db } from "@/lib/db";
 import { getProjectForUser } from "@/lib/projects/get-project-for-user";
 
+const REHEARSAL_AUTHOR_ROLES = new Set(["ADMIN", "INSTRUCTOR", "ASSISTANT"]);
+
 const createRehearsalSchema = z.object({
   projectId: z.string().min(1),
   title: z.string().trim().min(2, "Rehearsal title must be at least 2 characters."),
@@ -48,6 +50,17 @@ export async function createRehearsal(
 
   if (!project) {
     return { error: "You do not have access to this project." };
+  }
+
+  const callerMembership = project.team.members[0];
+  if (
+    !callerMembership ||
+    !REHEARSAL_AUTHOR_ROLES.has(callerMembership.role)
+  ) {
+    return {
+      error:
+        "Only admins, instructors, and assistants can create rehearsals.",
+    };
   }
 
   const parsedDate = new Date(rehearsalDate);

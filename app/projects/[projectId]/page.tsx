@@ -85,7 +85,8 @@ export default async function ProjectPage({ params }: Readonly<ProjectPageProps>
   const membership = project.team.members[0];
   const role = membership?.role ?? null;
   const canManageGroups = role === "ADMIN" || role === "INSTRUCTOR";
-  const canCreateRehearsal = role === "ADMIN" || role === "INSTRUCTOR";
+  const canCreateRehearsal =
+    role === "ADMIN" || role === "INSTRUCTOR" || role === "ASSISTANT";
 
   const teamMemberOptions: TeamMemberOption[] = allTeamMembers.map(
     (member) => ({

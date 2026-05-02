@@ -71,7 +71,17 @@ export default async function DashboardPage() {
       </section>
 
       <section>
-        <CreateTeamForm />
+        <Card>
+          <CardHeader>
+            <CardTitle>Create a team</CardTitle>
+            <CardDescription>
+              Start by creating your first team or organization.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CreateTeamForm />
+          </CardContent>
+        </Card>
       </section>
 
       <section className="space-y-4">

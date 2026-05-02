@@ -31,20 +31,14 @@ export async function POST(
 
     const { videoAssetId } = await context.params;
 
+    // Uploader-only: the user who initiated the upload (gated on
+    // VIDEO_MANAGER_ROLES at upload-url time) is the only one allowed to
+    // flip status -> READY and persist durationMs. Without this, any team
+    // member who learned the asset id could overwrite the row.
     const videoAsset = await db.videoAsset.findFirst({
       where: {
         id: videoAssetId,
-        rehearsal: {
-          project: {
-            team: {
-              members: {
-                some: {
-                  userId: dbUser.id,
-                },
-              },
-            },
-          },
-        },
+        uploadedByUserId: dbUser.id,
       },
     });
 
@@ -52,7 +46,7 @@ export async function POST(
       return apiError(
         404,
         "VIDEO_ASSET_NOT_FOUND",
-        "Video asset not found or access denied"
+        "Video asset not found or you didn't initiate this upload"
       );
     }
 

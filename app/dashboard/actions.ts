@@ -12,6 +12,7 @@ const createTeamSchema = z.object({
 export type CreateTeamState = {
   error?: string;
   success?: boolean;
+  teamId?: string;
 };
 
 export async function createTeam(
@@ -35,8 +36,8 @@ export async function createTeam(
   }
 
   try {
-    await db.$transaction(async (tx) => {
-      const team = await tx.team.create({
+    const team = await db.$transaction(async (tx) => {
+      const created = await tx.team.create({
         data: {
           name: parsed.data.name,
         },
@@ -44,16 +45,18 @@ export async function createTeam(
 
       await tx.teamMember.create({
         data: {
-          teamId: team.id,
+          teamId: created.id,
           userId: dbUser.id,
           role: "ADMIN",
         },
       });
+
+      return created;
     });
 
     revalidatePath("/dashboard");
 
-    return { success: true };
+    return { success: true, teamId: team.id };
   } catch (error) {
     console.error("Failed to create team:", error);
     return { error: "Something went wrong while creating the team." };

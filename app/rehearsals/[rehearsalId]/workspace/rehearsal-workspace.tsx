@@ -2,6 +2,7 @@
 
 import {
   type PointerEvent as ReactPointerEvent,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -10,6 +11,8 @@ import {
 } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
+
+import { cn } from "@/lib/utils"
 
 import type {
   CreateNoteRequest,
@@ -119,6 +122,28 @@ export function RehearsalWorkspace({
 
   const [editingNote, setEditingNote] = useState<NoteItem | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
+
+  // Tracks which voice notes are currently driving synced video playback.
+  // While non-empty, the rehearsal video pins to the top of the viewport on
+  // mobile so the user can keep watching while scrolling notes. A Set (not a
+  // boolean) handles overlapping playback gracefully — if A is still going
+  // when B starts, the video stays pinned until both finish.
+  const [syncingAudioIds, setSyncingAudioIds] = useState<Set<string>>(
+    () => new Set()
+  )
+  const isVoiceSyncActive = syncingAudioIds.size > 0
+
+  const handleSyncPlaybackChange = useCallback(
+    (audioAssetId: string, isPlaying: boolean) => {
+      setSyncingAudioIds((prev) => {
+        const next = new Set(prev)
+        if (isPlaying) next.add(audioAssetId)
+        else next.delete(audioAssetId)
+        return next
+      })
+    },
+    []
+  )
 
   const [isPending, startTransition] = useTransition()
   const [isEditPending, startEditTransition] = useTransition()
@@ -430,20 +455,35 @@ export function RehearsalWorkspace({
 
   return (
     <>
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] lg:items-start">
-        {/* LEFT — video + timeline, sticky-top so they stay in view while scrolling the thread */}
-        <div className="flex flex-col gap-4 lg:sticky lg:top-4 lg:self-start">
-          <RehearsalVideoCard
-            fileName={fileName}
-            playbackUrl={playbackUrl}
-            isLoading={isLoadingVideo}
-            error={videoError}
-            videoRef={videoRef}
-            currentPlaybackMs={currentPlaybackMs}
-            videoDurationMs={videoDurationMs}
-            onDurationChange={setVideoDurationMs}
-            onCurrentTimeChange={setCurrentPlaybackMs}
-          />
+      {/*
+        Mobile: flex column so the video card's containing block extends through
+        the whole page (sticky requires that). lg+: original 2-column grid.
+        The left wrapper uses `display: contents` on mobile to flatten its
+        children directly into the outer flex column — that's what lets the
+        video stick across the entire notes thread, not just within its own
+        grid cell.
+      */}
+      <div className="flex flex-col gap-6 lg:grid lg:gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] lg:items-start">
+        {/* LEFT — video + timeline. lg+ pins them together; mobile pins only the video during synced voice playback. */}
+        <div className="contents lg:flex lg:flex-col lg:gap-4 lg:sticky lg:top-4 lg:self-start">
+          <div
+            className={cn(
+              isVoiceSyncActive &&
+                "max-lg:sticky max-lg:top-0 max-lg:z-20 max-lg:shadow-md max-lg:transition-shadow"
+            )}
+          >
+            <RehearsalVideoCard
+              fileName={fileName}
+              playbackUrl={playbackUrl}
+              isLoading={isLoadingVideo}
+              error={videoError}
+              videoRef={videoRef}
+              currentPlaybackMs={currentPlaybackMs}
+              videoDurationMs={videoDurationMs}
+              onDurationChange={setVideoDurationMs}
+              onCurrentTimeChange={setCurrentPlaybackMs}
+            />
+          </div>
           <RehearsalTimelineCard
             timelineRef={timelineRef}
             currentPlaybackMs={currentPlaybackMs}
@@ -468,6 +508,7 @@ export function RehearsalWorkspace({
             onJumpToTimestamp={jumpToTimestamp}
             onEditNote={handleOpenEdit}
             onDeleteNote={handleDeleteNote}
+            onSyncPlaybackChange={handleSyncPlaybackChange}
           />
 
           {canAuthorNotes ? (
