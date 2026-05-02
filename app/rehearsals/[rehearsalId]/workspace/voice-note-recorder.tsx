@@ -154,6 +154,17 @@ export function VoiceNoteRecorder({
     previewSyncingRef.current = false;
   };
 
+  // Tear down the preview transport's React state and the video sync.
+  // Called from the handlers that transition out of "preview" (re-record,
+  // save) so the cleanup happens at its cause rather than as a reactive
+  // effect.
+  const resetPreviewState = () => {
+    stopPreviewSync();
+    setPreviewIsPlaying(false);
+    setPreviewCurrentTimeMs(0);
+    setPreviewDurationMs(null);
+  };
+
   // Preview audio play: seek the video to where recording started and play
   // them together so the user can confirm the take lines up before saving.
   const handlePreviewAudioPlay = () => {
@@ -204,19 +215,6 @@ export function VoiceNoteRecorder({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // When leaving the preview state (Save / Re-record / etc.) tear down any
-  // active sync so we don't strand the video listener or muted state, and
-  // reset the preview transport state so the next take starts fresh.
-  useEffect(() => {
-    if (state !== "preview") {
-      stopPreviewSync();
-      setPreviewIsPlaying(false);
-      setPreviewCurrentTimeMs(0);
-      setPreviewDurationMs(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state]);
 
   const beginRecording = () => {
     const recorder = mediaRecorderRef.current;
@@ -398,6 +396,7 @@ export function VoiceNoteRecorder({
   };
 
   const handleRerecord = () => {
+    resetPreviewState();
     if (previewUrl) {
       URL.revokeObjectURL(previewUrl);
     }
@@ -424,6 +423,7 @@ export function VoiceNoteRecorder({
       return;
     }
 
+    resetPreviewState();
     setState("uploading");
     setError(null);
 

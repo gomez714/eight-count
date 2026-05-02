@@ -1,4 +1,4 @@
-import type { NoteStatus } from "@/lib/notes/statuses";
+import { NoteProgressBar, type NoteProgressCounts } from "@/components/note-progress-bar";
 
 import { StatusDot } from "./status-chip";
 import type { NoteItem } from "./types";
@@ -7,10 +7,8 @@ type NotesSummaryProps = {
   notes: NoteItem[];
 };
 
-type AssignmentCounts = Record<NoteStatus, number>;
-
-function computeAssignmentCounts(notes: NoteItem[]): AssignmentCounts {
-  const counts: AssignmentCounts = {
+function computeAssignmentCounts(notes: NoteItem[]): NoteProgressCounts {
+  const counts: NoteProgressCounts = {
     OPEN: 0,
     IN_PROGRESS: 0,
     ADDRESSED: 0,
@@ -25,14 +23,7 @@ function computeAssignmentCounts(notes: NoteItem[]): AssignmentCounts {
   return counts;
 }
 
-const SEGMENT_ORDER: Array<{ status: NoteStatus; color: string }> = [
-  { status: "RESOLVED", color: "var(--status-resolved-fg)" },
-  { status: "ADDRESSED", color: "var(--status-addressed-fg)" },
-  { status: "IN_PROGRESS", color: "var(--status-progress-fg)" },
-  { status: "OPEN", color: "var(--status-open-fg)" },
-];
-
-export function NotesSummary({ notes }: NotesSummaryProps) {
+export function NotesSummary({ notes }: Readonly<NotesSummaryProps>) {
   const counts = computeAssignmentCounts(notes);
   const total =
     counts.OPEN + counts.IN_PROGRESS + counts.ADDRESSED + counts.RESOLVED;
@@ -42,7 +33,6 @@ export function NotesSummary({ notes }: NotesSummaryProps) {
   }
 
   const closed = counts.ADDRESSED + counts.RESOLVED;
-  const visibleSegments = SEGMENT_ORDER.filter((seg) => counts[seg.status] > 0);
 
   return (
     <div className="flex flex-col gap-2.5 rounded-lg border bg-card px-4 py-3">
@@ -77,22 +67,7 @@ export function NotesSummary({ notes }: NotesSummaryProps) {
         </div>
       </div>
 
-      <div
-        className="flex h-1.5 gap-px overflow-hidden rounded-full"
-        style={{ backgroundColor: "var(--status-open-bg)" }}
-      >
-        {visibleSegments.map((seg) => (
-          <span
-            key={seg.status}
-            data-status={seg.status}
-            className="h-full"
-            style={{
-              flex: counts[seg.status],
-              backgroundColor: seg.color,
-            }}
-          />
-        ))}
-      </div>
+      <NoteProgressBar counts={counts} />
     </div>
   );
 }

@@ -1,5 +1,16 @@
 import type { NoteStatus } from "@/lib/notes/statuses";
 
+export type AuthoredAssignmentCounts = Record<NoteStatus, number>;
+
+export type AuthoredNoteFilter =
+  | "ALL"
+  | "OUTSTANDING"
+  | "STALLED"
+  | "COMPLETE"
+  | "UNASSIGNED";
+
+export type AuthoredNoteSort = "STALLED_FIRST" | "RECENT" | "OLDEST";
+
 export type AuthoredNoteTarget = {
   id: string;
   kind: "EVERYONE" | "GROUP" | "USER";
@@ -37,6 +48,9 @@ export type AuthoredNoteRow = {
   createdAt: string | Date;
   targets: AuthoredNoteTarget[];
   assignments: AuthoredNoteAssignment[];
+  assignmentCounts: AuthoredAssignmentCounts;
+  /** Authored more than 3 days ago and still has any active assignment. */
+  stalled: boolean;
   rehearsal: {
     id: string;
     title: string;

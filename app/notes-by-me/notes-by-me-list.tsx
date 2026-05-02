@@ -9,15 +9,6 @@ import {
   type EditNoteFormValues,
   type EditableNote,
 } from "@/components/edit-note-sheet";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import type {
   AssignableMember,
   AvailableGroup,
@@ -29,41 +20,67 @@ import type {
   UpdateNoteRequest,
   UpdateNoteResponse,
 } from "@/lib/api/contracts";
-import { isActiveStatus } from "@/lib/notes/statuses";
+import type { NoteStatus } from "@/lib/notes/statuses";
 
 import { AuthoredNoteCard } from "./authored-note-card";
-import type { AuthoredNoteRow } from "./types";
+import { AuthorSummaryStrip } from "./author-summary-strip";
+import { FilterSortBar } from "./filter-sort-bar";
+import type {
+  AuthoredAssignmentCounts,
+  AuthoredNoteFilter,
+  AuthoredNoteRow,
+  AuthoredNoteSort,
+} from "./types";
 
-type ProgressFilter = "ALL" | "OUTSTANDING" | "COMPLETE" | "UNASSIGNED";
+type FilterCounts = Record<AuthoredNoteFilter, number>;
 
-const FILTER_LABELS: Record<ProgressFilter, string> = {
-  ALL: "All",
-  OUTSTANDING: "Outstanding",
-  COMPLETE: "Complete",
-  UNASSIGNED: "Unassigned",
-};
-
-const FILTER_ORDER: ProgressFilter[] = [
-  "ALL",
-  "OUTSTANDING",
-  "COMPLETE",
-  "UNASSIGNED",
-];
-
-function matches(row: AuthoredNoteRow, filter: ProgressFilter): boolean {
-  if (filter === "ALL") return true;
-
-  if (filter === "UNASSIGNED") {
-    return row.assignments.length === 0;
-  }
-
+function isOutstanding(row: AuthoredNoteRow): boolean {
   if (row.assignments.length === 0) return false;
-
-  const hasActive = row.assignments.some((assignment) =>
-    isActiveStatus(assignment.status)
+  return (
+    row.assignmentCounts.OPEN > 0 || row.assignmentCounts.IN_PROGRESS > 0
   );
+}
 
-  return filter === "OUTSTANDING" ? hasActive : !hasActive;
+function isComplete(row: AuthoredNoteRow): boolean {
+  if (row.assignments.length === 0) return false;
+  return (
+    row.assignmentCounts.OPEN === 0 && row.assignmentCounts.IN_PROGRESS === 0
+  );
+}
+
+function rowMatchesFilter(
+  row: AuthoredNoteRow,
+  filter: AuthoredNoteFilter
+): boolean {
+  switch (filter) {
+    case "ALL":
+      return true;
+    case "OUTSTANDING":
+      return isOutstanding(row);
+    case "STALLED":
+      return row.stalled;
+    case "COMPLETE":
+      return isComplete(row);
+    case "UNASSIGNED":
+      return row.assignments.length === 0;
+  }
+}
+
+function compareRows(
+  a: AuthoredNoteRow,
+  b: AuthoredNoteRow,
+  sort: AuthoredNoteSort
+): number {
+  const ta = new Date(a.createdAt).getTime();
+  const tb = new Date(b.createdAt).getTime();
+
+  if (sort === "OLDEST") return ta - tb;
+  if (sort === "RECENT") return tb - ta;
+  // STALLED_FIRST
+  const aw = a.stalled ? 1 : 0;
+  const bw = b.stalled ? 1 : 0;
+  if (aw !== bw) return bw - aw;
+  return tb - ta;
 }
 
 function toEditableNote(row: AuthoredNoteRow): EditableNote {
@@ -115,9 +132,10 @@ type NotesByMeListProps = {
   notes: AuthoredNoteRow[];
 };
 
-export function NotesByMeList({ notes }: NotesByMeListProps) {
+export function NotesByMeList({ notes }: Readonly<NotesByMeListProps>) {
   const router = useRouter();
-  const [filter, setFilter] = useState<ProgressFilter>("OUTSTANDING");
+  const [filter, setFilter] = useState<AuthoredNoteFilter>("OUTSTANDING");
+  const [sort, setSort] = useState<AuthoredNoteSort>("STALLED_FIRST");
 
   const [editingRow, setEditingRow] = useState<AuthoredNoteRow | null>(null);
   const [audience, setAudience] = useState<{
@@ -128,34 +146,75 @@ export function NotesByMeList({ notes }: NotesByMeListProps) {
   const [editError, setEditError] = useState<string | null>(null);
   const [isEditPending, startEditTransition] = useTransition();
 
-  const filtered = useMemo(
-    () => notes.filter((row) => matches(row, filter)),
-    [notes, filter]
-  );
+  // Aggregate metrics for the summary strip — computed across the entire
+  // authored set so the strip stays stable as the filter changes.
+  const summary = useMemo(() => {
+    const aggregate: AuthoredAssignmentCounts = {
+      OPEN: 0,
+      IN_PROGRESS: 0,
+      ADDRESSED: 0,
+      RESOLVED: 0,
+    };
+    let totalAssignments = 0;
+    let addressed = 0;
+    let stalledCount = 0;
+    let unassignedCount = 0;
 
-  const counts = useMemo(() => {
-    const buckets = {
-      ALL: notes.length,
-      OUTSTANDING: 0,
-      COMPLETE: 0,
-      UNASSIGNED: 0,
-    } as Record<ProgressFilter, number>;
     for (const row of notes) {
       if (row.assignments.length === 0) {
-        buckets.UNASSIGNED += 1;
+        unassignedCount += 1;
         continue;
       }
-      const hasActive = row.assignments.some((a) =>
-        isActiveStatus(a.status)
-      );
-      if (hasActive) {
-        buckets.OUTSTANDING += 1;
-      } else {
-        buckets.COMPLETE += 1;
+      if (row.stalled) stalledCount += 1;
+      for (const status of [
+        "OPEN",
+        "IN_PROGRESS",
+        "ADDRESSED",
+        "RESOLVED",
+      ] as NoteStatus[]) {
+        aggregate[status] += row.assignmentCounts[status];
       }
+      totalAssignments += row.assignments.length;
+      addressed +=
+        row.assignmentCounts.ADDRESSED + row.assignmentCounts.RESOLVED;
     }
-    return buckets;
+
+    return {
+      aggregate,
+      totalAssignments,
+      addressed,
+      stalledCount,
+      unassignedCount,
+    };
   }, [notes]);
+
+  // Per-filter counts (totals, not narrowed by current filter).
+  const filterCounts = useMemo<FilterCounts>(() => {
+    const counts: FilterCounts = {
+      ALL: notes.length,
+      OUTSTANDING: 0,
+      STALLED: 0,
+      COMPLETE: 0,
+      UNASSIGNED: 0,
+    };
+    for (const row of notes) {
+      if (row.assignments.length === 0) {
+        counts.UNASSIGNED += 1;
+      } else if (isOutstanding(row)) {
+        counts.OUTSTANDING += 1;
+      } else {
+        counts.COMPLETE += 1;
+      }
+      if (row.stalled) counts.STALLED += 1;
+    }
+    return counts;
+  }, [notes]);
+
+  const filteredAndSorted = useMemo(() => {
+    return notes
+      .filter((row) => rowMatchesFilter(row, filter))
+      .sort((a, b) => compareRows(a, b, sort));
+  }, [notes, filter, sort]);
 
   const handleOpenEdit = async (row: AuthoredNoteRow) => {
     setEditingRow(row);
@@ -266,70 +325,50 @@ export function NotesByMeList({ notes }: NotesByMeListProps) {
 
   if (notes.length === 0) {
     return (
-      <Card>
-        <CardContent className="pt-6">
-          <p className="text-sm text-muted-foreground">
-            You haven&apos;t authored any notes yet. Open a rehearsal to add
-            feedback for your team.
-          </p>
-        </CardContent>
-      </Card>
+      <div className="mx-auto w-full max-w-7xl px-6 py-6">
+        <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
+          You haven&apos;t authored any notes yet. Open a rehearsal to add
+          feedback for your team.
+        </div>
+      </div>
     );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <Select
-          value={filter}
-          onValueChange={(value) => setFilter(value as ProgressFilter)}
-        >
-          <SelectTrigger size="sm" aria-label="Filter notes">
-            <SelectValue>
-              {FILTER_LABELS[filter]} ({counts[filter]})
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {FILTER_ORDER.map((option) => (
-              <SelectItem key={option} value={option}>
-                {FILTER_LABELS[option]} ({counts[option]})
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-6 py-6">
+      <AuthorSummaryStrip
+        totalAssignments={summary.totalAssignments}
+        addressed={summary.addressed}
+        stalledCount={summary.stalledCount}
+        unassignedCount={summary.unassignedCount}
+        aggregateCounts={summary.aggregate}
+        onJumpToStalled={() => setFilter("STALLED")}
+      />
 
-        {filter !== "ALL" ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setFilter("ALL")}
-          >
-            Clear filter
-          </Button>
-        ) : null}
-      </div>
+      <FilterSortBar
+        filter={filter}
+        onFilterChange={setFilter}
+        sort={sort}
+        onSortChange={setSort}
+        counts={filterCounts}
+      />
 
-      {filtered.length === 0 ? (
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">
-              No notes match this filter.
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {filtered.map((row) => (
+      <div className="flex flex-col gap-2.5">
+        {filteredAndSorted.length === 0 ? (
+          <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
+            No notes match this filter.
+          </div>
+        ) : (
+          filteredAndSorted.map((row) => (
             <AuthoredNoteCard
               key={row.id}
               row={row}
               onEdit={handleOpenEdit}
               onDelete={handleDelete}
             />
-          ))}
-        </div>
-      )}
+          ))
+        )}
+      </div>
 
       <EditNoteSheet
         open={editingRow !== null && audience !== null}

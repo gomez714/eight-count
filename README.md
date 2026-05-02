@@ -61,19 +61,23 @@ The rehearsal page is a sticky two-column workspace anchored at the top by a con
 - To replace the audio of an existing voice note, delete it and record a new one — voice-note edits cover timestamps and audience only.
 - Recording requires Chrome, Firefox, or recent Safari (MediaRecorder support). The mic format is auto-detected: webm/opus on Chrome/Firefox, mp4/AAC on Safari.
 
-### My notes (dancer inbox)
-- Every dancer has a personal inbox at `/my-notes` listing all notes assigned to them, across every rehearsal and team.
-- Notes are grouped by status bucket: **Open**, **In Progress**, **Addressed**, **Resolved**.
-- Each dancer independently updates the status of their own assignments.
-- Audience context chips (e.g. "Full cast") appear on each note so the dancer knows whether it was a section or individual note.
-- An "Edited" indicator appears on notes that have been modified after creation.
-- Voice notes play inline with an audio control (audio only on this page).
+### My notes (recipient inbox)
+- Every dancer has a personal work queue at `/my-notes` listing every note assigned to them across all rehearsals and teams.
+- Layout: a **left rail** with an "On your plate" count, a status breakdown, and From / Project / Type filters; a **queue** with an "Up next" hero card on top followed by collapsible status groups (Open, In progress, Addressed, Resolved).
+- "**Up next**" surfaces the **oldest unresolved** note (Open or In progress) so the dancer always knows what's been waiting longest. If a filter is applied, the hero updates to honor it.
+- Each card has an inline **status segmented control** (Open / In progress / Addressed / Resolved) — one click changes status, no dropdown — plus an "Open in rehearsal" link, the author's avatar, audience context chips ("Full cast", group, or "You"), and an "Edited" indicator if the note has been modified since creation.
+- The left-rail filters narrow the queue: pick one author, one project, or text vs. voice (each is a single-select toggle; clicking again clears it). The "On your plate" count updates with the filter; the filter-option counts stay stable so the dancer can see what each toggle would surface.
+- On mobile, From / Project / Type collapse behind a "Filters" disclosure with an active-filter count badge so the user reaches "Up next" sooner. "On your plate" and the status breakdown stay visible above the disclosure.
+- Voice notes play inline with the same coral-tinted player used elsewhere (audio only on this page; no video sync).
 
-### Notes by me (author dashboard)
-- Instructors and choreographers can view all notes they have authored at `/notes-by-me`.
-- Each note shows a progress counter (e.g. "12/20 addressed") across all recipients.
-- Filter by Outstanding, Complete, or Unassigned to focus on what still needs attention.
-- Edit or delete any note (text or voice) from this view; voice-note edits cover timestamps and audience only.
+### Notes by me (author follow-through dashboard)
+- Anyone who authors notes (Admin / Instructor / Assistant) sees a follow-through dashboard at `/notes-by-me`.
+- A **summary strip** at the top reports follow-through % across all recipients (with a stacked progress bar broken down by status), the count of **stalled** notes, and the count of **unassigned** notes (group / cast notes that haven't pinned a specific dancer yet).
+- A note is **stalled** when it was authored more than 3 days ago and at least one recipient is still Open or In progress. Stalled notes get a tinted card border, a "Stalled" chip in the header, and the OPEN recipient pips on those notes pick up the same tint to flag who is holding things up. Click "Triage now" in the summary strip to filter to just stalled notes.
+- A **filter + sort bar** offers `Outstanding / Stalled / Complete / Unassigned / All` with per-pill counts, plus a sort segmented control (`Stalled first / Most recent / Oldest`). Default view is Outstanding sorted Stalled-first.
+- Each card centers on the recipient list. A progress block shows `n/N addressed` + a stacked progress bar + a "Complete" badge when everyone has addressed or resolved the note. Below the bar is a row of recipient pips: avatar + name + status dot + status word for each assignee.
+- Authors edit body / start / end timestamps and audience, or delete any of their own notes via an overflow menu on each card. Audience changes diff-preserve dancers' existing statuses; voice-note edits cover timestamps and audience only (replacing audio means deleting the note and recording a new one).
+- A shared section tab nav at the top of `/my-notes` and `/notes-by-me` makes it easy to flip between the recipient and author views.
 
 ## Roles and permissions
 

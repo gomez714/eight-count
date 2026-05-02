@@ -10,6 +10,36 @@ export const DEFAULT_EXPANDED_STATUSES: Record<NoteStatus, boolean> = {
   RESOLVED: false,
 };
 
+export type MyNotesFilter = {
+  authorId: string | null;
+  projectId: string | null;
+  noteType: "TEXT" | "VOICE" | null;
+};
+
+export const EMPTY_FILTER: MyNotesFilter = {
+  authorId: null,
+  projectId: null,
+  noteType: null,
+};
+
+export type AuthorOption = {
+  id: string;
+  name: string;
+  email: string;
+  count: number;
+};
+
+export type ProjectOption = {
+  id: string;
+  title: string;
+  count: number;
+};
+
+export type TypeCounts = {
+  TEXT: number;
+  VOICE: number;
+};
+
 export type AssignedNoteTarget = {
   id: string;
   kind: "EVERYONE" | "GROUP" | "USER";

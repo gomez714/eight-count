@@ -1,28 +1,21 @@
 "use client";
 
-import { useTransition } from "react";
+import { ArrowRight, User } from "lucide-react";
 import Link from "next/link";
+import { useTransition } from "react";
+import type { CSSProperties } from "react";
 import { toast } from "sonner";
 
 import { AudienceChips } from "@/components/audience-chips";
+import { AvatarInitials } from "@/components/avatar-initials";
+import { NoteRehearsalLink } from "@/components/note-rehearsal-link";
+import { NoteTimestampPill } from "@/components/note-timestamp-pill";
 import { VoiceNotePlayer } from "@/app/rehearsals/[rehearsalId]/workspace/voice-note-player";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 import { updateNoteAssignmentStatus } from "./note-status-actions";
+import { StatusSegmented } from "./status-segmented";
 import {
-  NOTE_STATUSES,
   NOTE_STATUS_LABELS,
   type AssignedNoteRow,
   type NoteStatus,
@@ -30,46 +23,47 @@ import {
 
 type AssignedNoteCardProps = {
   row: AssignedNoteRow;
+  hero?: boolean;
 };
 
-function formatTimestamp(ms: number) {
-  const totalSeconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+function formatRelativeAge(date: Date): string {
+  const diffMs = Date.now() - date.getTime();
+  const diffSec = Math.max(0, Math.floor(diffMs / 1000));
+  if (diffSec < 60) return "just now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return new Intl.DateTimeFormat("en-US", { dateStyle: "medium" }).format(date);
 }
 
-export function AssignedNoteCard({ row }: AssignedNoteCardProps) {
+export function AssignedNoteCard({
+  row,
+  hero = false,
+}: Readonly<AssignedNoteCardProps>) {
   const [isPending, startTransition] = useTransition();
-
   const { note, status } = row;
-  const rehearsalDate = new Date(note.rehearsal.rehearsalDate);
 
-  // Show an "Edited" indicator when the note has been updated meaningfully
-  // after creation. Allow a small skew because Prisma stamps updatedAt on
-  // create as well, and clock granularity can produce tiny differences.
-  const noteUpdatedAt = new Date(note.updatedAt);
+  const isVoice = note.noteType === "VOICE";
+  const accent = isVoice ? "var(--note-voice-accent)" : "var(--primary)";
+
   const noteCreatedAt = new Date(note.createdAt);
-  const wasEdited =
-    noteUpdatedAt.getTime() - noteCreatedAt.getTime() > 1000;
+  const noteUpdatedAt = new Date(note.updatedAt);
+  const wasEdited = noteUpdatedAt.getTime() - noteCreatedAt.getTime() > 1000;
 
-  // Only EVERYONE / GROUP targets convey extra audience context here;
-  // an individual USER target is redundant (the note is in the user's
-  // own inbox precisely because they were targeted).
+  // The user's own USER target is implicit (the note is in their inbox);
+  // surface only EVERYONE / GROUP audience so they understand the broader scope.
   const audienceTargets = note.targets.filter(
     (target) => target.kind !== "USER"
   );
 
-  const handleStatusChange = (nextStatus: string) => {
-    if (nextStatus === status) {
-      return;
-    }
-
+  const handleStatusChange = (next: NoteStatus) => {
     startTransition(async () => {
       const result = await updateNoteAssignmentStatus({
         noteAssignmentId: row.id,
-        status: nextStatus as NoteStatus,
+        status: next,
       });
 
       if (result.error) {
@@ -77,88 +71,114 @@ export function AssignedNoteCard({ row }: AssignedNoteCardProps) {
         return;
       }
 
-      toast.success(
-        `Marked as ${NOTE_STATUS_LABELS[nextStatus as NoteStatus]}.`
-      );
+      toast.success(`Marked as ${NOTE_STATUS_LABELS[next]}.`);
     });
   };
 
-  return (
-    <Card>
-      <CardHeader className="gap-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0 space-y-1">
-            <p className="text-xs text-muted-foreground">
-              {note.rehearsal.project.team.name}
-            </p>
-            <CardTitle className="text-base">
-              <Link
-                href={`/rehearsals/${note.rehearsal.id}`}
-                className="hover:underline"
-              >
-                {note.rehearsal.project.title}
-                <span className="text-muted-foreground"> · </span>
-                {note.rehearsal.title}
-              </Link>
-            </CardTitle>
-            <p className="text-xs text-muted-foreground">
-              {new Intl.DateTimeFormat("en-US", {
-                dateStyle: "medium",
-              }).format(rehearsalDate)}
-              {" · "}
-              <span className="font-medium">
-                {formatTimestamp(note.startTimestampMs)}
-              </span>
-              {" · From "}
-              {note.author.name || note.author.email}
-              {wasEdited ? (
-                <>
-                  {" · "}
-                  <span
-                    className="italic"
-                    title={`Edited ${new Intl.DateTimeFormat("en-US", {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    }).format(noteUpdatedAt)}`}
-                  >
-                    Edited
-                  </span>
-                </>
-              ) : null}
-            </p>
-          </div>
+  const stripeStyle: CSSProperties = { backgroundColor: accent };
 
-          <Select
-            value={status}
-            onValueChange={handleStatusChange}
-            disabled={isPending}
-          >
-            <SelectTrigger size="sm" aria-label="Update note status">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {NOTE_STATUSES.map((option) => (
-                <SelectItem key={option} value={option}>
-                  {NOTE_STATUS_LABELS[option]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+  return (
+    <article
+      data-hero={hero ? "true" : undefined}
+      className={cn(
+        "relative overflow-hidden rounded-lg border bg-card",
+        hero && "border-primary/40 shadow-sm"
+      )}
+    >
+      <span aria-hidden className="absolute inset-y-0 left-0 w-[3px]" style={stripeStyle} />
+
+      <div
+        className={cn(
+          "flex flex-col gap-3",
+          hero ? "pl-6 pr-5 py-5" : "pl-5 pr-4 py-4"
+        )}
+      >
+        {/* Top meta: rehearsal context + timestamp + relative age */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <NoteRehearsalLink rehearsal={note.rehearsal} />
+          <NoteTimestampPill
+            timestampMs={note.startTimestampMs}
+            noteType={note.noteType}
+          />
+          <span className="ml-auto text-xs text-muted-foreground">
+            {formatRelativeAge(noteCreatedAt)}
+            {wasEdited ? (
+              <>
+                {" · "}
+                <span
+                  className="italic"
+                  title={`Edited ${new Intl.DateTimeFormat("en-US", {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  }).format(noteUpdatedAt)}`}
+                >
+                  Edited
+                </span>
+              </>
+            ) : null}
+          </span>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {note.noteType === "VOICE" && note.audioAsset ? (
+
+        {/* Author + audience */}
+        <div className="flex flex-wrap items-center gap-2">
+          <AvatarInitials
+            name={note.author.name}
+            fallback={note.author.email}
+            toneSeed={note.author.id}
+            size={22}
+          />
+          <span className="text-sm font-semibold">
+            {note.author.name || note.author.email}
+          </span>
+          <span aria-hidden className="text-xs text-muted-foreground">
+            →
+          </span>
+          {audienceTargets.length > 0 ? (
+            <AudienceChips targets={audienceTargets} className="gap-1" />
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground">
+              <User aria-hidden className="size-3" /> You
+            </span>
+          )}
+        </div>
+
+        {/* Body */}
+        {isVoice && note.audioAsset ? (
           <VoiceNotePlayer
             audioAssetId={note.audioAsset.id}
             durationMs={note.audioAsset.durationMs}
           />
         ) : (
-          <p className="text-sm whitespace-pre-wrap">{note.bodyText}</p>
+          <p
+            className={cn(
+              "whitespace-pre-wrap text-foreground",
+              hero ? "text-[15px] font-medium leading-relaxed" : "text-sm leading-relaxed"
+            )}
+          >
+            {note.bodyText}
+          </p>
         )}
-        {audienceTargets.length > 0 ? (
-          <AudienceChips targets={audienceTargets} />
-        ) : null}
-      </CardContent>
-    </Card>
+
+        {/* Action row: segmented + jump-to-rehearsal */}
+        <div className="flex flex-wrap items-center gap-2.5 border-t border-dashed border-border pt-3">
+          <span className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Mark as
+          </span>
+          <StatusSegmented
+            value={status}
+            onChange={handleStatusChange}
+            disabled={isPending}
+            size={hero ? "md" : "sm"}
+          />
+          <Link
+            href={`/rehearsals/${note.rehearsal.id}`}
+            className="ml-auto inline-flex items-center gap-1 text-xs font-semibold text-primary outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring rounded"
+          >
+            Open in rehearsal
+            <ArrowRight aria-hidden className="size-3" />
+          </Link>
+        </div>
+      </div>
+    </article>
   );
 }

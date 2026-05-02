@@ -209,12 +209,63 @@ The rehearsal page renders a context bar above the workspace and a sticky two-co
 
 ### Design tokens
 
-The status palette and voice-note accent are CSS variables in [app/globals.css](app/globals.css), defined in both `:root` and `.dark`:
+The status palette, voice-note accent, and avatar tones are CSS variables in [app/globals.css](app/globals.css), defined in both `:root` and `.dark`:
 
 - `--status-open-{bg,fg,border}`, `--status-progress-*`, `--status-addressed-*`, `--status-resolved-*` — derived from the existing teal primary so nothing reads as alarming.
 - `--note-voice-{accent,bg,border}` — coral, used for voice-note accent stripes, waveform bars, and recorder/preview chrome.
+- `--avatar-tone-{neutral,teal,coral,olive,plum}-{bg,fg}` — initials-avatar palette. Light mode is pale-bg + saturated-fg; dark mode is deep-tinted-bg + light-fg. `AvatarInitials` picks a tone deterministically by hashing `toneSeed` (typically a stable `userId`) so the same person reads with the same hue across pages.
 
-Use `var(--*)` directly (or `color-mix(in oklch, var(--*) X%, transparent)` for translucent tints) rather than hard-coding colors. New status states should be added by extending these tokens, not by introducing per-component palettes.
+Use `var(--*)` directly (or `color-mix(in oklch, var(--*) X%, transparent)` for translucent tints) rather than hard-coding colors. New status states or avatar tones should be added by extending these tokens, not by introducing per-component palettes.
+
+`ThemeProvider` ([components/theme-provider.tsx](components/theme-provider.tsx)) is built on `next-themes` with a `D` keyboard shortcut, but is currently **not mounted** in [app/layout.tsx](app/layout.tsx) — the `.dark` class never gets applied in production. The dark-mode tokens are defined and components reference them via `var(--*)`, so dark mode is "ready to ship" once the provider is wired up and a visible toggle is added.
+
+## My Notes UI
+
+`/my-notes` is the recipient inbox — optimized for clarity, ownership, and quick status updates. The user sees what they owe and can change a note's status with one click on an inline segmented control.
+
+| File | Responsibility |
+|---|---|
+| [app/my-notes/page.tsx](app/my-notes/page.tsx) | Server entry. Fetches via `getAssignedNotesForUser`, maps Prisma rows to flat `AssignedNoteRow[]` (no bucketing — the client owns that), renders `<SectionTabNav active="my-notes" />` + slim title bar + `<MyNotesList rows={rows} />`. |
+| [app/my-notes/my-notes-list.tsx](app/my-notes/my-notes-list.tsx) | Client orchestrator. Owns `MyNotesFilter` (authorId / projectId / noteType — all single-select toggles, AND-combined) and the per-status expanded state. Computes filter options from the full row set, applies the filter, picks the hero (**oldest unresolved**, sorted `createdAt` ASC across `OPEN` + `IN_PROGRESS`), buckets the rest by status, sorts each bucket newest-first. Layout: `lg:grid-cols-[240px_minmax(0,1fr)]` with sticky rail + queue. |
+| [app/my-notes/queue-summary.tsx](app/my-notes/queue-summary.tsx) | Sticky left rail. "On your plate" big number + status breakdown (filtered counts) + From / Project / Type filter sections. Below `lg`, From / Project / Type collapse behind a "Filters" disclosure with an active-filter count badge — initial open state is derived from whether any filter is currently active. The disclosure is a single `<div>` with `cn(open ? "flex" : "hidden", "lg:flex")` so `lg+` always shows everything regardless of mobile state. |
+| [app/my-notes/assigned-note-card.tsx](app/my-notes/assigned-note-card.tsx) | Per-row card with optional `hero` variant (used for "Up next"). Hierarchy: `NoteRehearsalLink` + `NoteTimestampPill` + relative age → author avatar + name + audience chips (or "You" pill when the only target is the implicit USER) → body (text or `VoiceNotePlayer` standalone) → `StatusSegmented` + "Open in rehearsal" anchor. The author's USER target is filtered out of audience chips because the note is in their inbox precisely *because* they were targeted. |
+| [app/my-notes/status-segmented.tsx](app/my-notes/status-segmented.tsx) | Inline 4-button radiogroup that's the primary interaction on every card. Active button picks up the per-status accent color from CSS tokens. Calls `updateNoteAssignmentStatus` via `useTransition` for an optimistic feel. |
+| [app/my-notes/note-status-actions.ts](app/my-notes/note-status-actions.ts) | `updateNoteAssignmentStatus` server action — unchanged across the redesign; status mutation flows through the same pipeline as before. |
+| [app/my-notes/types.ts](app/my-notes/types.ts) | `AssignedNoteRow`, `MyNotesFilter`, `EMPTY_FILTER`, `AuthorOption`, `ProjectOption`, `TypeCounts`, `DEFAULT_EXPANDED_STATUSES`. Re-exports `NOTE_STATUSES` / `NOTE_STATUS_LABELS` from `@/lib/notes/statuses`. |
+
+**Filter rule**: AND across categories. Each category is a single-select toggle (click again to clear). Rail counts: status breakdown reflects the **filtered** queue; From / Project / Type option counts are the **unfiltered** totals (so they stay stable as the user clicks).
+
+**Hero rule**: oldest unresolved (any `OPEN` or `IN_PROGRESS`) row in the filtered set. If the filter excludes all unresolved rows, no hero is rendered — only the status groups appear.
+
+## Notes By Me UI
+
+`/notes-by-me` is the author follow-through dashboard — optimized for progress visibility and triage. Per-recipient state is the visual focus, not the body text.
+
+| File | Responsibility |
+|---|---|
+| [app/notes-by-me/page.tsx](app/notes-by-me/page.tsx) | Server entry. Fetches via `getNotesByAuthor`, maps each note to `AuthoredNoteRow` with two derived fields computed once per request: `assignmentCounts` (per-status totals) and `stalled` (via `isNoteStalled` against a single `now` captured at the top of the handler). Renders `<SectionTabNav active="notes-by-me" />` + slim title bar + `<NotesByMeList notes={rows} />`. |
+| [app/notes-by-me/notes-by-me-list.tsx](app/notes-by-me/notes-by-me-list.tsx) | Client orchestrator. Owns `AuthoredNoteFilter` (`OUTSTANDING / STALLED / COMPLETE / UNASSIGNED / ALL`, default `OUTSTANDING`) and `AuthoredNoteSort` (`STALLED_FIRST / RECENT / OLDEST`, default `STALLED_FIRST`). Also owns the existing `EditNoteSheet` flow: opens the sheet, lazy-fetches `/api/rehearsals/[id]/audience`, submits `PATCH /api/notes/[noteId]`, and `router.refresh()` on success. Delete flow goes through `DELETE /api/notes/[noteId]` and refreshes. |
+| [app/notes-by-me/author-summary-strip.tsx](app/notes-by-me/author-summary-strip.tsx) | 3-column dashboard at the top: follow-through % + aggregate `<NoteProgressBar>` + visible-segment legend; stalled card (tinted `--status-progress-*` when count > 0) with optional `onJumpToStalled` callback (wired to set `filter = "STALLED"`); unassigned card. |
+| [app/notes-by-me/filter-sort-bar.tsx](app/notes-by-me/filter-sort-bar.tsx) | Filter pills (counts shown inside each pill; the STALLED pill takes the in-progress tint when count > 0 and inactive) + sort segmented (`STALLED_FIRST / RECENT / OLDEST`). |
+| [app/notes-by-me/authored-note-card.tsx](app/notes-by-me/authored-note-card.tsx) | Per-note triage row. Top row: rehearsal breadcrumb + accent timestamp pill + voice/text marker + Stalled chip + relative age + `NoteActionsMenu`. Body: `Sent to` + audience chips (USER targets filtered out) + clamped 2-line text or `VoiceNotePlayer` standalone. Progress block: `n/N addressed` + `<NoteProgressBar>` + Complete badge + `<RecipientPipRow>`. Unassigned notes show a dashed banner with an inline **Assign** button that opens `EditNoteSheet`. |
+| [app/notes-by-me/recipient-pip-row.tsx](app/notes-by-me/recipient-pip-row.tsx) | Per-assignment chip: `AvatarInitials` (toneSeed = `user.id`) + name + `StatusDot` + status word. When the parent note is stalled, OPEN pips pick up the in-progress tint to flag who is holding things up. |
+| [app/notes-by-me/types.ts](app/notes-by-me/types.ts) | `AuthoredNoteRow` (extends with `assignmentCounts` and `stalled`), `AuthoredAssignmentCounts`, `AuthoredNoteFilter`, `AuthoredNoteSort`, `AuthoredNoteAssignment`, `AuthoredNoteTarget`, `AuthoredNoteAudio`. |
+
+**Stalled derivation**: a note is stalled when `now - createdAt > 3 days` AND at least one assignment is `OPEN` or `IN_PROGRESS`. Threshold is `STALLED_THRESHOLD_DAYS` in [lib/notes/stalled.ts](lib/notes/stalled.ts). Computed server-side once per request so client filtering/sorting is just a boolean check.
+
+**Filter relationships**: STALLED is a strict subset of OUTSTANDING (a stalled note necessarily has at least one active assignment). `OUTSTANDING + COMPLETE + UNASSIGNED === ALL`.
+
+## Shared note primitives
+
+| File | Use |
+|---|---|
+| [components/note-progress-bar.tsx](components/note-progress-bar.tsx) | Stateless 4-segment stacked bar. Takes pre-aggregated `counts: Record<NoteStatus, number>` + optional `height`. Used by `NotesSummary` (workspace), `AuthorSummaryStrip`, and per-note `AuthoredNoteCard`. |
+| [components/avatar-initials.tsx](components/avatar-initials.tsx) | Initials avatar with deterministic tone hashing (DJB2 over `toneSeed` modulo 4 non-neutral tones). Uses `--avatar-tone-*` CSS variables so it adapts when `.dark` is applied. |
+| [components/note-rehearsal-link.tsx](components/note-rehearsal-link.tsx) | `project › rehearsal-title` breadcrumb link to `/rehearsals/[id]`. |
+| [components/note-timestamp-pill.tsx](components/note-timestamp-pill.tsx) | Accent-tinted mono pill (`var(--primary)` for text, `var(--note-voice-accent)` for voice). Renders as a `<button>` when `onClick` is set, otherwise a static `<span>`. |
+| [components/section-tab-nav.tsx](components/section-tab-nav.tsx) | Thin sub-nav (`My notes` / `Notes by me`) rendered below the global header on the two notes pages. Active tab is auto-derived from `pathname` but can be overridden. |
+| [lib/notes/format.ts](lib/notes/format.ts) | `formatNoteTimestamp(ms)` — single source of truth for `mm:ss` rendering across the app. The workspace's `./utils.ts` re-exports this as `formatTimestamp` so its many existing imports keep working. |
+| [lib/notes/stalled.ts](lib/notes/stalled.ts) | `isNoteStalled({ createdAt, assignments, now })` + `STALLED_THRESHOLD_DAYS = 3`. Pure, server- and client-safe; `now` is injectable so it's deterministic in tests. |
 
 ## Page Structure
 
@@ -223,8 +274,8 @@ Use `var(--*)` directly (or `color-mix(in oklch, var(--*) X%, transparent)` for 
 - `/teams/[teamId]` — Team overview, member management
 - `/projects/[projectId]` — Project details, rehearsal list, group management
 - `/rehearsals/[rehearsalId]` — Rehearsal workspace. Page header is a `RehearsalContextBar` (breadcrumb / title / role / meta); body is a sticky two-column workspace with the stage-plate video + density timeline on the left and a thread (progress spine, pill filters, note list, sticky composer) on the right. Voice-note playback is video-synced here. See "Rehearsal Workspace UI" above.
-- `/my-notes` — Dancer inbox: all notes assigned to current user, with status controls and "Edited" indicators. Voice notes play standalone (audio only)
-- `/notes-by-me` — Author view: all notes the current user created, with per-note progress metrics and edit/delete actions. Voice notes play standalone (audio only)
+- `/my-notes` — Recipient inbox / personal work queue. `SectionTabNav` + slim title bar, then a 2-column layout: sticky `QueueSummary` rail (240px on `lg+`, mobile-collapsing for From/Project/Type filters) + queue with an "Up next" hero (oldest unresolved note) and collapsible status groups. Each card uses an inline `StatusSegmented` radio control as the primary action. See "My Notes UI" below.
+- `/notes-by-me` — Author follow-through dashboard. `SectionTabNav` + slim title bar, then `AuthorSummaryStrip` (follow-through %, stalled, unassigned) + `FilterSortBar` (Outstanding / Stalled / Complete / Unassigned / All; sort: Stalled first / Most recent / Oldest) + a list of `AuthoredNoteCard`s with per-recipient pip rows. Stalled is computed server-side via [lib/notes/stalled.ts](lib/notes/stalled.ts) (`createdAt` older than 3 days AND any active assignment). See "Notes By Me UI" below.
 
 ## Key Conventions
 

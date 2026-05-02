@@ -97,6 +97,17 @@
     --note-voice-accent: oklch(0.6 0.15 30);
     --note-voice-bg: oklch(0.965 0.025 30);
     --note-voice-border: oklch(0.86 0.06 30);
+
+    --avatar-tone-neutral-bg: oklch(0.92 0.005 280);
+    --avatar-tone-neutral-fg: oklch(0.32 0.01 280);
+    --avatar-tone-teal-bg: oklch(0.93 0.04 220);
+    --avatar-tone-teal-fg: oklch(0.4 0.105 223);
+    --avatar-tone-coral-bg: oklch(0.93 0.04 30);
+    --avatar-tone-coral-fg: oklch(0.45 0.12 30);
+    --avatar-tone-olive-bg: oklch(0.93 0.04 130);
+    --avatar-tone-olive-fg: oklch(0.4 0.09 145);
+    --avatar-tone-plum-bg: oklch(0.93 0.04 320);
+    --avatar-tone-plum-fg: oklch(0.4 0.09 320);
 }
 
 .dark {
@@ -148,6 +159,17 @@
     --note-voice-accent: oklch(0.72 0.13 30);
     --note-voice-bg: oklch(0.27 0.04 30);
     --note-voice-border: oklch(0.4 0.07 30);
+
+    --avatar-tone-neutral-bg: oklch(0.3 0.005 280);
+    --avatar-tone-neutral-fg: oklch(0.78 0.01 280);
+    --avatar-tone-teal-bg: oklch(0.3 0.04 220);
+    --avatar-tone-teal-fg: oklch(0.8 0.08 220);
+    --avatar-tone-coral-bg: oklch(0.3 0.04 30);
+    --avatar-tone-coral-fg: oklch(0.8 0.08 30);
+    --avatar-tone-olive-bg: oklch(0.3 0.04 130);
+    --avatar-tone-olive-fg: oklch(0.8 0.08 130);
+    --avatar-tone-plum-bg: oklch(0.3 0.04 320);
+    --avatar-tone-plum-fg: oklch(0.8 0.08 320);
 }
 
 @layer base {
