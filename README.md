@@ -20,11 +20,29 @@ A web application for choreographers to leave time-stamped text and voice feedba
 ## Features
 
 ### Landing & onboarding
-- The **landing page** at `/` introduces the product to first-time visitors with a warm hero (headline + supporting copy + an inline mock note card built from the app's real primitives), a problem section, a three-step how-it-works flow, a four-feature grid, a role row, and a final CTA. Mobile-first responsive, all built from the same tokens as the rest of the app.
+- The **landing page** at `/` introduces the product to first-time visitors with a warm hero (headline + supporting copy + an inline mock note card built from the app's real primitives), a problem section, a three-step how-it-works flow, a four-feature grid, a role row, a **"Built for trust" section** explaining privacy and visibility, and a final CTA. The hero also carries a one-line beta-and-age disclaimer linking to `/privacy#who`. Mobile-first responsive, all built from the same tokens as the rest of the app. Footer carries a `Privacy` link.
 - **Sign in** at `/sign-in` and **sign up** at `/sign-up` are **fully headless** custom routes — Clerk handles the auth logic via its hooks (`useSignIn` / `useSignUp`), but every input, button, divider, and OAuth pill is built from the app's own components.
 - **Email + password** and **Google OAuth** are supported. Sign-up runs a two-step flow: enter email + password → enter the 6-digit verification code from your inbox → land on the dashboard. "Resend code" and "Use a different email" are inline.
+- **18+ gate at sign-up**: a small disclaimer card sits above both the OAuth button and the email/password form with a required *"I confirm I'm 18 or older"* checkbox. Both auth paths are blocked until it's checked. The card links to `/privacy#who` for the why.
 - **Deep-link preservation**: a signed-out user clicking a deep link (e.g. `/teams/abc`) is bounced to `/sign-in` by middleware and returned to that exact page after authenticating, instead of being forced into `/dashboard`.
 - After **sign-out**, users land on the landing page (`/`) — `<ClerkProvider afterSignOutUrl="/">`.
+
+### Privacy & trust (`/privacy`)
+A public privacy policy lives at `/privacy` — readable without an account. It's the canonical place where the beta's scope, data handling, and visibility model are spelled out.
+
+- **Who Eight Count is for** — the beta is currently limited to dancers 18 and over. The page explains the *why* (children's online services have to meet specific standards we haven't built yet — COPPA, state-level under-18 protections, content moderation) and what's on the roadmap (parental access, age-appropriate flows).
+- **What we store** — account info (email, name, profile image), team content (projects, rehearsals, notes, audiences, statuses), media (videos, voice recordings), activity timestamps.
+- **What we won't do** — no data sale, no AI training on your videos or voice recordings, no leaking team content outside the team.
+- **What we might do — with notice** — Eight Count may eventually train *internal* features (like stalled-note prediction or pattern detection) on anonymized notes and assignment activity. Videos are excluded. Anything new gets announced before it ships.
+- **Visibility by role** — a 4-row table (Admin / Instructor / Assistant / Dancer) showing what each role *sees* vs. *can write*. Within a team, every member sees every team member's notes — the role differences are about who can author, not who can read. "My notes" is yours alone (no instructor visibility); pending invitations are admin-only; nothing crosses team boundaries.
+- **Where your data lives** — a list of every vendor and a link to each one's privacy policy: Clerk (auth), Google Cloud Storage (media), Neon (database), Resend (invitation emails).
+- **Your data, your control** — how to update profile info, request deletion, and contact us. (User-initiated deletion / export flows are on the roadmap; for now it's an email channel.)
+
+The same role-visibility split is also surfaced contextually in the product — every role chip on the team page is a popover trigger that shows the role's *Sees* + *Can do* breakdown without leaving the page.
+
+**Two top-of-file constants in [app/privacy/page.tsx](app/privacy/page.tsx) need updates over time**:
+- `LAST_UPDATED` — bump whenever the policy text changes.
+- `CONTACT_EMAIL` — currently the project owner's personal address (`lgomez00714@gmail.com`). Swap to a domain-hosted privacy@ inbox once Eight Count has its own domain.
 
 ### Theme toggle
 - Three-state **Light / Dark / System** dropdown in the global header. Defaults to `system` on first visit (follows OS preference) and persists user choice afterward.

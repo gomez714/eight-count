@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/popover";
 
 import {
-  ROLE_DESCRIPTION,
+  ROLE_INFO,
   ROLE_LABEL,
   RoleChip,
   type TeamRole,
@@ -23,7 +23,8 @@ type RoleChipPopoverProps = {
 
 /**
  * RoleChip wrapped in a popover that explains the role.
- * Replaces the persistent role glossary by surfacing context where it's asked.
+ * Surfaces "what this role sees" and "what this role can do" so users get
+ * the visibility/permissions split inline rather than reading a separate doc.
  */
 export function RoleChipPopover({
   role,
@@ -31,25 +32,38 @@ export function RoleChipPopover({
   className,
   ariaLabel,
 }: Readonly<RoleChipPopoverProps>) {
+  const info = ROLE_INFO[role];
+
   return (
     <Popover>
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={ariaLabel ?? `${ROLE_LABEL[role]} — what this role can do`}
+          aria-label={ariaLabel ?? `${ROLE_LABEL[role]} — what this role sees and can do`}
           className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <RoleChip role={role} size={size} className={className} />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" sideOffset={6} className="w-64 p-3">
-        <div className="flex flex-col gap-2">
+      <PopoverContent align="start" sideOffset={6} className="w-72 p-3">
+        <div className="flex flex-col gap-2.5">
           <div className="flex items-center gap-2">
             <RoleChip role={role} />
           </div>
-          <p className="text-[12.5px] leading-snug text-muted-foreground">
-            {ROLE_DESCRIPTION[role]}
-          </p>
+          <dl className="flex flex-col gap-2 text-[12.5px] leading-snug">
+            <div className="flex flex-col gap-0.5">
+              <dt className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Sees
+              </dt>
+              <dd className="text-foreground/90">{info.sees}</dd>
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <dt className="text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Can do
+              </dt>
+              <dd className="text-foreground/90">{info.canDo}</dd>
+            </div>
+          </dl>
         </div>
       </PopoverContent>
     </Popover>

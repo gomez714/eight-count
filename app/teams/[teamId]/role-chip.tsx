@@ -40,11 +40,30 @@ export const ROLE_LABEL: Record<TeamRole, string> = {
   DANCER: "Dancer",
 };
 
-export const ROLE_DESCRIPTION: Record<TeamRole, string> = {
-  ADMIN: "Full control — invite members, create projects, change roles.",
-  INSTRUCTOR: "Runs rehearsals, leaves notes, shapes the work.",
-  ASSISTANT: "Supports rehearsals, can leave notes.",
-  DANCER: "Receives notes, addresses them.",
+export type RoleInfo = {
+  /** What this role sees in the team workspace. */
+  sees: string;
+  /** What this role can write or change. */
+  canDo: string;
+};
+
+export const ROLE_INFO: Record<TeamRole, RoleInfo> = {
+  ADMIN: {
+    sees: "Everything in the team — members, pending invitations, projects, rehearsals, and notes.",
+    canDo: "Manage members and invitations, create projects, rehearsals, and notes.",
+  },
+  INSTRUCTOR: {
+    sees: "All team content.",
+    canDo: "Create projects, rehearsals, and notes.",
+  },
+  ASSISTANT: {
+    sees: "All team content.",
+    canDo: "Create rehearsals and notes.",
+  },
+  DANCER: {
+    sees: "Rehearsal videos and all notes (use the “@ me” filter to focus on just yours).",
+    canDo: "Update status on notes assigned to you.",
+  },
 };
 
 type RoleChipProps = {

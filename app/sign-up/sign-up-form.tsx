@@ -28,6 +28,14 @@ const signUpSchema = z.object({
     .string()
     .min(8, "Password must be at least 8 characters.")
     .max(72, "Password is too long."),
+  // Eight Count is currently restricted to adult users (18+) — see /privacy
+  // ("Who Eight Count is for"). The checkbox is the lightweight gate; the
+  // disclaimer in the form copy reinforces the requirement upstream.
+  confirmAdult: z
+    .boolean()
+    .refine((value) => value === true, {
+      message: "Please confirm you're 18 or older.",
+    }),
 });
 
 type SignUpFormValues = z.infer<typeof signUpSchema>;
@@ -125,13 +133,26 @@ function CreateAccountStep({
     register,
     handleSubmit,
     setError,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<SignUpFormValues>({
     resolver: zodResolver(signUpSchema),
-    defaultValues: { emailAddress: prefilledEmail ?? "", password: "" },
+    defaultValues: {
+      emailAddress: prefilledEmail ?? "",
+      password: "",
+      confirmAdult: false,
+    },
   });
 
+  const isAdultConfirmed = watch("confirmAdult");
+
   const handleGoogle = async () => {
+    if (!isAdultConfirmed) {
+      setError("confirmAdult", {
+        message: "Please confirm you're 18 or older.",
+      });
+      return;
+    }
     const errorMessage = await onGoogle();
     if (errorMessage) {
       setError("root", { message: errorMessage });
@@ -156,6 +177,42 @@ function CreateAccountStep({
         <p className="text-sm text-muted-foreground">
           Eight Count is in beta — get your team in early.
         </p>
+      </div>
+
+      {/* Beta + age confirmation. Gates both Google OAuth and email sign-up:
+          handleGoogle short-circuits if the box is unchecked, and Zod
+          validation on form submit enforces the same requirement. */}
+      <div className="flex flex-col gap-2.5 rounded-md border bg-card/40 p-3">
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Eight Count is in beta and currently limited to dancers 18 and over.{" "}
+          <Link
+            href="/privacy"
+            className="font-medium text-foreground underline decoration-dotted underline-offset-4 hover:decoration-solid"
+          >
+            Why?
+          </Link>
+        </p>
+        <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5 size-4 shrink-0 cursor-pointer accent-primary"
+            disabled={isBusy}
+            aria-invalid={!!errors.confirmAdult}
+            aria-describedby={
+              errors.confirmAdult ? "confirm-adult-error" : undefined
+            }
+            {...register("confirmAdult")}
+          />
+          <span className="text-foreground">I confirm I&apos;m 18 or older.</span>
+        </label>
+        {errors.confirmAdult ? (
+          <p
+            id="confirm-adult-error"
+            className="text-xs text-destructive"
+          >
+            {errors.confirmAdult.message}
+          </p>
+        ) : null}
       </div>
 
       <Button

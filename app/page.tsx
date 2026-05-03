@@ -1,11 +1,15 @@
 import { SignInButton, SignUpButton } from "@clerk/nextjs";
 import {
   ArrowRight,
+  Eye,
   Inbox,
+  Lock,
   Mic,
+  ShieldCheck,
   Target,
   TimerReset,
 } from "lucide-react";
+import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 
 import { NoteMockup } from "./landing/note-mockup";
@@ -24,7 +28,9 @@ export default function Page() {
       <HowItWorksSection />
       <FeaturesSection />
       <RolesSection />
+      <BuiltForTrustSection />
       <FinalCtaSection />
+      <SiteFooter />
     </main>
   );
 }
@@ -71,6 +77,23 @@ function Hero() {
               </button>
             </SignInButton>
           </div>
+
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            <span
+              className="font-semibold tracking-wider uppercase"
+              style={PRIMARY_INLINE}
+            >
+              Beta
+            </span>{" "}
+            · designed for adult dance teams (18+) — college, conservatory,
+            and professional companies.{" "}
+            <Link
+              href="/privacy#who"
+              className="font-medium text-foreground underline decoration-dotted underline-offset-4 hover:decoration-solid"
+            >
+              Why?
+            </Link>
+          </p>
         </div>
 
         <div className="lg:pl-4">
@@ -217,6 +240,58 @@ function RolesSection() {
   );
 }
 
+function BuiltForTrustSection() {
+  return (
+    <section className="border-b">
+      <div className="mx-auto w-full max-w-6xl px-4 py-16 sm:px-6 sm:py-24">
+        <div className="flex flex-col gap-10 sm:gap-14">
+          <div className="flex max-w-2xl flex-col gap-2">
+            <span className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+              Built for trust
+            </span>
+            <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+              Your team&rsquo;s work stays in your team.
+            </h2>
+            <p className="pt-2 text-base leading-relaxed text-muted-foreground sm:text-lg">
+              No public profiles, no cross-team feed, no data sold to anyone.
+              Here&rsquo;s how that holds up in practice.
+            </p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <TrustPoint
+              icon={<Lock aria-hidden className="size-4" />}
+              title="Per-team workspaces"
+              body="Only the people you invite see your rehearsals, notes, and recipient lists. There&rsquo;s no discoverable public layer."
+            />
+            <TrustPoint
+              icon={<Eye aria-hidden className="size-4" />}
+              title="Private media"
+              body="Videos and voice recordings live in private cloud storage and only stream through 60-minute signed links — they can&rsquo;t be shared by URL outside the app."
+            />
+            <TrustPoint
+              icon={<ShieldCheck aria-hidden className="size-4" />}
+              title="What we won&rsquo;t do"
+              body="We don&rsquo;t sell your data. Your videos are never used to train AI models. If we ever train internal features on anonymized notes, we&rsquo;ll tell you first."
+            />
+          </div>
+
+          <p className="text-sm text-muted-foreground">
+            <Link
+              href="/privacy"
+              className="font-medium text-foreground underline decoration-dotted underline-offset-4 hover:decoration-solid"
+            >
+              Read the full privacy details
+            </Link>{" "}
+            — including who sees what by role and a list of every vendor that
+            touches your data.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function FinalCtaSection() {
   return (
     <section className="bg-card">
@@ -234,9 +309,28 @@ function FinalCtaSection() {
               Get started
             </button>
           </SignUpButton>
+          <p className="pt-2 text-xs text-muted-foreground">
+            For dancers 18 and over.
+          </p>
         </div>
       </div>
     </section>
+  );
+}
+
+function SiteFooter() {
+  return (
+    <footer className="border-t bg-background">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-4 py-8 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <p>© Eight Count · in beta</p>
+        <Link
+          href="/privacy"
+          className="font-medium text-foreground underline decoration-dotted underline-offset-4 hover:decoration-solid"
+        >
+          Privacy
+        </Link>
+      </div>
+    </footer>
   );
 }
 
@@ -339,6 +433,33 @@ function RoleCard({ role, body }: Readonly<RoleCardProps>) {
     <article className="flex flex-col gap-3 rounded-lg border bg-card p-5">
       <RoleChip role={role} size="md" />
       <p className="text-sm leading-relaxed text-muted-foreground">{body}</p>
+    </article>
+  );
+}
+
+type TrustPointProps = {
+  icon: ReactNode;
+  title: string;
+  body: string;
+};
+
+function TrustPoint({ icon, title, body }: Readonly<TrustPointProps>) {
+  return (
+    <article className="flex flex-col gap-3 rounded-lg border bg-card p-5 sm:p-6">
+      <span
+        className="inline-flex size-8 items-center justify-center rounded-md"
+        style={{
+          backgroundColor:
+            "color-mix(in oklch, var(--primary) 12%, transparent)",
+          color: "var(--primary)",
+        }}
+      >
+        {icon}
+      </span>
+      <h3 className="text-base font-semibold sm:text-lg">{title}</h3>
+      <p className="text-sm leading-relaxed text-muted-foreground sm:text-base">
+        {body}
+      </p>
     </article>
   );
 }
