@@ -1,7 +1,8 @@
-import { Storage } from "@google-cloud/storage";
+import { Storage, type StorageOptions } from "@google-cloud/storage";
 
 const bucketName = process.env.GCS_BUCKET_NAME;
 const projectId = process.env.GOOGLE_CLOUD_PROJECT_ID;
+const serviceAccountJson = process.env.GCP_SA_KEY_JSON;
 
 if (!bucketName) {
   throw new Error("GCS_BUCKET_NAME is not set");
@@ -11,9 +12,17 @@ if (!projectId) {
   throw new Error("GOOGLE_CLOUD_PROJECT_ID is not set");
 }
 
-export const storage = new Storage({
-  projectId,
-});
+const storageOptions: StorageOptions = { projectId };
+
+if (serviceAccountJson) {
+  try {
+    storageOptions.credentials = JSON.parse(serviceAccountJson);
+  } catch {
+    throw new Error("GCP_SA_KEY_JSON is set but is not valid JSON");
+  }
+}
+
+export const storage = new Storage(storageOptions);
 
 export const gcsBucket = storage.bucket(bucketName);
 
