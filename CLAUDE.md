@@ -96,6 +96,8 @@ Use `get*ForUser()` functions that verify access through the ownership chain:
 
 All return `null` if unauthorized. Never skip these and query directly.
 
+**Asset uploaders own completion**: The `POST /api/video-assets/[id]/complete` and `POST /api/audio-assets/[id]/complete` endpoints gate on `uploadedByUserId === currentUser` rather than team membership. The companion upload-URL endpoints already gate on the relevant author/manager role at upload time, so the uploader-only check is the natural narrow gate for the second half of the two-step flow — preventing other team members (even other authors) from completing someone else's in-flight upload.
+
 ## Role-Based Permissions
 
 | Action | ADMIN | INSTRUCTOR | ASSISTANT | DANCER |
@@ -143,10 +145,10 @@ REST endpoints under `app/api/`:
 - `DELETE /api/notes/[noteId]` — delete note and all its targets/assignments; also deletes the linked `AudioAsset` row for voice notes (author-only)
 - `GET /api/rehearsals/[rehearsalId]/audience` — list all audience members and project groups for the target picker UI
 - `POST /api/rehearsals/[rehearsalId]/video/upload-url` — generate GCS signed upload URL for video (staff roles only; mp4 / mov / webm)
-- `POST /api/video-assets/[videoAssetId]/complete` — mark video upload complete
+- `POST /api/video-assets/[videoAssetId]/complete` — mark video upload complete (**uploader-only**: caller must equal `videoAsset.uploadedByUserId`)
 - `GET /api/rehearsals/[rehearsalId]/video/playback-url` — get signed video playback URL (1-hr expiry)
 - `POST /api/rehearsals/[rehearsalId]/audio/upload-url` — generate GCS signed upload URL for a voice-note audio asset (staff roles only; 25 MB cap; webm/mp4/ogg/mpeg)
-- `POST /api/audio-assets/[audioAssetId]/complete` — mark audio upload complete and store `durationMs`
+- `POST /api/audio-assets/[audioAssetId]/complete` — mark audio upload complete and store `durationMs` (**uploader-only**: caller must equal `audioAsset.uploadedByUserId`)
 - `GET /api/audio-assets/[audioAssetId]/playback-url` — get signed audio playback URL (1-hr expiry); fetched lazily on first play
 
 Request/response types: [lib/api/contracts.ts](lib/api/contracts.ts) and [lib/api/responses.ts](lib/api/responses.ts). Create/update note request bodies are discriminated unions (`CreateTextNoteRequest | CreateVoiceNoteRequest`).
@@ -190,6 +192,8 @@ Mime detection: prefers `audio/webm;codecs=opus`, falls back through `audio/webm
 
 The UI is a custom transport — coral-tinted pill with a circular play / pause button, a 32-bar decorative waveform that fills as playback progresses, and a mono duration label. The native `<audio>` element is still in the DOM (with `ref` + event handlers) but its `controls` are hidden; click-on-bars seeks. The recorder preview state in [voice-note-recorder.tsx](app/rehearsals/[rehearsalId]/workspace/voice-note-recorder.tsx) uses the same transport via a local `PreviewPlayer` component (it shows `current / total` time since the verify-before-save flow benefits from precise feedback). The waveform bars are *decorative only* — heights come from a static `Math.sin`-based formula, not real audio analysis.
 
+**Mobile sticky video during sync playback**: while a synced voice note is playing on mobile, the rehearsal video pins to the top of the viewport so the user can keep watching while scrolling the notes thread. Mechanism: each `VoiceNotePlayer` calls `onSyncPlaybackChange(audioAssetId, isPlaying)` from `handleAudioPlay` (when sync engages) and from `stopSync` (when audio pauses, ends, the video is paused, or the player unmounts). The workspace tracks a `Set<string>` of currently-syncing asset IDs so overlapping playback decrements correctly. When the set is non-empty, a wrapper around `RehearsalVideoCard` picks up `max-lg:sticky max-lg:top-0 max-lg:z-20`. Because CSS Grid items only sticky within their cell, the workspace switches the outer container from `grid` to `flex` on mobile and applies `display: contents` to the left-column wrapper so the video and timeline become direct flex children — that makes the video's containing block the entire column, allowing sticky to span the full notes thread. On `lg+` the layout reverts to grid and the existing column-sticky behavior is unchanged.
+
 ## Rehearsal Workspace UI
 
 The rehearsal page renders a context bar above the workspace and a sticky two-column workspace beneath it. All client state — playback URL, scrubbing, audience selection, edit-modal, voice flow — lives in [workspace/rehearsal-workspace.tsx](app/rehearsals/[rehearsalId]/workspace/rehearsal-workspace.tsx). The other workspace components are presentational and receive props.
@@ -205,7 +209,7 @@ The rehearsal page renders a context bar above the workspace and a sticky two-co
 | [workspace/notes-list-card.tsx](app/rehearsals/[rehearsalId]/workspace/notes-list-card.tsx) | Filter pill row (`ALL / OPEN / IN_PROGRESS / ADDRESSED / RESOLVED / UNASSIGNED / VOICE / MINE`) + assignee dropdown + thread of `NoteRow`s. Pills show precomputed counts; status filters match notes that have *any* assignment with the given status. |
 | [workspace/add-note-card.tsx](app/rehearsals/[rehearsalId]/workspace/add-note-card.tsx) | Sticky composer. Sub-bar with mode tabs, audience popover (wraps the existing `AudiencePicker`), and a locked-timestamp pill that re-captures the current playhead on click (replaces the old standalone "Capture current timestamp" button). |
 | [workspace/audience-picker.tsx](app/rehearsals/[rehearsalId]/workspace/audience-picker.tsx) | Combobox-style picker (full-cast quick action, groups, individuals). Now rendered inside the composer's audience popover and inside `EditNoteSheet`. |
-| [workspace/status-chip.tsx](app/rehearsals/[rehearsalId]/workspace/status-chip.tsx) | Per-recipient status chip (`name + 7px dot + status label`). Exports `StatusDot` for reuse (used by `notes-summary.tsx`). |
+| [workspace/status-chip.tsx](app/rehearsals/[rehearsalId]/workspace/status-chip.tsx) | Per-recipient status chip (`name + 7px dot + status label`). Capped at `max-w-full` with `min-w-0 truncate` on the label and `shrink-0` on the dot/status word, so long names or emails truncate with `…` instead of overflowing the parent card; full label is exposed via `title=` for hover/long-press. Exports `StatusDot` for reuse (used by `notes-summary.tsx`). |
 
 ### Design tokens
 
@@ -296,6 +300,43 @@ Use `var(--*)` directly (or `color-mix(in oklch, var(--*) X%, transparent)` for 
 
 **Stalled count per rehearsal**: same `isNoteStalled` helper as `/notes-by-me`, with `now = new Date()` injected once per request.
 
+## Global App Header & Team Switcher
+
+The persistent header lives in [components/app-header.tsx](components/app-header.tsx) and is mounted once in [app/layout.tsx](app/layout.tsx). It renders on every page (signed-in or not), but the team switcher and team-aware data fetching only kick in when the user is signed in.
+
+| File | Responsibility |
+|---|---|
+| [components/app-header.tsx](components/app-header.tsx) | **Server component**. Reads pathname from `headers().get("x-pathname")`, runs `getCurrentDbUser()` to check auth, then in parallel fetches `getTeamsForUser(dbUser.id)` and `resolveCurrentTeamId(pathname, dbUser.id)`. Renders the brand link, signed-in/out gates, and Clerk's `UserButton` as plain server JSX, plus `<TeamSwitcher teams={...} currentTeamId={...} />` as the lone client island. |
+| [components/team-switcher.tsx](components/team-switcher.tsx) | **Client component**. Radix `<Popover>` trigger (avatar + truncated team name + role chip + chevron) → list of all teams the user belongs to (each row uses `<AvatarInitials toneSeed={team.id}>` + `<RoleChip>`, current team gets a check) → "+ Create team" footer that opens a `<Dialog>` wrapping the chromeless `CreateTeamForm`. Trigger truncates at `max-w-56`; role chip hides below `sm:`. |
+| [lib/teams/get-teams-for-user.ts](lib/teams/get-teams-for-user.ts) | One Prisma query joining `TeamMember → Team`, returns `{ id, name, role }[]` ordered by membership creation desc. Exports `TeamSwitcherTeam` type. |
+| [lib/teams/resolve-current-team-id.ts](lib/teams/resolve-current-team-id.ts) | Pure pathname → teamId resolver. Handles `/teams/[id]` (direct), `/projects/[id]` (looks up `project.teamId`), `/rehearsals/[id]` (looks up `rehearsal.project.teamId`). Each lookup verifies team membership in the same query so the switcher never highlights a team the viewer can't access. Returns `null` on cross-team or unauth pages. |
+| [proxy.ts](proxy.ts) | Extends `clerkMiddleware` to forward `req.nextUrl.pathname` as an `x-pathname` request header via `NextResponse.next({ request: { headers: ... } })`. This is the load-bearing piece that lets the server-rendered `AppHeader` know what page it's on. |
+
+**Architecture rationale**: keeping the header on the server (with a client island for the popover/dialog) means the team list is baked into the HTML at first paint — no fetch-on-mount, no loading flash, no skeleton state. The `x-pathname` header trick exists because Next.js doesn't expose pathname to server components natively, and we want full URL detection without resorting to client-side fetches for `/projects` and `/rehearsals` pages.
+
+**Create-team flow**: the dialog reuses [app/dashboard/create-team-form.tsx](app/dashboard/create-team-form.tsx) which is **chromeless** (no `Card` wrapper) and accepts `onSuccess({ teamId, teamName })` / `onCancel`. The same form is used in `<NewTeamButton>` on the dashboard. After creation, the switcher closes the dialog and navigates to `/teams/[newTeamId]` so the user lands in their fresh admin context. The `createTeam` server action returns `{ success, teamId, error? }` — the `teamId` enables this navigation.
+
+## Dashboard UI
+
+`/dashboard` is the signed-in home — the only page that aggregates *across* teams. Cohesive with the rest of the app's vocabulary: edge-to-edge meta band on top, mobile-first responsive, compact rows, sections own their actions.
+
+| File | Responsibility |
+|---|---|
+| [app/dashboard/page.tsx](app/dashboard/page.tsx) | Server entry. Three parallel Prisma queries: memberships with team + projects (with most-recent rehearsal date per project), my `NoteAssignment`s (for "on plate" count), and notes I authored (for total + stalled count). Aggregates per-team rows (`TeamRowData` with project count and `lastActivityAt = max(rehearsalDate)`), `MyNotesMetrics`, and `NotesByMeMetrics`. Computes `showNotesByMe` from whether the user has any membership with an authoring role. Renders `<DashboardMetaBand />` above `<main>` containing `<WorkTiles />` + `<TeamsSection />`. |
+| [app/dashboard/dashboard-meta-band.tsx](app/dashboard/dashboard-meta-band.tsx) | Edge-to-edge `bg-card` band. "Welcome back, {firstName}" or just "Welcome back" if `dbUser.name` is empty (no email-fallback — emails can be weird). Meta strip with `MetaChip`s for Teams + On your plate. Mobile collapses chips into compact `[icon] {value} {label}` form on a single line, drops the `border-t` separator, and shrinks the title to `text-xl`. |
+| [app/dashboard/work-tiles.tsx](app/dashboard/work-tiles.tsx) | Two-up `<Link>` tiles (`grid-cols-2` at every viewport — they're dense enough to fit on mobile, much better than the old single-column big cards). Each tile: icon + uppercase eyebrow + big tabular number + descriptor. Notes-by-me also surfaces a tinted "M stalled" pill (using `--status-progress-*`) when `stalled > 0`, and the whole tile picks up a soft progress-tint background to flag it. Empty values get a friendlier line ("All caught up", "Nothing assigned yet"). The Notes-by-me tile is omitted entirely when `showNotesByMe` is false (pure-dancer users). |
+| [app/dashboard/team-row.tsx](app/dashboard/team-row.tsx) | Single-column compact `<Link>` row matching the `RehearsalRow` / `ProjectRow` family: `<AvatarInitials size={40} toneSeed={team.id}>` + name + meta line ("**N projects · last active 2d ago**" — falls back to "no projects yet" or "no rehearsals yet" when relevant) + `<RoleChip>` + chevron. Local `formatRelative` follows the same pattern other rows use. |
+| [app/dashboard/teams-section.tsx](app/dashboard/teams-section.tsx) | Section header ("Your teams" + helper line + `<NewTeamButton />`) above the row list. When the user has no teams, renders a generous empty-state panel with a primary `Create your first team` CTA (`navigateOnSuccess` so first-time users land directly in their new team). |
+| [app/dashboard/new-team-button.tsx](app/dashboard/new-team-button.tsx) | Client `<Dialog>` trigger wrapping the chromeless `CreateTeamForm`. Two variants: section-header default (small outline button, refresh on success so the new row appears) and empty-state primary (default size, navigates to the new team on success). Same form, same dialog shape as the team switcher's create flow. |
+| [app/dashboard/create-team-form.tsx](app/dashboard/create-team-form.tsx) | Chromeless form (no `Card` wrapper). Accepts `onSuccess({ teamId, teamName })` / `onCancel`. Reused by the team switcher's Create-team dialog. |
+| [app/dashboard/types.ts](app/dashboard/types.ts) | `TeamRowData`, `MyNotesMetrics` (`onPlate`, `total`), `NotesByMeMetrics` (`total`, `stalled`). |
+
+**`onPlate` derivation**: count of `NoteAssignment`s where `(status?.status ?? "OPEN")` is OPEN or IN_PROGRESS — same active-status definition as everywhere else (via `isActiveStatus` from [lib/notes/statuses.ts](lib/notes/statuses.ts)).
+
+**`stalled` derivation**: same `isNoteStalled` helper used on `/notes-by-me` and `/projects/[id]`, called once per request with a single shared `now`. Each authored note is tested against its (lazily fetched) assignments + statuses.
+
+**Layout**: the meta band is full-width edge-to-edge; the main body is constrained by `mx-auto max-w-5xl` with `p-4 sm:p-6` and `gap-6 sm:gap-8`. Tiles stack inside a 2-col grid; team rows stay single-column on all sizes for parity with the other list-style sections in the app.
+
 ## Shared note primitives
 
 | File | Use |
@@ -310,8 +351,10 @@ Use `var(--*)` directly (or `color-mix(in oklch, var(--*) X%, transparent)` for 
 
 ## Page Structure
 
+Every signed-in page sits below a persistent global `<AppHeader>` (brand + team switcher + UserButton) — see "Global App Header & Team Switcher" above.
+
 - `/` — Landing (unauthenticated)
-- `/dashboard` — Team list + create team
+- `/dashboard` — Signed-in home. `DashboardMetaBand` ("Welcome back, {firstName}" + cross-team meta strip) above `WorkTiles` (2-up "My notes" / "Notes by me" tiles with real metrics) and `TeamsSection` (compact team rows with role chip + activity meta + `+ New team` button, or generous empty-state CTA). Only page that aggregates across teams. See "Dashboard UI" below.
 - `/teams/[teamId]` — Team organizational home. `TeamMetaBand` (breadcrumb, mark, title, role popover, desktop meta strip with Members / Projects / Created / role glance / Your role) above a single-column `TeamMobileTabs` shell that renders `<ProjectsSection />` + `<MembersSection />`. Mobile gets a `Projects (N) / Members (N)` segmented switcher. Header carries no CTAs — each section owns its action. Role chips are popover triggers for contextual role explanations. See "Team Page UI" below.
 - `/projects/[projectId]` — Project home and structural bridge into the workspace. `ProjectMetaBand` (breadcrumb, title + status pill, meta chips, "Manage cast" / "New rehearsal") above a two-column layout: rehearsals spine on the left (`RehearsalRow`s with date plate, status mini-bar, stalled chips) + a compact `ProjectGroupsSection` rail on the right. On mobile a `ProjectMobileTabs` segmented switcher (`Rehearsals (N)` / `Groups (N)`) toggles between the two so only one renders at a time. See "Project Page UI" below.
 - `/rehearsals/[rehearsalId]` — Rehearsal workspace. Page header is a `RehearsalContextBar` (breadcrumb / title / role / meta); body is a sticky two-column workspace with the stage-plate video + density timeline on the left and a thread (progress spine, pill filters, note list, sticky composer) on the right. Voice-note playback is video-synced here. See "Rehearsal Workspace UI" above.

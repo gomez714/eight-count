@@ -17,6 +17,17 @@ A web application for choreographers to leave time-stamped text and voice feedba
 
 ## Features
 
+### Dashboard
+The dashboard at `/dashboard` is the signed-in home — the only page that aggregates *across* teams.
+
+- **Personal hero band** with a "Welcome back, {firstName}" greeting (falls back to "Welcome back" when no name is set) plus a meta strip showing total teams and your across-team "on your plate" count.
+- **Work tiles**, two-up at every viewport: **My notes** shows how many assignments are active for you; **Notes by me** shows how many notes you've authored with a tinted "stalled" pill when any are stalled. The Notes-by-me tile only appears for users who are Admin / Instructor / Assistant in at least one team.
+- **Your teams** as a single-column list of compact rows: team initials avatar (deterministic color), team name, "N projects · last active {relative date}" meta, role chip, chevron. Each row links to the team's organizational home.
+- **+ New team** button in the section header opens a dialog with the same form used elsewhere in the app. When the user has no teams, a generous empty-state panel surfaces a "Create your first team" CTA that drops the user straight into the new workspace after creation.
+
+### Global navigation
+The app header is persistent across every signed-in page. The left side carries the brand mark and a **team switcher** showing the current team's name + role chip; clicking it opens a popover that lists every team you belong to (with role chip per row), navigates on selection, and provides an inline "+ Create team" footer for spinning up a new workspace without leaving the page. The current team is detected from the URL (works on `/teams/[id]`, `/projects/[id]`, and `/rehearsals/[id]`); on cross-team pages (`/dashboard`, `/my-notes`, `/notes-by-me`) the switcher reads "Switch team". The right side hosts your account / sign-out via Clerk's `UserButton`.
+
 ### Teams
 - Create a team and invite members by email.
 - Assign each member a role: **Admin**, **Instructor**, **Assistant**, or **Dancer**.
@@ -76,6 +87,7 @@ The rehearsal page is a sticky two-column workspace anchored at the top by a con
 - The recording's `startTimestampMs` is the video position when the countdown ends; `endTimestampMs` is captured when the author clicks Stop (or the 2-minute cap auto-stops). The video is paused at the end position so the author can see where the take wraps up.
 - The preview UI is a coral-tinted player (decorative-bar waveform, play / pause button, current-time / total-time mono display) wired to play **in sync with the video**: the video rewinds to the recording's start and plays alongside the audio so the author can confirm alignment before saving. **Re-record** discards the blob without uploading; **Save** uploads the audio to Google Cloud Storage via signed URL and creates the note.
 - Saved voice notes use the same decorative-bar player throughout the app. In the rehearsal workspace it runs in sync mode (video seeks to the recording start, mutes, and plays alongside the audio); on `/my-notes` and `/notes-by-me` the audio plays standalone. Manually pausing the video also pauses the audio in sync mode.
+- On mobile, the rehearsal video pins to the top of the viewport during synced voice playback so the user can keep watching while scrolling further down the notes thread. It returns to normal flow when playback ends, pauses, or the user navigates away.
 - To replace the audio of an existing voice note, delete it and record a new one — voice-note edits cover timestamps and audience only.
 - Recording requires Chrome, Firefox, or recent Safari (MediaRecorder support). The mic format is auto-detected: webm/opus on Chrome/Firefox, mp4/AAC on Safari.
 
