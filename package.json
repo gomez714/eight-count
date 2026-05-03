@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:backfill-onboarding": "tsx scripts/backfill-onboarding-state.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.2.7",
@@ -49,6 +50,7 @@
     "prettier-plugin-tailwindcss": "^0.7.2",
     "prisma": "^7.8.0",
     "tailwindcss": "^4.2.1",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }
 }

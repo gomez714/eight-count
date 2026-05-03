@@ -14,6 +14,9 @@ npm run build        # Production build
 npx prisma migrate dev    # Create and apply a migration
 npx prisma generate       # Regenerate Prisma client after schema changes
 npx prisma studio         # Open database GUI
+
+npm run db:backfill-onboarding  # One-shot script: mark active users as already-onboarded.
+                                # See "Onboarding tour" below.
 ```
 
 ## Environment Variables
@@ -206,6 +209,7 @@ Action files live alongside their route pages:
 | `app/projects/[projectId]/actions.ts` | `createRehearsal()` |
 | `app/projects/[projectId]/group-actions.ts` | `createProjectGroup()`, `updateProjectGroupMembers()`, `deleteProjectGroup()` |
 | `app/my-notes/note-status-actions.ts` | `updateNoteAssignmentStatus()` |
+| `app/dashboard/onboarding-actions.ts` | `dismissChecklistAction()`, `skipChecklistStepAction(stepKey)`, `dismissTipGroupAction(group)`, `restartOnboardingAction()` |
 
 All follow this pattern:
 
@@ -409,7 +413,8 @@ The persistent header lives in [components/app-header.tsx](components/app-header
 
 | File | Responsibility |
 |---|---|
-| [app/dashboard/page.tsx](app/dashboard/page.tsx) | Server entry. Three parallel Prisma queries: memberships with team + projects (with most-recent rehearsal date per project), my `NoteAssignment`s (for "on plate" count), and notes I authored (for total + stalled count). Aggregates per-team rows (`TeamRowData` with project count and `lastActivityAt = max(rehearsalDate)`), `MyNotesMetrics`, and `NotesByMeMetrics`. Computes `showNotesByMe` from whether the user has any membership with an authoring role. Renders `<DashboardMetaBand />` above `<main>` containing `<WorkTiles />` + `<TeamsSection />`. |
+| [app/dashboard/page.tsx](app/dashboard/page.tsx) | Server entry. Three parallel Prisma queries: memberships with team + projects (with most-recent rehearsal date per project + `_count.members` and `_count.invitations` for the onboarding checklist's "Invite a teammate" derivation), my `NoteAssignment`s (for "on plate" count), and notes I authored (for total + stalled count). Aggregates per-team rows (`TeamRowData` with project count and `lastActivityAt = max(rehearsalDate)`), `MyNotesMetrics`, `NotesByMeMetrics`, and the onboarding `ChecklistInput`. Computes `showNotesByMe` from whether the user has any membership with an authoring role. Renders `<DashboardMetaBand />` above `<main>` containing `<OnboardingChecklist />` + `<WorkTiles />` + `<TeamsSection />`. See "Onboarding tour" below for the checklist. |
+| [app/dashboard/onboarding-checklist.tsx](app/dashboard/onboarding-checklist.tsx) | Client checklist card slotted above `WorkTiles`. See "Onboarding tour" below for behavior, state machine, and per-step skip semantics. |
 | [app/dashboard/dashboard-meta-band.tsx](app/dashboard/dashboard-meta-band.tsx) | Edge-to-edge `bg-card` band. "Welcome back, {firstName}" or just "Welcome back" if `dbUser.name` is empty (no email-fallback — emails can be weird). Meta strip with `MetaChip`s for Teams + On your plate. Mobile collapses chips into compact `[icon] {value} {label}` form on a single line, drops the `border-t` separator, and shrinks the title to `text-xl`. |
 | [app/dashboard/work-tiles.tsx](app/dashboard/work-tiles.tsx) | Two-up `<Link>` tiles (`grid-cols-2` at every viewport — they're dense enough to fit on mobile, much better than the old single-column big cards). Each tile: icon + uppercase eyebrow + big tabular number + descriptor. Notes-by-me also surfaces a tinted "M stalled" pill (using `--status-progress-*`) when `stalled > 0`, and the whole tile picks up a soft progress-tint background to flag it. Empty values get a friendlier line ("All caught up", "Nothing assigned yet"). The Notes-by-me tile is omitted entirely when `showNotesByMe` is false (pure-dancer users). |
 | [app/dashboard/team-row.tsx](app/dashboard/team-row.tsx) | Single-column compact `<Link>` row matching the `RehearsalRow` / `ProjectRow` family: `<AvatarInitials size={40} toneSeed={team.id}>` + name + meta line ("**N projects · last active 2d ago**" — falls back to "no projects yet" or "no rehearsals yet" when relevant) + `<RoleChip>` + chevron. Local `formatRelative` follows the same pattern other rows use. |
@@ -451,6 +456,72 @@ The persistent header lives in [components/app-header.tsx](components/app-header
 
 **Vocabulary**: "notes" is the artifact (used in eyebrow, subhead, features, steps, roles); "feedback" is the abstract concept / activity (used only in the headline wordplay and the problem/final-CTA emotional beats). Mirrors how the product itself uses the words.
 
+## Onboarding tour
+
+A lightweight, dismissible **dashboard checklist** plus per-page **contextual tips** help new users get oriented without forcing a modal walkthrough. Built on the principle that progressive disclosure outperforms forced tours: low skip rate, just-in-time learning, easy to extend.
+
+### Data model
+
+A single nullable JSON column on `User` holds every dismissal flag — no separate table. Defensive parsing in [lib/onboarding/state.ts](lib/onboarding/state.ts) means a malformed blob never crashes the app.
+
+```ts
+type OnboardingState = {
+  checklistDismissedAt?: string;                         // ISO; user clicked "Hide"
+  checklistStepsSkipped?: Record<string, string>;        // ChecklistStepKey → ISO
+  tipsDismissed?: Partial<Record<TipGroupKey, string>>;  // "workspace" / "myNotes" → ISO
+};
+```
+
+`ensureDbUser()` only writes `email` / `name` / `imageUrl`, so Clerk syncs never clobber `onboardingState`.
+
+**Step "done" is derived from real data**, not stored separately. Once the user invites a teammate, the row checks itself off automatically. This keeps the data model tiny and prevents drift between stored flags and reality. The `checklistStepsSkipped` flag is a fallback — used only when the user explicitly waves a step off without doing it.
+
+### Checklist (`/dashboard`)
+
+| File | Responsibility |
+|---|---|
+| [lib/onboarding/state.ts](lib/onboarding/state.ts) | Type, defensive parser (factored into small `asStringRecord` / `pickStringEntries` / `pickAllStringEntries` helpers to keep cognitive complexity low), async helpers (`dismissChecklist`, `skipChecklistStep`, `dismissTipGroup`, `resetOnboarding`). Uses `Prisma.DbNull` (not literal `null`) to clear the JSON column. |
+| [lib/onboarding/derive-checklist.ts](lib/onboarding/derive-checklist.ts) | Pure function `deriveChecklist(input)`. Six steps: `join-team`, `invite-teammate`, `add-project`, `create-rehearsal`, `leave-note`, `check-inbox`. Each step has `visible` (role-gated — e.g. `invite-teammate` only shown to admins, `leave-note` only to staff roles) and `done` (data-derived) booleans plus a deep-link `href`. Exports `CHECKLIST_STEP_KEYS` const array + `isChecklistStepKey` type guard for runtime validation in the server action. |
+| [app/dashboard/onboarding-actions.ts](app/dashboard/onboarding-actions.ts) | `dismissChecklistAction()`, `skipChecklistStepAction(stepKey)` (validates the key via `isChecklistStepKey`), `dismissTipGroupAction(group)`, `restartOnboardingAction()` (clears the entire `onboardingState` — the single-action replay path). |
+| [app/dashboard/onboarding-checklist.tsx](app/dashboard/onboarding-checklist.tsx) | Client card slotted above `<WorkTiles>`. Header (Sparkles eyebrow + title + dismiss `×`), progress bar (filled by done + skipped count), and an `<ol>` of step rows. Each row is a `<Link>` to `step.href` with a sibling **Skip** button (when `!step.done && !skipped`). Skipped rows render with a dashed-circle indicator + muted title + italic "Skipped — tap to revisit" line; they remain clickable, and once the underlying action is done, the data-derived `done` state takes precedence over the skip. |
+
+**State machine**:
+- `!isDismissed && !isComplete` → full checklist visible.
+- `!isDismissed && isComplete` → "You're all set" celebratory state with manual dismiss `×`.
+- `isDismissed && !isComplete` → slim "Onboarding hidden — Show again" line. Clicking "Show again" calls `restartOnboardingAction()` which clears the entire `onboardingState` — both the checklist *and* tip-group flags reset, so workspace + my-notes tips return too. Skip flags are also cleared.
+- `isDismissed && isComplete` → renders nothing (per v1; replay is intentionally limited to the incomplete-dismissed window).
+
+`isComplete` counts skipped rows as done — the user has explicitly waved them off, so the checklist clears even on the solo-explorer path (e.g. they skip "Invite a teammate" because they're just trying it out).
+
+**Skip-aware completion math**: `isEffectivelyDone(step) = step.done || skippedKeys.has(step.key)`. Used both for the progress bar's `doneCount` and the `isComplete` check. The dashboard's `page.tsx` builds the typed `Set<ChecklistStepKey>` from `onboardingState.checklistStepsSkipped`, filtering through `isChecklistStepKey` so stale keys (e.g. from a renamed step) don't leak in.
+
+### Contextual tips
+
+Tip popovers appear on `/rehearsals/[id]` (3 tips: timeline / composer / notes list) and on `/my-notes` (2 tips: Up-next hero / filter rail). Each surface is a "tip group" (`workspace` or `myNotes`) that dismisses as a unit.
+
+| File | Responsibility |
+|---|---|
+| [components/onboarding/contextual-tip.tsx](components/onboarding/contextual-tip.tsx) | Portaled, fixed-positioned popover with edge-aware placement (above/below depending on viewport space), pointer triangle aligned to the anchor's center, "Tip n of N" eyebrow, body, **Skip / Got it** (or **Next**) buttons, and an `<AnchorHighlight>` ring around the anchor element. Position-tracking via `getBoundingClientRect()` + `ResizeObserver` + capturing `scroll` listener (catches ancestor-scroll events). Renders nothing during SSR (`typeof document === "undefined"`) or while `coords` is unresolved — no separate `mounted` flag needed. Uses `--popover` / `--primary` tokens so it adapts to dark mode. |
+| [components/onboarding/tip-sequence.tsx](components/onboarding/tip-sequence.tsx) | Controller. Takes `groupKey`, `steps[]` (with `anchorSelector` strings), `initiallyDismissed`, and optional `enabled` gate. On each step, queries `document.querySelector(step.anchorSelector)` with retry (~3s of 100ms attempts) — if the anchor never appears, advances to the next step (or dismisses the group if it was the last) rather than blocking. Calls `dismissTipGroupAction(groupKey)` via `useTransition` on Skip / final Got it. |
+
+**Anchor pattern**: tips anchor via `data-onboarding-anchor="key"` attributes on existing wrapper elements. No ref-drilling into existing components — keeps the workspace and my-notes components clean. Anchors used:
+- `workspace-timeline`, `workspace-composer`, `workspace-notes` (rehearsal workspace, mounted in [rehearsal-workspace.tsx](app/rehearsals/[rehearsalId]/workspace/rehearsal-workspace.tsx))
+- `my-notes-hero`, `my-notes-rail` ([my-notes-list.tsx](app/my-notes/my-notes-list.tsx))
+
+**Mounting gates**:
+- Workspace tips: `canAuthorNotes && playbackUrl !== null` — pure dancers don't get the workspace tour (the composer anchor only exists for note-authors); staff don't see it until the video URL resolves so the timeline anchor isn't pointing at empty chrome.
+- My-notes tips: `rows.length > 0` — empty inbox skips the tour entirely (the hero anchor isn't rendered when there are no notes).
+
+The page server entries ([app/rehearsals/[rehearsalId]/page.tsx](app/rehearsals/[rehearsalId]/page.tsx) / [app/my-notes/page.tsx](app/my-notes/page.tsx)) read `dbUser.onboardingState`, parse it via `parseOnboardingState`, and pass `tipsDismissed` flags down to the client components as boolean props.
+
+### Backfill for existing users
+
+The migration only adds the column. Marking existing active users as already-onboarded happens in a separate runnable script so it doesn't ship as part of the schema change.
+
+[scripts/backfill-onboarding-state.ts](scripts/backfill-onboarding-state.ts) — `npm run db:backfill-onboarding` (uses `tsx` as a devDep). Marks every user with prior activity (`TeamMember`, `Note`, or `NoteAssignment` row) as having dismissed the checklist and all tip groups. **Idempotent**: re-runs only update users whose state hasn't been backfilled yet (parsed `checklistDismissedAt` is empty).
+
+The script has a `SKIP_EMAILS` array at the top of the file, defaulted to test-account emails (currently `lgomez00714@gmail.com`). Anyone listed there is *not* marked as dismissed even if they have activity — useful for walking through onboarding with an account that already has rehearsals / notes / etc. **Clear that list before running in production**, otherwise listed users will see the tour despite being established users.
+
 ## Page Structure
 
 Every page sits below a persistent global `<AppHeader>` (brand + team switcher when signed in + theme toggle + UserButton or sign-in/up buttons) — see "Global App Header & Team Switcher" above.
@@ -460,11 +531,11 @@ Every page sits below a persistent global `<AppHeader>` (brand + team switcher w
 - `/sign-up/[[...sign-up]]` — Headless sign-up. Two-step flow (create account → 6-digit email verification code). Reads `?email=` query param; when present, the email field is pre-filled and `readOnly` (used by the team-invitation flow to lock new accounts to the invited address). See "Auth UI" above.
 - `/sign-in/sso-callback` — OAuth return handler. Renders `<AuthenticateWithRedirectCallback />` plus a centered loader.
 - `/invite/[token]` — Team invitation acceptance. Public route (not gated by `proxy.ts`). Server-rendered with one of: signed-out invite card (Create account / Sign in CTAs that preserve the invite URL via `?redirect_url=`), accept card (matching email), wrong-account card (mismatched email — sign out + retry), or info card (not found / expired / revoked / accepted). See "Team Invitations" above.
-- `/dashboard` — Signed-in home. `DashboardMetaBand` ("Welcome back, {firstName}" + cross-team meta strip) above `WorkTiles` (2-up "My notes" / "Notes by me" tiles with real metrics) and `TeamsSection` (compact team rows with role chip + activity meta + `+ New team` button, or generous empty-state CTA). Only page that aggregates across teams. See "Dashboard UI" below.
+- `/dashboard` — Signed-in home. `DashboardMetaBand` ("Welcome back, {firstName}" + cross-team meta strip) above `OnboardingChecklist` (dismissible role-gated tour for new users), `WorkTiles` (2-up "My notes" / "Notes by me" tiles with real metrics), and `TeamsSection` (compact team rows with role chip + activity meta + `+ New team` button, or generous empty-state CTA). Only page that aggregates across teams. See "Dashboard UI" and "Onboarding tour" below.
 - `/teams/[teamId]` — Team organizational home. `TeamMetaBand` (breadcrumb, mark, title, role popover, desktop meta strip with Members / Projects / Created / role glance / Your role) above a single-column `TeamMobileTabs` shell that renders `<ProjectsSection />` + `<MembersSection />`. Mobile gets a `Projects (N) / Members (N)` segmented switcher. Header carries no CTAs — each section owns its action. Role chips are popover triggers for contextual role explanations. See "Team Page UI" below.
 - `/projects/[projectId]` — Project home and structural bridge into the workspace. `ProjectMetaBand` (breadcrumb, title + status pill, meta chips, "Manage cast" / "New rehearsal") above a two-column layout: rehearsals spine on the left (`RehearsalRow`s with date plate, status mini-bar, stalled chips) + a compact `ProjectGroupsSection` rail on the right. On mobile a `ProjectMobileTabs` segmented switcher (`Rehearsals (N)` / `Groups (N)`) toggles between the two so only one renders at a time. See "Project Page UI" below.
-- `/rehearsals/[rehearsalId]` — Rehearsal workspace. Page header is a `RehearsalContextBar` (breadcrumb / title / role / meta); body is a sticky two-column workspace with the stage-plate video + density timeline on the left and a thread (progress spine, pill filters, note list, sticky composer) on the right. Voice-note playback is video-synced here. See "Rehearsal Workspace UI" above.
-- `/my-notes` — Recipient inbox / personal work queue. `SectionTabNav` + slim title bar, then a 2-column layout: sticky `QueueSummary` rail (240px on `lg+`, mobile-collapsing for From/Project/Type filters) + queue with an "Up next" hero (oldest unresolved note) and collapsible status groups. Each card uses an inline `StatusSegmented` radio control as the primary action. See "My Notes UI" below.
+- `/rehearsals/[rehearsalId]` — Rehearsal workspace. Page header is a `RehearsalContextBar` (breadcrumb / title / role / meta); body is a sticky two-column workspace with the stage-plate video + density timeline on the left and a thread (progress spine, pill filters, note list, sticky composer) on the right. Voice-note playback is video-synced here. First-time note-authors see a 3-step `TipSequence` (timeline / composer / notes thread) once the video URL resolves — see "Onboarding tour" below. See "Rehearsal Workspace UI" above.
+- `/my-notes` — Recipient inbox / personal work queue. `SectionTabNav` + slim title bar, then a 2-column layout: sticky `QueueSummary` rail (240px on `lg+`, mobile-collapsing for From/Project/Type filters) + queue with an "Up next" hero (oldest unresolved note) and collapsible status groups. Each card uses an inline `StatusSegmented` radio control as the primary action. First-time visitors with at least one assigned note see a 2-step `TipSequence` (Up-next hero / filter rail) — see "Onboarding tour" below. See "My Notes UI" below.
 - `/notes-by-me` — Author follow-through dashboard. `SectionTabNav` + slim title bar, then `AuthorSummaryStrip` (follow-through %, stalled, unassigned) + `FilterSortBar` (Outstanding / Stalled / Complete / Unassigned / All; sort: Stalled first / Most recent / Oldest) + a list of `AuthoredNoteCard`s with per-recipient pip rows. Stalled is computed server-side via [lib/notes/stalled.ts](lib/notes/stalled.ts) (`createdAt` older than 3 days AND any active assignment). See "Notes By Me UI" below.
 
 ## Key Conventions

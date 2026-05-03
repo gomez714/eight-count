@@ -28,6 +28,7 @@ import {
   type EditNoteFormValues,
   type EditableNote,
 } from "@/components/edit-note-sheet"
+import { TipSequence, type TipStep } from "@/components/onboarding/tip-sequence"
 
 import { AddNoteCard } from "./add-note-card"
 import { NotesListCard } from "./notes-list-card"
@@ -45,7 +46,26 @@ type RehearsalWorkspaceProps = {
   availableGroups: AvailableGroup[]
   canAuthorNotes: boolean
   currentUserId: string
+  workspaceTipsDismissed: boolean
 }
+
+const WORKSPACE_TIP_STEPS: TipStep[] = [
+  {
+    anchorSelector: "[data-onboarding-anchor='workspace-timeline']",
+    title: "Scrub anywhere on the timeline",
+    body: "The bars beneath show where notes already exist — taller bars mean more feedback in that moment.",
+  },
+  {
+    anchorSelector: "[data-onboarding-anchor='workspace-composer']",
+    title: "Drop a note on the current frame",
+    body: "Pick who it's for — full cast, a group, or specific dancers — then write a text note or record a voice note.",
+  },
+  {
+    anchorSelector: "[data-onboarding-anchor='workspace-notes']",
+    title: "Track feedback as you work through it",
+    body: "Filter by status, voice notes, or notes you authored. Each note shows who's still working on it.",
+  },
+]
 
 function toEditableNote(note: NoteItem): EditableNote {
   return {
@@ -98,6 +118,7 @@ export function RehearsalWorkspace({
   availableGroups,
   canAuthorNotes,
   currentUserId,
+  workspaceTipsDismissed,
 }: RehearsalWorkspaceProps) {
   const router = useRouter()
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -484,35 +505,42 @@ export function RehearsalWorkspace({
               onCurrentTimeChange={setCurrentPlaybackMs}
             />
           </div>
-          <RehearsalTimelineCard
-            timelineRef={timelineRef}
-            currentPlaybackMs={currentPlaybackMs}
-            videoDurationMs={videoDurationMs}
-            notes={sortedNotes}
-            onJumpToTimestamp={jumpToTimestamp}
-            onTimelinePointerDown={handleTimelinePointerDown}
-            onTimelinePointerMove={handleTimelinePointerMove}
-            onTimelinePointerEnd={handleTimelinePointerEnd}
-          />
+          <div data-onboarding-anchor="workspace-timeline">
+            <RehearsalTimelineCard
+              timelineRef={timelineRef}
+              currentPlaybackMs={currentPlaybackMs}
+              videoDurationMs={videoDurationMs}
+              notes={sortedNotes}
+              onJumpToTimestamp={jumpToTimestamp}
+              onTimelinePointerDown={handleTimelinePointerDown}
+              onTimelinePointerMove={handleTimelinePointerMove}
+              onTimelinePointerEnd={handleTimelinePointerEnd}
+            />
+          </div>
         </div>
 
         {/* RIGHT — thread column: spine, filter+list card, sticky composer */}
         <div className="flex min-w-0 flex-col gap-4">
           <NotesSummary notes={sortedNotes} />
 
-          <NotesListCard
-            notes={sortedNotes}
-            assignableMembers={assignableMembers}
-            currentUserId={currentUserId}
-            videoRef={videoRef}
-            onJumpToTimestamp={jumpToTimestamp}
-            onEditNote={handleOpenEdit}
-            onDeleteNote={handleDeleteNote}
-            onSyncPlaybackChange={handleSyncPlaybackChange}
-          />
+          <div data-onboarding-anchor="workspace-notes">
+            <NotesListCard
+              notes={sortedNotes}
+              assignableMembers={assignableMembers}
+              currentUserId={currentUserId}
+              videoRef={videoRef}
+              onJumpToTimestamp={jumpToTimestamp}
+              onEditNote={handleOpenEdit}
+              onDeleteNote={handleDeleteNote}
+              onSyncPlaybackChange={handleSyncPlaybackChange}
+            />
+          </div>
 
           {canAuthorNotes ? (
-            <div className="sticky bottom-4 z-10">
+            <div
+              data-onboarding-anchor="workspace-composer"
+              className="sticky bottom-4 z-10"
+            >
               <AddNoteCard
                 rehearsalId={rehearsalId}
                 videoRef={videoRef}
@@ -560,6 +588,16 @@ export function RehearsalWorkspace({
         isPending={isEditPending}
         errorMessage={editError}
         onSubmit={handleSubmitEdit}
+      />
+
+      <TipSequence
+        groupKey="workspace"
+        steps={WORKSPACE_TIP_STEPS}
+        initiallyDismissed={workspaceTipsDismissed}
+        // Only run for note-authoring roles (the composer step's anchor only
+        // exists when canAuthorNotes), and only after the video URL resolves
+        // so the timeline anchor isn't pointing at an empty stage.
+        enabled={canAuthorNotes && playbackUrl !== null}
       />
     </>
   )

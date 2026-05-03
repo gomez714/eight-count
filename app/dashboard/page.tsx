@@ -5,8 +5,19 @@ import { ensureDbUser } from "@/lib/auth/ensure-db-user";
 import { db } from "@/lib/db";
 import { isNoteStalled } from "@/lib/notes/stalled";
 import { isActiveStatus, type NoteStatus } from "@/lib/notes/statuses";
+import {
+  deriveChecklist,
+  isChecklistStepKey,
+  type ChecklistInputMembership,
+  type ChecklistStepKey,
+} from "@/lib/onboarding/derive-checklist";
+import {
+  isChecklistDismissed,
+  parseOnboardingState,
+} from "@/lib/onboarding/state";
 
 import { DashboardMetaBand } from "./dashboard-meta-band";
+import { OnboardingChecklist } from "./onboarding-checklist";
 import { TeamsSection } from "./teams-section";
 import type {
   MyNotesMetrics,
@@ -48,9 +59,15 @@ export default async function DashboardPage() {
                 rehearsals: {
                   orderBy: { rehearsalDate: "desc" },
                   take: 1,
-                  select: { rehearsalDate: true },
+                  select: { id: true, rehearsalDate: true },
                 },
               },
+            },
+            // Used by the onboarding checklist to derive
+            // "Invite a teammate" completion (any other member or any
+            // invitation in a team the user admins).
+            _count: {
+              select: { members: true, invitations: true },
             },
           },
         },
@@ -130,6 +147,50 @@ export default async function DashboardPage() {
 
   const displayName = pickFirstName(dbUser.name);
 
+  // Onboarding checklist: build the typed input from the data we already have.
+  const checklistMemberships: ChecklistInputMembership[] = memberships.map(
+    (m) => ({
+      role: m.role,
+      team: {
+        id: m.team.id,
+        projects: m.team.projects.map((p) => ({
+          id: p.id,
+          rehearsals: p.rehearsals.map((r) => ({ id: r.id })),
+        })),
+      },
+    })
+  );
+
+  const hasInvitedOrSecondMember = memberships.some(
+    (m) =>
+      m.role === "ADMIN" &&
+      // _count.members includes the viewer themselves, so >1 means at least one other member.
+      (m.team._count.members > 1 || m.team._count.invitations > 0)
+  );
+  const hasAuthoredNote = authoredNotes.length > 0;
+  const hasUpdatedAnyAssignmentStatus = myAssignments.some(
+    (a) => a.status !== null
+  );
+
+  const checklistSteps = deriveChecklist({
+    memberships: checklistMemberships,
+    hasInvitedOrSecondMember,
+    hasAuthoredNote,
+    myAssignmentCount: myAssignments.length,
+    hasUpdatedAnyAssignmentStatus,
+  });
+
+  const onboardingState = parseOnboardingState(dbUser.onboardingState);
+
+  // Build the typed Set of skipped step keys, defensively filtering through
+  // `isChecklistStepKey` in case stale keys hang around in the JSON blob
+  // (e.g. a step was renamed and the user's old skip is still in the DB).
+  const skippedKeys = new Set<ChecklistStepKey>(
+    Object.keys(onboardingState.checklistStepsSkipped ?? {}).filter(
+      isChecklistStepKey
+    )
+  );
+
   return (
     <>
       <DashboardMetaBand
@@ -139,6 +200,12 @@ export default async function DashboardPage() {
       />
 
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-6 sm:gap-8">
+        <OnboardingChecklist
+          steps={checklistSteps}
+          isDismissed={isChecklistDismissed(onboardingState)}
+          skippedKeys={skippedKeys}
+        />
+
         <WorkTiles
           myNotes={myNotes}
           notesByMe={notesByMe}

@@ -3,6 +3,10 @@ import { Film } from "lucide-react"
 import { notFound, redirect } from "next/navigation"
 
 import { ensureDbUser } from "@/lib/auth/ensure-db-user"
+import {
+  isTipGroupDismissed,
+  parseOnboardingState,
+} from "@/lib/onboarding/state"
 import { getRehearsalForUser } from "@/lib/rehearsals/get-rehearsal-for-user"
 
 import { RehearsalActionsMenu } from "./rehearsal-actions-menu"
@@ -48,6 +52,11 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
   const canManageVideo = isStaff
   const hasVideo = !!rehearsal.videoAsset
 
+  const workspaceTipsDismissed = isTipGroupDismissed(
+    parseOnboardingState(dbUser.onboardingState),
+    "workspace"
+  )
+
   return (
     <>
       <RehearsalContextBar
@@ -84,6 +93,7 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
             fileName={rehearsal.videoAsset.originalFileName}
             canAuthorNotes={canAuthorNotes}
             currentUserId={dbUser.id}
+            workspaceTipsDismissed={workspaceTipsDismissed}
             assignableMembers={rehearsal.project.team.members.map(
               (member) => ({
                 id: member.user.id,

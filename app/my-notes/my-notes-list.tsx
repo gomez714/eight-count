@@ -4,6 +4,7 @@ import { ChevronDown, Zap } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
+import { TipSequence, type TipStep } from "@/components/onboarding/tip-sequence";
 import {
   NOTE_STATUSES,
   NOTE_STATUS_LABELS,
@@ -46,7 +47,21 @@ const STATUS_BORDER: Record<NoteStatus, string> = {
 
 type MyNotesListProps = {
   rows: AssignedNoteRow[];
+  tipsDismissed: boolean;
 };
+
+const MY_NOTES_TIP_STEPS: TipStep[] = [
+  {
+    anchorSelector: "[data-onboarding-anchor='my-notes-hero']",
+    title: "Your oldest unresolved note",
+    body: "Up next is what we surface first — work through it, then tap a status below the body to update it. The change saves immediately.",
+  },
+  {
+    anchorSelector: "[data-onboarding-anchor='my-notes-rail']",
+    title: "Filter when you need focus",
+    body: "Narrow down by who sent it, what project it belongs to, or text vs. voice. Counts on the left always reflect the filtered queue.",
+  },
+];
 
 function rowMatchesFilter(row: AssignedNoteRow, filter: MyNotesFilter): boolean {
   if (filter.authorId && row.note.author.id !== filter.authorId) return false;
@@ -138,7 +153,10 @@ function StatusGroup({
   );
 }
 
-export function MyNotesList({ rows }: Readonly<MyNotesListProps>) {
+export function MyNotesList({
+  rows,
+  tipsDismissed,
+}: Readonly<MyNotesListProps>) {
   const [filter, setFilter] = useState<MyNotesFilter>(EMPTY_FILTER);
   const [expanded, setExpanded] = useState<Record<NoteStatus, boolean>>(
     DEFAULT_EXPANDED_STATUSES
@@ -237,9 +255,13 @@ export function MyNotesList({ rows }: Readonly<MyNotesListProps>) {
     filter.authorId !== null || filter.projectId !== null || filter.noteType !== null;
 
   return (
+    <>
     <div className="mx-auto grid w-full max-w-7xl gap-8 px-6 py-6 lg:grid-cols-[240px_minmax(0,1fr)]">
       {/* Left rail */}
-      <aside className="lg:sticky lg:top-4 lg:self-start">
+      <aside
+        data-onboarding-anchor="my-notes-rail"
+        className="lg:sticky lg:top-4 lg:self-start"
+      >
         <QueueSummary
           statusCounts={statusCounts}
           authorOptions={authorOptions}
@@ -271,7 +293,10 @@ export function MyNotesList({ rows }: Readonly<MyNotesListProps>) {
           <>
             {/* Hero "Up next" */}
             {heroRow ? (
-              <section className="flex flex-col gap-3">
+              <section
+                data-onboarding-anchor="my-notes-hero"
+                className="flex flex-col gap-3"
+              >
                 <div className="flex flex-wrap items-center gap-2.5">
                   <span className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-background">
                     <Zap aria-hidden className="size-3" /> Up next
@@ -302,5 +327,16 @@ export function MyNotesList({ rows }: Readonly<MyNotesListProps>) {
         )}
       </div>
     </div>
+
+    <TipSequence
+      groupKey="myNotes"
+      steps={MY_NOTES_TIP_STEPS}
+      initiallyDismissed={tipsDismissed}
+      // Tour relies on the hero card and rail. If the inbox is empty, the
+      // hero won't render — skip the tour entirely so we don't anchor onto
+      // the empty-state card.
+      enabled={rows.length > 0}
+    />
+    </>
   );
 }

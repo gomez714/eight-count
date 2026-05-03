@@ -4,6 +4,10 @@ import { redirect } from "next/navigation";
 import { SectionTabNav } from "@/components/section-tab-nav";
 import { ensureDbUser } from "@/lib/auth/ensure-db-user";
 import { getAssignedNotesForUser } from "@/lib/notes/get-assigned-notes-for-user";
+import {
+  isTipGroupDismissed,
+  parseOnboardingState,
+} from "@/lib/onboarding/state";
 
 import { MyNotesList } from "./my-notes-list";
 import type { AssignedNoteRow } from "./types";
@@ -22,6 +26,11 @@ export default async function MyNotesPage() {
   }
 
   const assignments = await getAssignedNotesForUser(dbUser.id);
+
+  const myNotesTipsDismissed = isTipGroupDismissed(
+    parseOnboardingState(dbUser.onboardingState),
+    "myNotes"
+  );
 
   const rows: AssignedNoteRow[] = assignments.map((assignment) => ({
     id: assignment.id,
@@ -93,7 +102,7 @@ export default async function MyNotesPage() {
         </div>
       </div>
 
-      <MyNotesList rows={rows} />
+      <MyNotesList rows={rows} tipsDismissed={myNotesTipsDismissed} />
     </main>
   );
 }
