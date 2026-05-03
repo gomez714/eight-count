@@ -67,14 +67,15 @@ export async function AppHeader() {
           <UserButton />
         ) : (
           <>
-            {/* forceRedirectUrl (not fallback) — the modal-mode flow treats
-                "already on a page" as the implied destination and fallback
-                won't override that. force always navigates. */}
-            <SignInButton forceRedirectUrl="/dashboard" />
-            <SignUpButton forceRedirectUrl="/dashboard">
+            {/* mode="redirect" sends users to our custom /sign-in and
+                /sign-up routes (configured via NEXT_PUBLIC_CLERK_SIGN_IN_URL
+                + NEXT_PUBLIC_CLERK_SIGN_UP_URL in .env). forceRedirectUrl
+                guarantees the post-auth landing is /dashboard. */}
+            <SignInButton mode="redirect" forceRedirectUrl="/dashboard" />
+            <SignUpButton mode="redirect" forceRedirectUrl="/dashboard">
               <button
                 type="button"
-                className="cursor-pointer rounded-full bg-purple-700 px-4 py-2 text-sm font-medium text-white"
+                className="cursor-pointer rounded-full bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
               >
                 Sign Up
               </button>

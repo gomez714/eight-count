@@ -47,11 +47,17 @@ function ThemeHotkey() {
         return
       }
 
-      if (event.key.toLowerCase() !== "d") {
+      // Bail before .toLowerCase() — synthetic events from third-party
+      // scripts (Clerk's CAPTCHA, etc.) can fire without a `key` string.
+      if (isTypingTarget(event.target)) {
         return
       }
 
-      if (isTypingTarget(event.target)) {
+      if (typeof event.key !== "string") {
+        return
+      }
+
+      if (event.key.toLowerCase() !== "d") {
         return
       }
 
