@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import Link from "next/link";
 
 import { TeamSwitcher } from "@/components/team-switcher";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { getCurrentDbUser } from "@/lib/auth/get-current-db-user";
 import {
   getTeamsForUser,
@@ -60,21 +61,27 @@ export async function AppHeader() {
         ) : null}
       </div>
 
-      {isSignedIn ? (
-        <UserButton />
-      ) : (
-        <div className="flex items-center gap-3">
-          <SignInButton />
-          <SignUpButton>
-            <button
-              type="button"
-              className="cursor-pointer rounded-full bg-purple-700 px-4 py-2 text-sm font-medium text-white"
-            >
-              Sign Up
-            </button>
-          </SignUpButton>
-        </div>
-      )}
+      <div className="flex items-center gap-2 sm:gap-3">
+        <ThemeToggle />
+        {isSignedIn ? (
+          <UserButton />
+        ) : (
+          <>
+            {/* forceRedirectUrl (not fallback) — the modal-mode flow treats
+                "already on a page" as the implied destination and fallback
+                won't override that. force always navigates. */}
+            <SignInButton forceRedirectUrl="/dashboard" />
+            <SignUpButton forceRedirectUrl="/dashboard">
+              <button
+                type="button"
+                className="cursor-pointer rounded-full bg-purple-700 px-4 py-2 text-sm font-medium text-white"
+              >
+                Sign Up
+              </button>
+            </SignUpButton>
+          </>
+        )}
+      </div>
     </header>
   );
 }

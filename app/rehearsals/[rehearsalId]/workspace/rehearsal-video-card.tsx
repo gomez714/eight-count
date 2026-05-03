@@ -156,7 +156,7 @@ export function RehearsalVideoCard({
             type="button"
             aria-label="Play"
             onClick={handlePlayToggle}
-            className="absolute top-1/2 left-1/2 inline-flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-foreground shadow-[0_8px_24px_oklch(0_0_0_/_0.5)] transition hover:scale-105"
+            className="absolute top-1/2 left-1/2 inline-flex size-16 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/95 text-neutral-900 shadow-[0_8px_24px_oklch(0_0_0_/_0.5)] transition hover:scale-105"
           >
             <Play className="size-7 fill-current" />
           </button>
@@ -169,7 +169,7 @@ export function RehearsalVideoCard({
           type="button"
           aria-label={isPlaying ? "Pause" : "Play"}
           onClick={handlePlayToggle}
-          className="inline-flex size-9 items-center justify-center rounded-full bg-white text-foreground hover:bg-white/90"
+          className="inline-flex size-9 items-center justify-center rounded-full bg-white text-neutral-900 hover:bg-white/90"
         >
           {isPlaying ? (
             <Pause className="size-4 fill-current" />
