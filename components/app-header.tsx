@@ -1,8 +1,8 @@
 import { SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
 import { headers } from "next/headers";
-import Link from "next/link";
 
+import { BrandLockup } from "@/components/brand-lockup";
 import { TeamSwitcher } from "@/components/team-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getCurrentDbUser } from "@/lib/auth/get-current-db-user";
@@ -36,20 +36,7 @@ export async function AppHeader() {
   return (
     <header className="flex h-[60px] items-center justify-between gap-4 border-b bg-card px-6">
       <div className="flex min-w-0 items-center gap-3">
-        <Link
-          href="/"
-          className="inline-flex shrink-0 items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <span
-            aria-hidden
-            className="inline-flex size-7 items-center justify-center rounded-md bg-foreground text-sm font-semibold tracking-tight text-background"
-          >
-            8
-          </span>
-          <span className="hidden text-sm font-semibold tracking-tight sm:inline">
-            Eight Count
-          </span>
-        </Link>
+        <BrandLockup size="sm" />
 
         {isSignedIn ? (
           <>

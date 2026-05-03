@@ -8,14 +8,27 @@ A web application for choreographers to leave time-stamped text and voice feedba
 |---|---|
 | Framework | Next.js 16 (App Router, Turbopack) |
 | Database | PostgreSQL via Prisma 7 |
-| Auth | Clerk |
+| Auth | Clerk (fully headless — custom UI on top of Clerk's hooks) |
 | UI | Tailwind CSS 4 + shadcn/ui (Radix) |
+| Theming | CSS variables + next-themes (light / dark / system) |
 | Forms | react-hook-form + Zod |
 | Video / audio storage | Google Cloud Storage (signed URLs) |
 | Recording | MediaRecorder API (mic-only) |
 | Toasts | Sonner |
 
 ## Features
+
+### Landing & onboarding
+- The **landing page** at `/` introduces the product to first-time visitors with a warm hero (headline + supporting copy + an inline mock note card built from the app's real primitives), a problem section, a three-step how-it-works flow, a four-feature grid, a role row, and a final CTA. Mobile-first responsive, all built from the same tokens as the rest of the app.
+- **Sign in** at `/sign-in` and **sign up** at `/sign-up` are **fully headless** custom routes — Clerk handles the auth logic via its hooks (`useSignIn` / `useSignUp`), but every input, button, divider, and OAuth pill is built from the app's own components.
+- **Email + password** and **Google OAuth** are supported. Sign-up runs a two-step flow: enter email + password → enter the 6-digit verification code from your inbox → land on the dashboard. "Resend code" and "Use a different email" are inline.
+- **Deep-link preservation**: a signed-out user clicking a deep link (e.g. `/teams/abc`) is bounced to `/sign-in` by middleware and returned to that exact page after authenticating, instead of being forced into `/dashboard`.
+- After **sign-out**, users land on the landing page (`/`) — `<ClerkProvider afterSignOutUrl="/">`.
+
+### Theme toggle
+- Three-state **Light / Dark / System** dropdown in the global header. Defaults to `system` on first visit (follows OS preference) and persists user choice afterward.
+- Keyboard shortcut **`D`** toggles light ↔ dark.
+- All design tokens (status palette, voice-note coral, avatar tones, surfaces) are defined in both `:root` and `.dark`, so every component adapts automatically — no per-component dark variants.
 
 ### Dashboard
 The dashboard at `/dashboard` is the signed-in home — the only page that aggregates *across* teams.
@@ -26,7 +39,9 @@ The dashboard at `/dashboard` is the signed-in home — the only page that aggre
 - **+ New team** button in the section header opens a dialog with the same form used elsewhere in the app. When the user has no teams, a generous empty-state panel surfaces a "Create your first team" CTA that drops the user straight into the new workspace after creation.
 
 ### Global navigation
-The app header is persistent across every signed-in page. The left side carries the brand mark and a **team switcher** showing the current team's name + role chip; clicking it opens a popover that lists every team you belong to (with role chip per row), navigates on selection, and provides an inline "+ Create team" footer for spinning up a new workspace without leaving the page. The current team is detected from the URL (works on `/teams/[id]`, `/projects/[id]`, and `/rehearsals/[id]`); on cross-team pages (`/dashboard`, `/my-notes`, `/notes-by-me`) the switcher reads "Switch team". The right side hosts your account / sign-out via Clerk's `UserButton`.
+The app header is persistent across every page (signed-in or not). The left side carries the **brand lockup** (teal "8" mark in the brand color + "Eight Count" wordmark + a subtle `AudioLines` waveform icon — wordmark and icon collapse on mobile) and a **team switcher** showing the current team's name + role chip; clicking the switcher opens a popover that lists every team you belong to (with role chip per row), navigates on selection, and provides an inline "+ Create team" footer for spinning up a new workspace without leaving the page. The current team is detected from the URL (works on `/teams/[id]`, `/projects/[id]`, and `/rehearsals/[id]`); on cross-team pages (`/dashboard`, `/my-notes`, `/notes-by-me`) the switcher reads "Switch team". The right side hosts the **theme toggle** (Light / Dark / System dropdown) plus your account dropdown when signed in (or Sign In / Sign Up buttons when signed out — both navigate to the custom auth routes via `mode="redirect"`).
+
+> **Brand identity**: the current "8 + Eight Count + AudioLines" lockup is a v1 placeholder until a designed logo lands — all three surfaces that render brand (navbar + both auth-page brand panels) consume a single shared `<BrandLockup>` component, so the eventual logo swap is one file.
 
 ### Teams
 - Create a team and invite members by email.
@@ -133,6 +148,7 @@ Environment variables required (see `.env`):
 - `DATABASE_URL` — PostgreSQL connection string
 - `DIRECT_URL` — direct (non-pooled) connection for Prisma migrations
 - Clerk publishable key, secret key, and webhook secret
+- `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in` and `NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up` — point Clerk at the custom auth routes
 - Google Cloud Storage credentials and bucket name
 
 Apply migrations:

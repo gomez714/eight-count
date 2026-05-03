@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { BrandLockup } from "@/components/brand-lockup";
 
 import { SignInForm } from "../sign-in-form";
 
@@ -17,20 +17,7 @@ export default function SignInPage() {
 function BrandPanel() {
   return (
     <div className="hidden flex-col gap-6 bg-card lg:flex lg:flex-1 lg:justify-between lg:border-r lg:p-12">
-      <Link
-        href="/"
-        className="inline-flex w-fit items-center gap-3 outline-none focus-visible:rounded-md focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <span
-          aria-hidden
-          className="inline-flex size-9 items-center justify-center rounded-lg bg-foreground text-base font-semibold tracking-tight text-background"
-        >
-          8
-        </span>
-        <span className="text-lg font-semibold tracking-tight">
-          Eight Count
-        </span>
-      </Link>
+      <BrandLockup size="lg" showCountDots />
 
       <div className="flex max-w-md flex-col gap-3">
         <h1 className="text-3xl font-semibold tracking-tight">

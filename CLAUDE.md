@@ -28,9 +28,10 @@ Required in `.env`:
 
 - **Framework**: Next.js 16 App Router
 - **Database**: PostgreSQL via Prisma 7 with `PrismaPg` driver adapter (`@prisma/adapter-pg`)
-- **Auth**: Clerk — synced to a local `User` table on every mutation
+- **Auth**: Clerk — synced to a local `User` table on every mutation. **Auth UI is fully headless** (custom `/sign-in` and `/sign-up` routes built on Clerk's `useSignIn` / `useSignUp` hooks). See "Auth UI" below.
 - **Storage**: Google Cloud Storage for rehearsal videos (signed URLs)
 - **UI**: Tailwind CSS 4 + shadcn/ui (Radix primitives in `components/ui/` — do not modify)
+- **Theming**: `next-themes` with `attribute="class"`, `defaultTheme="system"`. Mounted in `app/layout.tsx`. CSS tokens in `globals.css` adapt via `:root` / `.dark` so every component flips automatically.
 - **Forms**: react-hook-form + Zod; toasts via `sonner`
 
 ## Data Model
@@ -97,6 +98,41 @@ Use `get*ForUser()` functions that verify access through the ownership chain:
 All return `null` if unauthorized. Never skip these and query directly.
 
 **Asset uploaders own completion**: The `POST /api/video-assets/[id]/complete` and `POST /api/audio-assets/[id]/complete` endpoints gate on `uploadedByUserId === currentUser` rather than team membership. The companion upload-URL endpoints already gate on the relevant author/manager role at upload time, so the uploader-only check is the natural narrow gate for the second half of the two-step flow — preventing other team members (even other authors) from completing someone else's in-flight upload.
+
+## Auth UI
+
+Sign-in / sign-up are **fully headless**. Clerk handles the auth flow under the hood (`useSignIn` / `useSignUp` from `@clerk/nextjs`), but every input, button, divider, OAuth pill, and verification step is built from the app's own primitives. The only Clerk-rendered surfaces still in the app are the `<UserButton>` dropdown (when signed in) and the transient `<AuthenticateWithRedirectCallback />` on the OAuth return page.
+
+| File | Responsibility |
+|---|---|
+| [app/sign-in/[[...sign-in]]/page.tsx](app/sign-in/[[...sign-in]]/page.tsx) | Server-rendered split-screen page. Brand panel on the left (`hidden lg:flex` — mobile drops it entirely since the AppHeader already owns brand identity at that viewport) renders `<BrandLockup size="lg" showCountDots />` plus the heading + supporting paragraph + small footer line. `<SignInForm />` centered on the right. |
+| [app/sign-in/sign-in-form.tsx](app/sign-in/sign-in-form.tsx) | Client. Built on Clerk's "Future" API: `signIn.create({ identifier, password })` → check `signIn.status === "complete"` → `signIn.finalize()` → `router.push(redirectAfter)`. Google OAuth via `signIn.sso({ strategy: "oauth_google", redirectUrl, redirectCallbackUrl: "/sign-in/sso-callback" })`. RHF + Zod validation, sonner-style errors at the form level, `<div id="clerk-captcha" />` mounted hidden for Clerk's bot protection. |
+| [app/sign-up/[[...sign-up]]/page.tsx](app/sign-up/[[...sign-up]]/page.tsx) | Mirror of the sign-in page (same `<BrandLockup size="lg" showCountDots />` + sign-up-specific copy), renders `<SignUpForm />`. |
+| [app/sign-up/sign-up-form.tsx](app/sign-up/sign-up-form.tsx) | Two-state component. **Step 1 (`create`)**: `signUp.create({ emailAddress, password })` → `signUp.verifications.sendEmailCode()` → flip to step 2. **Step 2 (`verify`)**: `signUp.verifications.verifyEmailCode({ code })` → `signUp.finalize()` → redirect. Resend button (idle / sending / sent states) and "← Use a different email" back-link. Google OAuth fast path via `signUp.sso(...)` skips verification. |
+| [app/sign-in/sso-callback/page.tsx](app/sign-in/sso-callback/page.tsx) | OAuth landing page. Renders Clerk's `<AuthenticateWithRedirectCallback />` plus a centered loader. Used for both sign-in and sign-up OAuth flows (Clerk routes correctly internally). |
+
+**Deep-link preservation**: both forms read `?redirect_url=` from `useSearchParams()` and route the user back to that path after auth. `resolveRedirect()` sanity-checks the value (must start with `/` and not `//`) and falls back to `/dashboard` otherwise.
+
+**Navbar buttons** ([components/app-header.tsx](components/app-header.tsx)): `<SignInButton mode="redirect" forceRedirectUrl="/dashboard">` and `<SignUpButton mode="redirect" forceRedirectUrl="/dashboard">` — `mode="redirect"` sends users to our custom routes, `forceRedirectUrl` guarantees the landing.
+
+**Required env vars** to wire middleware + navbar to the custom routes:
+- `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in`
+- `NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up`
+
+**Sign-out**: `<ClerkProvider afterSignOutUrl="/">` in [app/layout.tsx](app/layout.tsx) — users land on the landing page, not a stale signed-in URL.
+
+**Why headless**: Clerk's `appearance` prop (both `variables` and `elements`) refused to propagate to the rendered modal in this app's setup despite multiple attempts (var() refs, hardcoded oklch values, theme-aware wrappers, element overrides, even raw CSS targeting `.cl-*` classes with `!important`). Going fully headless replaces every input / button / label with the app's own components — no Clerk runtime processing the styling, no specificity wars, no surface where theming can fail. Trade-off: forgot-password is currently linked out to Clerk's hosted reset URL; building it inline uses `signIn.resetPasswordEmailCode.{sendCode, verifyCode, submitPassword}` and is structurally similar to the sign-up verification step (deferred for later).
+
+## Theming & dark mode
+
+`ThemeProvider` ([components/theme-provider.tsx](components/theme-provider.tsx)) is mounted in [app/layout.tsx](app/layout.tsx) (wraps everything inside `<body>`). Built on `next-themes` with `attribute="class"`, `defaultTheme="system"`, and `disableTransitionOnChange`.
+
+| File | Responsibility |
+|---|---|
+| [components/theme-provider.tsx](components/theme-provider.tsx) | Wraps `next-themes`'s provider plus a `<ThemeHotkey>` listener that toggles light↔dark on `D` keypress. The handler bails on `isTypingTarget(target)` (input/textarea/contenteditable/select) **before** calling `event.key.toLowerCase()`, plus guards `typeof event.key !== "string"` — third-party scripts (notably Clerk's CAPTCHA) can fire synthetic keyboard events without a `key` field, and the original implementation crashed on those. |
+| [components/theme-toggle.tsx](components/theme-toggle.tsx) | Three-state `DropdownMenuRadioGroup` (Light / Dark / System) in the global header. Trigger renders Sun (light) or Moon (dark) based on `resolvedTheme`. Uses a `useState`-deferred `mounted` flag set in `useEffect` so the SSR'd icon is a stable placeholder (avoids hydration mismatch — the server can't know the user's resolved theme). |
+
+All design tokens (`--primary`, `--card`, `--status-*`, `--note-voice-*`, `--avatar-tone-*`) are defined in both `:root` and `.dark` scopes in [app/globals.css](app/globals.css), so any component using `var(--*)` adapts automatically. No theme-aware wrappers, no per-component dark variants.
 
 ## Role-Based Permissions
 
@@ -221,7 +257,7 @@ The status palette, voice-note accent, and avatar tones are CSS variables in [ap
 
 Use `var(--*)` directly (or `color-mix(in oklch, var(--*) X%, transparent)` for translucent tints) rather than hard-coding colors. New status states or avatar tones should be added by extending these tokens, not by introducing per-component palettes.
 
-`ThemeProvider` ([components/theme-provider.tsx](components/theme-provider.tsx)) is built on `next-themes` with a `D` keyboard shortcut, but is currently **not mounted** in [app/layout.tsx](app/layout.tsx) — the `.dark` class never gets applied in production. The dark-mode tokens are defined and components reference them via `var(--*)`, so dark mode is "ready to ship" once the provider is wired up and a visible toggle is added.
+`ThemeProvider` is mounted in [app/layout.tsx](app/layout.tsx) and a three-state toggle lives in the global header. See "Theming & dark mode" above for the full setup, including the SSR-safe mount pattern and the keydown-handler hardening against synthetic events.
 
 ## My Notes UI
 
@@ -306,8 +342,10 @@ The persistent header lives in [components/app-header.tsx](components/app-header
 
 | File | Responsibility |
 |---|---|
-| [components/app-header.tsx](components/app-header.tsx) | **Server component**. Reads pathname from `headers().get("x-pathname")`, runs `getCurrentDbUser()` to check auth, then in parallel fetches `getTeamsForUser(dbUser.id)` and `resolveCurrentTeamId(pathname, dbUser.id)`. Renders the brand link, signed-in/out gates, and Clerk's `UserButton` as plain server JSX, plus `<TeamSwitcher teams={...} currentTeamId={...} />` as the lone client island. |
+| [components/app-header.tsx](components/app-header.tsx) | **Server component**. Reads pathname from `headers().get("x-pathname")`, runs `getCurrentDbUser()` to check auth, then in parallel fetches `getTeamsForUser(dbUser.id)` and `resolveCurrentTeamId(pathname, dbUser.id)`. Renders `<BrandLockup size="sm" />`, signed-in/out gates, the `<ThemeToggle>`, and Clerk's `UserButton` as plain server JSX (the lockup, toggle, and UserButton are client/interactive islands; the rest is server JSX), plus `<TeamSwitcher teams={...} currentTeamId={...} />`. Signed-out: replaces UserButton with `<SignInButton mode="redirect">` + `<SignUpButton mode="redirect">` (Sign Up styled with `bg-primary`). |
+| [components/brand-lockup.tsx](components/brand-lockup.tsx) | **Shared brand component**. Single source of truth for the "8 + Eight Count + AudioLines" mark — used by the navbar (`size="sm"`), the sign-in brand panel (`size="lg" showCountDots`), and the sign-up brand panel (`size="lg" showCountDots`). Props: `size` ("sm" auto-collapses wordmark + icon below `sm:` breakpoint; "lg" always-visible), `showCountDots` (renders 8 small `--primary/60` dots beneath the wordmark — auth pages only since the dots want horizontal room to read as 8 distinct beats), `href` (default `/`). **v1 placeholder**: when a designed logo eventually lands, this is the only file that needs to change — every consumer auto-updates. |
 | [components/team-switcher.tsx](components/team-switcher.tsx) | **Client component**. Radix `<Popover>` trigger (avatar + truncated team name + role chip + chevron) → list of all teams the user belongs to (each row uses `<AvatarInitials toneSeed={team.id}>` + `<RoleChip>`, current team gets a check) → "+ Create team" footer that opens a `<Dialog>` wrapping the chromeless `CreateTeamForm`. Trigger truncates at `max-w-56`; role chip hides below `sm:`. |
+| [components/theme-toggle.tsx](components/theme-toggle.tsx) | **Client component**. Three-state Light / Dark / System dropdown — see "Theming & dark mode" above. |
 | [lib/teams/get-teams-for-user.ts](lib/teams/get-teams-for-user.ts) | One Prisma query joining `TeamMember → Team`, returns `{ id, name, role }[]` ordered by membership creation desc. Exports `TeamSwitcherTeam` type. |
 | [lib/teams/resolve-current-team-id.ts](lib/teams/resolve-current-team-id.ts) | Pure pathname → teamId resolver. Handles `/teams/[id]` (direct), `/projects/[id]` (looks up `project.teamId`), `/rehearsals/[id]` (looks up `rehearsal.project.teamId`). Each lookup verifies team membership in the same query so the switcher never highlights a team the viewer can't access. Returns `null` on cross-team or unauth pages. |
 | [proxy.ts](proxy.ts) | Extends `clerkMiddleware` to forward `req.nextUrl.pathname` as an `x-pathname` request header via `NextResponse.next({ request: { headers: ... } })`. This is the load-bearing piece that lets the server-rendered `AppHeader` know what page it's on. |
@@ -349,11 +387,29 @@ The persistent header lives in [components/app-header.tsx](components/app-header
 | [lib/notes/format.ts](lib/notes/format.ts) | `formatNoteTimestamp(ms)` — single source of truth for `mm:ss` rendering across the app. The workspace's `./utils.ts` re-exports this as `formatTimestamp` so its many existing imports keep working. |
 | [lib/notes/stalled.ts](lib/notes/stalled.ts) | `isNoteStalled({ createdAt, assignments, now })` + `STALLED_THRESHOLD_DAYS = 3`. Pure, server- and client-safe; `now` is injectable so it's deterministic in tests. |
 
+## Landing Page UI
+
+`/` is the unauthenticated landing — pitched at first-time visitors, mobile-first, all built from the app's existing primitives and tokens (no new design language). Tone is warm / craft-focused; the "Eight Count" wordmark in the hero, "feedback that lands / stays landed" headline emphasis on `--primary`, and the inline note mockup all match the rest of the app.
+
+| File | Responsibility |
+|---|---|
+| [app/page.tsx](app/page.tsx) | Six section components inlined as sibling functions (`Hero`, `ProblemSection`, `HowItWorksSection`, `FeaturesSection`, `RolesSection`, `FinalCtaSection`) plus three helper components (`Step`, `Feature`, `RoleCard`). Copy lives next to the JSX that renders it — no separate copy module. |
+| [app/landing/note-mockup.tsx](app/landing/note-mockup.tsx) | Static, illustrative voice-note card built from the same vocabulary as the real workspace `NoteRow` (coral accent stripe, `02:14` timestamp pill, voice-player pill with 32-bar decorative waveform, "To: Front line" audience chip, three recipient chips with `<AvatarInitials>` + status dots). Initials only (TC / LM / JR), no real user data. `role="img"` with descriptive `aria-label`. |
+
+**Section anatomy**: Hero (eyebrow + headline with `--primary`-emphasized phrases + subhead + Get-started CTA + sign-in link + inline mockup) → Problem (single centered prose paragraph) → How it works (3 numbered cards) → What makes it different (2×2 feature grid; "voice notes" card uses the coral accent, "stalled detection" uses the in-progress tint) → For everyone in the room (4-up `<RoleChip>` cards) → Final CTA (closing line + Get-started button + beta note).
+
+**CTAs**: both "Get started" buttons use `<SignUpButton mode="redirect" forceRedirectUrl="/dashboard">`, the secondary "Already on a team? Sign in" uses `<SignInButton mode="redirect" forceRedirectUrl="/dashboard">`. All three sign-in surfaces (header, hero, final CTA) behave identically and route to `/sign-in` or `/sign-up`.
+
+**Vocabulary**: "notes" is the artifact (used in eyebrow, subhead, features, steps, roles); "feedback" is the abstract concept / activity (used only in the headline wordplay and the problem/final-CTA emotional beats). Mirrors how the product itself uses the words.
+
 ## Page Structure
 
-Every signed-in page sits below a persistent global `<AppHeader>` (brand + team switcher + UserButton) — see "Global App Header & Team Switcher" above.
+Every page sits below a persistent global `<AppHeader>` (brand + team switcher when signed in + theme toggle + UserButton or sign-in/up buttons) — see "Global App Header & Team Switcher" above.
 
-- `/` — Landing (unauthenticated)
+- `/` — Landing page. Warm hero with inline note mockup, problem section, three-step how-it-works, four-feature 2×2 grid, role row, final CTA. See "Landing Page UI" above.
+- `/sign-in/[[...sign-in]]` — Headless sign-in. Split-screen layout (brand panel `hidden lg:flex`, form on the right). Email + password + Google OAuth + deep-link preservation via `?redirect_url=`. See "Auth UI" above.
+- `/sign-up/[[...sign-up]]` — Headless sign-up. Two-step flow (create account → 6-digit email verification code). See "Auth UI" above.
+- `/sign-in/sso-callback` — OAuth return handler. Renders `<AuthenticateWithRedirectCallback />` plus a centered loader.
 - `/dashboard` — Signed-in home. `DashboardMetaBand` ("Welcome back, {firstName}" + cross-team meta strip) above `WorkTiles` (2-up "My notes" / "Notes by me" tiles with real metrics) and `TeamsSection` (compact team rows with role chip + activity meta + `+ New team` button, or generous empty-state CTA). Only page that aggregates across teams. See "Dashboard UI" below.
 - `/teams/[teamId]` — Team organizational home. `TeamMetaBand` (breadcrumb, mark, title, role popover, desktop meta strip with Members / Projects / Created / role glance / Your role) above a single-column `TeamMobileTabs` shell that renders `<ProjectsSection />` + `<MembersSection />`. Mobile gets a `Projects (N) / Members (N)` segmented switcher. Header carries no CTAs — each section owns its action. Role chips are popover triggers for contextual role explanations. See "Team Page UI" below.
 - `/projects/[projectId]` — Project home and structural bridge into the workspace. `ProjectMetaBand` (breadcrumb, title + status pill, meta chips, "Manage cast" / "New rehearsal") above a two-column layout: rehearsals spine on the left (`RehearsalRow`s with date plate, status mini-bar, stalled chips) + a compact `ProjectGroupsSection` rail on the right. On mobile a `ProjectMobileTabs` segmented switcher (`Rehearsals (N)` / `Groups (N)`) toggles between the two so only one renders at a time. See "Project Page UI" below.
