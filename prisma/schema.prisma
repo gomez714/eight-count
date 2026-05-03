@@ -49,6 +49,13 @@ enum NoteTargetKind {
   USER
 }
 
+enum TeamInvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
 model User {
   id          String  @id @default(cuid())
   clerkUserId String  @unique
@@ -68,6 +75,8 @@ model User {
   noteAssignments          NoteAssignment[]        @relation("AssignedNoteUser")
   noteStatusUpdates        NoteAssignmentStatus[]  @relation("NoteStatusUpdatedBy")
   noteTargets              NoteTarget[]            @relation("NoteTargetUser")
+  invitationsSent          TeamInvitation[]        @relation("InvitationInviter")
+  invitationsAccepted      TeamInvitation[]        @relation("InvitationAcceptor")
 }
 
 model Team {
@@ -77,8 +86,33 @@ model Team {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  members  TeamMember[]
-  projects Project[]
+  members     TeamMember[]
+  projects    Project[]
+  invitations TeamInvitation[]
+}
+
+model TeamInvitation {
+  id               String               @id @default(cuid())
+  teamId           String
+  email            String
+  role             TeamRole             @default(DANCER)
+  tokenHash        String               @unique
+  status           TeamInvitationStatus @default(PENDING)
+  invitedByUserId  String
+  expiresAt        DateTime
+  acceptedAt       DateTime?
+  acceptedByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  team       Team  @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  invitedBy  User  @relation("InvitationInviter", fields: [invitedByUserId], references: [id])
+  acceptedBy User? @relation("InvitationAcceptor", fields: [acceptedByUserId], references: [id])
+
+  @@index([teamId])
+  @@index([email])
+  @@index([status])
 }
 
 model TeamMember {

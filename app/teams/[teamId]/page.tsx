@@ -8,6 +8,7 @@ import { getTeamForUser } from "@/lib/teams/get-team-for-user";
 
 import { MembersSection } from "./members-section";
 import { type MemberRowData } from "./member-row";
+import { type PendingInvitationRowData } from "./pending-invitation-row";
 import { ProjectsSection } from "./projects-section";
 import { type ProjectRowData } from "./project-row";
 import { TeamMetaBand } from "./team-meta-band";
@@ -41,7 +42,7 @@ export default async function TeamPage({ params }: Readonly<TeamPageProps>) {
     notFound();
   }
 
-  const [projects, teamMembers] = await Promise.all([
+  const [projects, teamMembers, pendingInvites] = await Promise.all([
     db.project.findMany({
       where: { teamId: team.id },
       include: {
@@ -70,6 +71,10 @@ export default async function TeamPage({ params }: Readonly<TeamPageProps>) {
       include: { user: true },
       orderBy: { createdAt: "asc" },
     }),
+    db.teamInvitation.findMany({
+      where: { teamId: team.id, status: "PENDING" },
+      orderBy: { createdAt: "desc" },
+    }),
   ]);
 
   const viewerRole = (team.members[0]?.role ?? null) as TeamRole | null;
@@ -86,6 +91,16 @@ export default async function TeamPage({ params }: Readonly<TeamPageProps>) {
     joinedAt: member.createdAt,
     isYou: member.userId === dbUser.id,
   }));
+
+  const pendingInvitationRows: PendingInvitationRowData[] = pendingInvites.map(
+    (invite) => ({
+      invitationId: invite.id,
+      email: invite.email,
+      role: invite.role as TeamRole,
+      invitedAt: invite.createdAt,
+      expiresAt: invite.expiresAt,
+    })
+  );
 
   const roleGlance: { role: TeamRole; count: number }[] = (
     ["ADMIN", "INSTRUCTOR", "ASSISTANT", "DANCER"] as TeamRole[]
@@ -152,6 +167,7 @@ export default async function TeamPage({ params }: Readonly<TeamPageProps>) {
             <MembersSection
               teamId={team.id}
               members={memberRows}
+              pendingInvitations={pendingInvitationRows}
               canManage={canManageMembers}
             />
           }

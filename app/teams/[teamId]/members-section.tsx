@@ -7,6 +7,10 @@ import { cn } from "@/lib/utils";
 
 import { InviteMemberButton } from "./invite-member-button";
 import { MemberRow, type MemberRowData } from "./member-row";
+import {
+  PendingInvitationRow,
+  type PendingInvitationRowData,
+} from "./pending-invitation-row";
 import { ROLE_LABEL, type TeamRole } from "./role-chip";
 
 type RoleFilter = TeamRole | "ALL";
@@ -14,6 +18,7 @@ type RoleFilter = TeamRole | "ALL";
 type MembersSectionProps = {
   teamId: string;
   members: MemberRowData[];
+  pendingInvitations: PendingInvitationRowData[];
   canManage: boolean;
 };
 
@@ -73,6 +78,7 @@ function MembersEmptyState({
 export function MembersSection({
   teamId,
   members,
+  pendingInvitations,
   canManage,
 }: Readonly<MembersSectionProps>) {
   const [query, setQuery] = useState("");
@@ -124,7 +130,9 @@ export function MembersSection({
     return rows;
   }, [members, query, roleFilter, showSearch, showRoleFilter]);
 
-  if (members.length === 0) {
+  const hasPending = pendingInvitations.length > 0;
+
+  if (members.length === 0 && !hasPending) {
     return (
       <section className="flex flex-col gap-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -214,27 +222,73 @@ export function MembersSection({
           </div>
         ) : null}
 
-        {filtered.length === 0 ? (
-          <div className="px-4 py-8 text-center text-[13px] text-muted-foreground">
-            No members match this filter.
-          </div>
-        ) : (
-          <div>
-            {filtered.map((m, i) => (
-              <MemberRow
-                key={m.teamMemberId}
-                member={m}
-                isLast={i === filtered.length - 1}
-                canManage={canManage}
-              />
-            ))}
-          </div>
-        )}
+        {(() => {
+          const q = showSearch ? query.trim().toLowerCase() : "";
+          const filteredPending = pendingInvitations.filter((p) => {
+            if (q && !p.email.toLowerCase().includes(q)) return false;
+            if (showRoleFilter && roleFilter !== "ALL" && p.role !== roleFilter)
+              return false;
+            return true;
+          });
+
+          const showPendingBlock = filteredPending.length > 0;
+
+          if (filtered.length === 0 && !showPendingBlock) {
+            return (
+              <div className="px-4 py-8 text-center text-[13px] text-muted-foreground">
+                No members match this filter.
+              </div>
+            );
+          }
+
+          return (
+            <>
+              {showPendingBlock ? (
+                <div>
+                  <div className="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-2">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Pending invitations · {filteredPending.length}
+                    </span>
+                  </div>
+                  {filteredPending.map((inv, i) => (
+                    <PendingInvitationRow
+                      key={inv.invitationId}
+                      teamId={teamId}
+                      invitation={inv}
+                      isLast={i === filteredPending.length - 1}
+                      canManage={canManage}
+                    />
+                  ))}
+                </div>
+              ) : null}
+
+              {filtered.length > 0 ? (
+                <div>
+                  {showPendingBlock ? (
+                    <div className="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        Members · {filtered.length}
+                      </span>
+                    </div>
+                  ) : null}
+                  {filtered.map((m, i) => (
+                    <MemberRow
+                      key={m.teamMemberId}
+                      member={m}
+                      isLast={i === filtered.length - 1}
+                      canManage={canManage}
+                    />
+                  ))}
+                </div>
+              ) : null}
+            </>
+          );
+        })()}
 
         {canManage && !showToolbar ? (
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-dashed bg-muted/40 px-4 py-3">
             <span className="text-[12.5px] text-muted-foreground">
-              Invite by email — they&apos;ll need an account first.
+              Invite by email — they&apos;ll get a link to join.
             </span>
             <InviteMemberButton teamId={teamId} />
           </div>

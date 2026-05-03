@@ -56,6 +56,7 @@ export function SignUpForm() {
   const [isOauthBusy, setIsOauthBusy] = useState(false);
 
   const redirectAfter = resolveRedirect(searchParams.get("redirect_url"));
+  const prefilledEmail = sanitizeEmailParam(searchParams.get("email"));
 
   if (step === "verify") {
     return (
@@ -70,6 +71,7 @@ export function SignUpForm() {
   return (
     <CreateAccountStep
       isBusyExternal={fetchStatus === "fetching" || isOauthBusy}
+      prefilledEmail={prefilledEmail}
       onSubmit={async (values) => {
         const { error } = await signUp.create({
           emailAddress: values.emailAddress,
@@ -106,6 +108,7 @@ export function SignUpForm() {
 
 type CreateAccountStepProps = {
   isBusyExternal: boolean;
+  prefilledEmail: string | null;
   onSubmit: (
     values: SignUpFormValues
   ) => Promise<{ error: string | null }>;
@@ -114,6 +117,7 @@ type CreateAccountStepProps = {
 
 function CreateAccountStep({
   isBusyExternal,
+  prefilledEmail,
   onSubmit,
   onGoogle,
 }: Readonly<CreateAccountStepProps>) {
@@ -124,7 +128,7 @@ function CreateAccountStep({
     formState: { errors, isSubmitting },
   } = useForm<SignUpFormValues>({
     resolver: zodResolver(signUpSchema),
-    defaultValues: { emailAddress: "", password: "" },
+    defaultValues: { emailAddress: prefilledEmail ?? "", password: "" },
   });
 
   const handleGoogle = async () => {
@@ -181,9 +185,15 @@ function CreateAccountStep({
                 autoComplete="email"
                 placeholder="you@example.com"
                 disabled={isBusy}
+                readOnly={!!prefilledEmail}
                 aria-invalid={!!errors.emailAddress}
                 {...register("emailAddress")}
               />
+              {prefilledEmail ? (
+                <FieldDescription>
+                  Locked to your invited email.
+                </FieldDescription>
+              ) : null}
               <FieldError errors={[errors.emailAddress]} />
             </FieldContent>
           </Field>
@@ -421,4 +431,13 @@ function resolveRedirect(input: string | null): string {
   if (!input.startsWith(SAFE_REDIRECT_PREFIX)) return DEFAULT_REDIRECT;
   if (input.startsWith("//")) return DEFAULT_REDIRECT;
   return input;
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+
+function sanitizeEmailParam(input: string | null): string | null {
+  if (!input) return null;
+  const trimmed = input.trim();
+  if (!EMAIL_RE.test(trimmed)) return null;
+  return trimmed.toLowerCase();
 }

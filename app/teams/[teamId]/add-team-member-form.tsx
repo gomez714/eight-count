@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 
-import { addTeamMember } from "./member-actions";
+import { inviteTeamMember } from "./member-actions";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -26,23 +26,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const addTeamMemberSchema = z.object({
+const inviteMemberSchema = z.object({
   email: z.email("Please enter a valid email address.").transform((value) =>
     value.trim().toLowerCase()
   ),
   role: z.enum(["ADMIN", "INSTRUCTOR", "ASSISTANT", "DANCER"]),
 });
 
-type AddTeamMemberFormValues = z.infer<typeof addTeamMemberSchema>;
+type InviteMemberFormValues = z.infer<typeof inviteMemberSchema>;
 
-const ROLE_LABELS: Record<AddTeamMemberFormValues["role"], string> = {
-  ADMIN: "Admin",
-  INSTRUCTOR: "Instructor",
-  ASSISTANT: "Assistant",
-  DANCER: "Dancer",
-};
-
-type AddTeamMemberFormProps = {
+type InviteMemberFormProps = {
   teamId: string;
   onSuccess?: () => void;
   onCancel?: () => void;
@@ -52,7 +45,7 @@ export function AddTeamMemberForm({
   teamId,
   onSuccess,
   onCancel,
-}: Readonly<AddTeamMemberFormProps>) {
+}: Readonly<InviteMemberFormProps>) {
   const [isPending, startTransition] = useTransition();
 
   const {
@@ -63,8 +56,8 @@ export function AddTeamMemberForm({
     setValue,
     watch,
     formState: { errors },
-  } = useForm<AddTeamMemberFormValues>({
-    resolver: zodResolver(addTeamMemberSchema),
+  } = useForm<InviteMemberFormValues>({
+    resolver: zodResolver(inviteMemberSchema),
     defaultValues: {
       email: "",
       role: "DANCER",
@@ -73,14 +66,14 @@ export function AddTeamMemberForm({
 
   const selectedRole = watch("role");
 
-  const onSubmit = (values: AddTeamMemberFormValues) => {
+  const onSubmit = (values: InviteMemberFormValues) => {
     startTransition(async () => {
       const formData = new FormData();
       formData.append("teamId", teamId);
       formData.append("email", values.email);
       formData.append("role", values.role);
 
-      const result = await addTeamMember({}, formData);
+      const result = await inviteTeamMember({}, formData);
 
       if (result?.error) {
         setError("root", {
@@ -89,9 +82,7 @@ export function AddTeamMemberForm({
         return;
       }
 
-      toast.success(
-        `Added ${values.email} as ${ROLE_LABELS[values.role]}.`
-      );
+      toast.success(`Invitation sent to ${values.email}.`);
 
       reset({
         email: "",
@@ -116,7 +107,7 @@ export function AddTeamMemberForm({
               {...register("email")}
             />
             <FieldDescription>
-              The user must already have an account in the app.
+              We&apos;ll email them a link to join the team.
             </FieldDescription>
             <FieldError errors={[errors.email]} />
           </FieldContent>
@@ -128,7 +119,7 @@ export function AddTeamMemberForm({
             <Select
               value={selectedRole}
               onValueChange={(value) =>
-                setValue("role", value as AddTeamMemberFormValues["role"], {
+                setValue("role", value as InviteMemberFormValues["role"], {
                   shouldValidate: true,
                 })
               }
@@ -153,7 +144,7 @@ export function AddTeamMemberForm({
 
       <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" disabled={isPending}>
-          {isPending ? "Adding..." : "Add team member"}
+          {isPending ? "Sending…" : "Send invitation"}
         </Button>
         {onCancel ? (
           <Button

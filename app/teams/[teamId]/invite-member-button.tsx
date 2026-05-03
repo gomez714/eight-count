@@ -42,9 +42,9 @@ export function InviteMemberButton({
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add team member</DialogTitle>
+          <DialogTitle>Invite team member</DialogTitle>
           <DialogDescription>
-            Add an existing user to this team by email and assign their role.
+            Send an email invite. They&apos;ll join with the role you select.
           </DialogDescription>
         </DialogHeader>
 

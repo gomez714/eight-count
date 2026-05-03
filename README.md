@@ -15,6 +15,7 @@ A web application for choreographers to leave time-stamped text and voice feedba
 | Video / audio storage | Google Cloud Storage (signed URLs) |
 | Recording | MediaRecorder API (mic-only) |
 | Toasts | Sonner |
+| Email | Resend (team invitation emails) |
 
 ## Features
 
@@ -44,9 +45,16 @@ The app header is persistent across every page (signed-in or not). The left side
 > **Brand identity**: the current "8 + Eight Count + AudioLines" lockup is a v1 placeholder until a designed logo lands — all three surfaces that render brand (navbar + both auth-page brand panels) consume a single shared `<BrandLockup>` component, so the eventual logo swap is one file.
 
 ### Teams
-- Create a team and invite members by email.
-- Assign each member a role: **Admin**, **Instructor**, **Assistant**, or **Dancer**.
-- Only Admins can add new members.
+- Create a team and invite members by email — the recipient gets a magic-link invitation regardless of whether they already have an Eight Count account.
+- Assign each member a role at invite time: **Admin**, **Instructor**, **Assistant**, or **Dancer**.
+- Only Admins can invite new members, resend invitations, or revoke pending ones.
+
+### Team invitations
+- Admins enter an email + role → recipient gets a branded email with an **Accept invitation** link.
+- The link routes to `/invite/[token]`. If the recipient already has an account on the invited email, accepting is one click. If they don't, they're sent through `/sign-up` with the email pre-filled and locked, then bounced back to the invite page after verifying — no double accounts, no wrong-email mistakes.
+- The signed-in email must match the invited email to accept (the security check). A wrong-account state explains the mismatch and routes the user through sign-out → sign-in cleanly.
+- Pending invitations show up as muted rows above the active members list with an admin `…` menu (**Resend invite** rotates the token and resets the 7-day expiry, **Revoke** kills the token immediately, **Copy email**).
+- Invitations expire after 7 days. Expired and revoked links land on a friendly state telling the user to ask for a new invite.
 
 ### Team page
 The team page is the organizational home — it answers "who is on this team and what projects exist?" It sits above the project page in the hierarchy and is intentionally lighter and more administrative than the operational pages below it.
@@ -54,7 +62,7 @@ The team page is the organizational home — it answers "who is on this team and
 - **Header band** with breadcrumb (Dashboard › team), team mark, title, the viewer's role chip, and a compact meta strip showing **Members**, **Projects**, **Created**, the per-role glance (`3 admins · 2 instructors …`), and "Your role" at the end. The header carries no CTAs — primary actions live in the section headers below where they naturally belong, eliminating duplicates and quieting the top of the page.
 - **Role popovers**: every role chip on the page (header, member rows) is a popover trigger. Tap any chip to see what that role can do. This replaced a persistent role glossary card and surfaces the explanation contextually instead of permanently.
 - **Projects section** — the main column. Each project renders as an entry-point row (not a mini-dashboard): title, status pill, description, rehearsal count, an optional "open notes" accent (in-progress tint when there's pending work), and a relative last-activity timestamp. The list defaults to active projects; if any archived projects exist, a single inline toggle reveals or hides them (`Show archived (N)` ↔ `Hide archived`). Admins and Instructors get a `New project` button in the section header and a generous empty-state panel with a `Create first project` CTA when the team has no projects yet.
-- **Members section** — sorted by role then name in a divided card list. Each row has the avatar, name + email, a "You" pill on the viewer's own row, and the member's role chip. **Admins** see a `…` overflow menu on other members' rows (currently `Copy email`; future role/remove actions slot here without redesigning the row). The toolbar is lazy: **search** appears at ≥8 members, the **role filter** appears at ≥6 members *and* ≥3 distinct roles. Below those thresholds the section is just a clean sorted list, with a chromeless "Invite by email" footer for admins.
+- **Members section** — sorted by role then name in a divided card list. Each row has the avatar, name + email, a "You" pill on the viewer's own row, and the member's role chip. **Admins** see a `…` overflow menu on other members' rows (currently `Copy email`; future role/remove actions slot here without redesigning the row). **Pending invitations** render in a muted block above the active members with their email, a "Pending" pill, role chip, and an admin overflow menu offering **Resend invite**, **Copy email**, and **Revoke**. The toolbar is lazy: **search** appears at ≥8 members, the **role filter** appears at ≥6 members *and* ≥3 distinct roles. Below those thresholds the section is just a clean sorted list, with a chromeless "Invite by email" footer for admins.
 - **Mobile responsive**: a segmented **Projects / Members** tab switcher lets the user focus on one section at a time. The header collapses (smaller mark, role chip moved below the title to avoid orphaning, counts compressed into a single `X members · Y projects` subtitle). Page is single-column on all sizes.
 
 ### Projects (pieces / dances)
@@ -128,7 +136,7 @@ The rehearsal page is a sticky two-column workspace anchored at the top by a con
 
 | Action | Admin | Instructor | Assistant | Dancer |
 |---|:---:|:---:|:---:|:---:|
-| Add team members | ✓ | | | |
+| Invite / resend / revoke team invitations | ✓ | | | |
 | Create / archive projects | ✓ | ✓ | | |
 | Manage project groups | ✓ | ✓ | | |
 | Create rehearsals | ✓ | ✓ | ✓ | |
@@ -150,9 +158,23 @@ Environment variables required (see `.env`):
 - Clerk publishable key, secret key, and webhook secret
 - `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in` and `NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up` — point Clerk at the custom auth routes
 - Google Cloud Storage credentials and bucket name
+- `RESEND_API_KEY` — Resend API key for sending team invitation emails
+- `NEXT_PUBLIC_APP_URL` — absolute origin used to build the accept link in invitation emails (e.g. `http://localhost:3000` locally, the deployed URL in production)
+- `EMAIL_FROM` *(optional)* — sender address, e.g. `Eight Count <invites@yourdomain.com>`. Falls back to `Eight Count <onboarding@resend.dev>` which Resend only delivers to your own account email — verify a domain in Resend before inviting non-self addresses.
 
 Apply migrations:
 
 ```bash
 npx prisma migrate dev
 ```
+
+## Shipping to production
+
+When deploying for real users, the invitation flow needs:
+
+1. **A verified sending domain in Resend**. Add the domain in the Resend dashboard, paste the SPF + DKIM (and ideally DMARC) DNS records into your registrar, and wait for verification.
+2. **Set `EMAIL_FROM`** in your production environment to a verified address on that domain (e.g. `Eight Count <invites@yourdomain.com>`).
+3. **Set `NEXT_PUBLIC_APP_URL`** to the deployed origin (no trailing slash) — the value is baked into the magic-link URL in every invitation email.
+4. **Run migrations on production** with `npx prisma migrate deploy` (not `migrate dev`).
+
+Send yourself a real invite to a fresh inbox to verify deliverability before opening invitations to teammates.

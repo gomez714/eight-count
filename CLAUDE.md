@@ -22,7 +22,9 @@ Required in `.env`:
 - `DATABASE_URL` — Pooled PostgreSQL connection string
 - `DIRECT_URL` — Direct (non-pooled) connection for Prisma migrations
 - Clerk: `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`, `CLERK_WEBHOOK_SECRET`
+- Clerk routing: `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in`, `NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up`
 - GCS: `GCS_BUCKET_NAME`, `GOOGLE_CLOUD_PROJECT_ID`, plus service account credentials
+- Email (team invitations): `RESEND_API_KEY`, `NEXT_PUBLIC_APP_URL` (absolute URL the invite-acceptance link is built from — e.g. `http://localhost:3000` locally, the deployed origin in prod), and optional `EMAIL_FROM` (e.g. `Eight Count <invites@yourdomain.com>`). Falls back to `Eight Count <onboarding@resend.dev>` which Resend only delivers to your own account email — verify a domain in Resend before inviting non-self addresses.
 
 ## Tech Stack
 
@@ -30,6 +32,7 @@ Required in `.env`:
 - **Database**: PostgreSQL via Prisma 7 with `PrismaPg` driver adapter (`@prisma/adapter-pg`)
 - **Auth**: Clerk — synced to a local `User` table on every mutation. **Auth UI is fully headless** (custom `/sign-in` and `/sign-up` routes built on Clerk's `useSignIn` / `useSignUp` hooks). See "Auth UI" below.
 - **Storage**: Google Cloud Storage for rehearsal videos (signed URLs)
+- **Email**: Resend (`resend` npm package). Used for team invitation emails. See "Team Invitations" below.
 - **UI**: Tailwind CSS 4 + shadcn/ui (Radix primitives in `components/ui/` — do not modify)
 - **Theming**: `next-themes` with `attribute="class"`, `defaultTheme="system"`. Mounted in `app/layout.tsx`. CSS tokens in `globals.css` adapt via `:root` / `.dark` so every component flips automatically.
 - **Forms**: react-hook-form + Zod; toasts via `sonner`
@@ -40,13 +43,14 @@ Required in `.env`:
 Team → Project → Rehearsal → VideoAsset
   ↓       ↓             ↓
 TeamMember  ProjectGroup  AudioAsset[]   (one per voice note)
-                          ↓
-                          Note → NoteTarget[]
+  ↑                       ↓
+TeamInvitation            Note → NoteTarget[]
                             ↓
                           NoteAssignment → NoteAssignmentStatus
 ```
 
 - **Teams** have members with roles: `ADMIN | INSTRUCTOR | ASSISTANT | DANCER`
+- **TeamInvitations** sit alongside `TeamMember` and represent pending or historical email invites. Status: `PENDING | ACCEPTED | REVOKED | EXPIRED`. Accepting an invitation creates a `TeamMember` row; the invitation row stays as a record. See "Team Invitations" below.
 - **Projects** belong to a team and can have **ProjectGroups** (e.g., "Front line")
 - **Rehearsals** belong to a project and have one optional `VideoAsset`, many `AudioAsset`s (one per voice note), and many `Note`s
 - **Notes** are either `TEXT` or `VOICE` (`Note.noteType`). They share targeting/assignment/status pipelines (see below)
@@ -99,6 +103,49 @@ All return `null` if unauthorized. Never skip these and query directly.
 
 **Asset uploaders own completion**: The `POST /api/video-assets/[id]/complete` and `POST /api/audio-assets/[id]/complete` endpoints gate on `uploadedByUserId === currentUser` rather than team membership. The companion upload-URL endpoints already gate on the relevant author/manager role at upload time, so the uploader-only check is the natural narrow gate for the second half of the two-step flow — preventing other team members (even other authors) from completing someone else's in-flight upload.
 
+## Team Invitations
+
+Team membership grows by **email invitation** — admins enter an email + role, the recipient gets a magic link, clicks it, signs in (or signs up if they're new), and the `TeamMember` row is created on accept. Same flow whether the recipient already has an Eight Count account or not. The invitation and the auth account are decoupled: Clerk owns account creation, the app owns the invitation record + email + accept flow, and the two meet at the **email match** check at acceptance time.
+
+### Data model
+
+| Field | Notes |
+|---|---|
+| `tokenHash` | SHA-256 of the raw token. Raw value lives only in the email URL — same pattern as password resets. Hashing means a DB leak doesn't grant accept access. |
+| `status` | `PENDING` → terminal `ACCEPTED` / `REVOKED` / `EXPIRED`. Lazy expiry: `expiresAt < now` is rewritten to `EXPIRED` on the first accept attempt after expiry, no cron required. |
+| `expiresAt` | 7 days (`INVITATION_TTL_DAYS` in [lib/invitations/token.ts](lib/invitations/token.ts)). Resend rotates the hash and resets the timer. |
+
+### Files
+
+| File | Responsibility |
+|---|---|
+| [lib/invitations/token.ts](lib/invitations/token.ts) | `generateInvitationToken()` returns `{ raw, hash }` (32-byte base64url + sha256). `hashInvitationToken(raw)` for lookup. `invitationExpiry()` builds the `expiresAt` timestamp. |
+| [lib/invitations/lookup.ts](lib/invitations/lookup.ts) | Server-side resolver: hashes the raw token from the URL, returns a discriminated result (`ok` / `not_found` / `expired` / `revoked` / `accepted`). Used by the acceptance page to render the right state without leaking detail. |
+| [lib/email/send.ts](lib/email/send.ts) | Resend wrapper. `sendInvitationEmail({ to, teamName, inviterName, role, rawToken, expiresAt })` builds the accept URL from `NEXT_PUBLIC_APP_URL`, picks the from address (env `EMAIL_FROM` or `Eight Count <onboarding@resend.dev>` fallback), and sends both HTML and text bodies. Lazy-instantiates the Resend client and throws on missing `RESEND_API_KEY`. |
+| [app/teams/[teamId]/member-actions.ts](app/teams/[teamId]/member-actions.ts) | Three server actions: `inviteTeamMember` (admin gate → blocks self-invite, existing member, duplicate `PENDING` invite for same email → creates row → sends email), `revokeInvitation` (admin gate → flips `PENDING` to `REVOKED`, killing the token), `resendInvitation` (admin gate → rotates `tokenHash`, resets `expiresAt`, re-sends email; works for `PENDING` and `EXPIRED`). All return `{ success?, error? }` and `revalidatePath` the team page. |
+| [app/api/invitations/[token]/accept/route.ts](app/api/invitations/[token]/accept/route.ts) | `POST` handler. Auth via `ensureDbUser()` → 401 if signed-out. Status checks (revoked / accepted / expired). **Email match**: signed-in user's email must equal `invitation.email`, otherwise returns `EMAIL_MISMATCH`. Idempotent — if the `TeamMember` already exists (e.g. user double-clicks), still marks the invite `ACCEPTED`. Returns `{ teamId, teamName }` for the client redirect. |
+| [app/invite/[token]/page.tsx](app/invite/[token]/page.tsx) | Server-rendered acceptance page. Calls `lookupInvitationByToken` + `getCurrentDbUser()` in parallel, then renders one of: `SignedOutInviteCard`, `AcceptInvitationCard` (matching email), wrong-account state (mismatched email), or info card (not_found / expired / revoked / accepted). Brand lockup mounted at the top. **Public route** — not gated by `proxy.ts` so signed-out users can see the invite + sign-up CTA. |
+| [app/invite/[token]/signed-out-invite-card.tsx](app/invite/[token]/signed-out-invite-card.tsx) | Server component. Renders team + role + inviter line, plus two CTAs: "Create account" → `/sign-up?email={invited}&redirect_url=/invite/{token}`, "I already have an account" → `/sign-in?redirect_url=/invite/{token}`. The pre-filled `?email=` plus the read-only field on `/sign-up` guarantees the new account uses the invited address, so the email-match check passes after they bounce back. |
+| [app/invite/[token]/accept-invitation-card.tsx](app/invite/[token]/accept-invitation-card.tsx) | Client. The matching-email branch renders the Accept button which `POST`s to the accept route and `router.push`es to `/teams/{teamId}` on success. The wrong-account branch calls `clerk.signOut({ redirectUrl: /sign-in?redirect_url=/invite/{token} })` so the user re-enters auth pointed back at the invite. |
+| [app/teams/[teamId]/pending-invitation-row.tsx](app/teams/[teamId]/pending-invitation-row.tsx) | Muted row rendered above the active members list. Avatar (initials from email) + email + "Pending" pill (in-progress tint) + "Invited Xd ago" + role chip + admin `…` menu (`Resend invite` / `Copy email` / `Revoke`). Uses `useTransition` for menu actions; sonner toasts on result. |
+
+### Sign-up email pre-fill
+
+[app/sign-up/sign-up-form.tsx](app/sign-up/sign-up-form.tsx) reads `?email=` via `useSearchParams()` (sanitized through `sanitizeEmailParam`: trim, regex check, lowercase). When present, the email field is pre-filled and `readOnly` with a "Locked to your invited email" hint. This is the load-bearing piece that ensures the new account is created at the invited address — without it, a user could sign up with a different email and the accept route would fail the email-match check.
+
+### Signed-in path
+
+If the recipient is already signed in with the invited email when they click the link, the page short-circuits to `AcceptInvitationCard` immediately — one button click, no sign-in detour. If signed in with a different email, the wrong-account state explains the mismatch and routes them through sign-out → sign-in.
+
+### Why we don't use Clerk's invitation API
+
+Clerk has its own `clerkClient.invitations.createInvitation()` that pre-creates a ticket and skips the verification code at sign-up. We don't use it because:
+- Clerk's emails are off-brand vs. the headless auth UI in the rest of the app.
+- Coupling team metadata (role, status, revocation, resend) to Clerk's invitation state would split the source of truth.
+- The lazy-sync via `ensureDbUser()` already handles "Clerk account just got created → upsert local `User` row" without webhooks.
+
+If sign-up's 6-digit verification ever feels like friction, the optimization is to layer Clerk invitations *on top of* our `TeamInvitation` (Clerk's ticket auto-verifies the email at sign-up; our row still owns admin UX), but it's deferred.
+
 ## Auth UI
 
 Sign-in / sign-up are **fully headless**. Clerk handles the auth flow under the hood (`useSignIn` / `useSignUp` from `@clerk/nextjs`), but every input, button, divider, OAuth pill, and verification step is built from the app's own primitives. The only Clerk-rendered surfaces still in the app are the `<UserButton>` dropdown (when signed in) and the transient `<AuthenticateWithRedirectCallback />` on the OAuth return page.
@@ -108,7 +155,7 @@ Sign-in / sign-up are **fully headless**. Clerk handles the auth flow under the 
 | [app/sign-in/[[...sign-in]]/page.tsx](app/sign-in/[[...sign-in]]/page.tsx) | Server-rendered split-screen page. Brand panel on the left (`hidden lg:flex` — mobile drops it entirely since the AppHeader already owns brand identity at that viewport) renders `<BrandLockup size="lg" showCountDots />` plus the heading + supporting paragraph + small footer line. `<SignInForm />` centered on the right. |
 | [app/sign-in/sign-in-form.tsx](app/sign-in/sign-in-form.tsx) | Client. Built on Clerk's "Future" API: `signIn.create({ identifier, password })` → check `signIn.status === "complete"` → `signIn.finalize()` → `router.push(redirectAfter)`. Google OAuth via `signIn.sso({ strategy: "oauth_google", redirectUrl, redirectCallbackUrl: "/sign-in/sso-callback" })`. RHF + Zod validation, sonner-style errors at the form level, `<div id="clerk-captcha" />` mounted hidden for Clerk's bot protection. |
 | [app/sign-up/[[...sign-up]]/page.tsx](app/sign-up/[[...sign-up]]/page.tsx) | Mirror of the sign-in page (same `<BrandLockup size="lg" showCountDots />` + sign-up-specific copy), renders `<SignUpForm />`. |
-| [app/sign-up/sign-up-form.tsx](app/sign-up/sign-up-form.tsx) | Two-state component. **Step 1 (`create`)**: `signUp.create({ emailAddress, password })` → `signUp.verifications.sendEmailCode()` → flip to step 2. **Step 2 (`verify`)**: `signUp.verifications.verifyEmailCode({ code })` → `signUp.finalize()` → redirect. Resend button (idle / sending / sent states) and "← Use a different email" back-link. Google OAuth fast path via `signUp.sso(...)` skips verification. |
+| [app/sign-up/sign-up-form.tsx](app/sign-up/sign-up-form.tsx) | Two-state component. **Step 1 (`create`)**: `signUp.create({ emailAddress, password })` → `signUp.verifications.sendEmailCode()` → flip to step 2. **Step 2 (`verify`)**: `signUp.verifications.verifyEmailCode({ code })` → `signUp.finalize()` → redirect. Resend button (idle / sending / sent states) and "← Use a different email" back-link. Google OAuth fast path via `signUp.sso(...)` skips verification. **Email pre-fill**: reads `?email=` (sanitized via `sanitizeEmailParam`) and renders the email field pre-filled and `readOnly` with a "Locked to your invited email" hint — used by the team-invitation flow to guarantee the new account uses the invited address. |
 | [app/sign-in/sso-callback/page.tsx](app/sign-in/sso-callback/page.tsx) | OAuth landing page. Renders Clerk's `<AuthenticateWithRedirectCallback />` plus a centered loader. Used for both sign-in and sign-up OAuth flows (Clerk routes correctly internally). |
 
 **Deep-link preservation**: both forms read `?redirect_url=` from `useSearchParams()` and route the user back to that path after auth. `resolveRedirect()` sanity-checks the value (must start with `/` and not `//`) and falls back to `/dashboard` otherwise.
@@ -138,7 +185,7 @@ All design tokens (`--primary`, `--card`, `--status-*`, `--note-voice-*`, `--ava
 
 | Action | ADMIN | INSTRUCTOR | ASSISTANT | DANCER |
 |---|:---:|:---:|:---:|:---:|
-| Add team members | ✓ | | | |
+| Invite / revoke / resend team invitations | ✓ | | | |
 | Create/archive projects | ✓ | ✓ | | |
 | Manage project groups | ✓ | ✓ | | |
 | Create rehearsals / upload video / author notes (text or voice) | ✓ | ✓ | ✓ | |
@@ -155,7 +202,7 @@ Action files live alongside their route pages:
 |------|---------|
 | `app/dashboard/actions.ts` | `createTeam()` |
 | `app/teams/[teamId]/actions.ts` | `createProject()` |
-| `app/teams/[teamId]/member-actions.ts` | `addTeamMember()` |
+| `app/teams/[teamId]/member-actions.ts` | `inviteTeamMember()`, `revokeInvitation()`, `resendInvitation()` |
 | `app/projects/[projectId]/actions.ts` | `createRehearsal()` |
 | `app/projects/[projectId]/group-actions.ts` | `createProjectGroup()`, `updateProjectGroupMembers()`, `deleteProjectGroup()` |
 | `app/my-notes/note-status-actions.ts` | `updateNoteAssignmentStatus()` |
@@ -186,6 +233,7 @@ REST endpoints under `app/api/`:
 - `POST /api/rehearsals/[rehearsalId]/audio/upload-url` — generate GCS signed upload URL for a voice-note audio asset (staff roles only; 25 MB cap; webm/mp4/ogg/mpeg)
 - `POST /api/audio-assets/[audioAssetId]/complete` — mark audio upload complete and store `durationMs` (**uploader-only**: caller must equal `audioAsset.uploadedByUserId`)
 - `GET /api/audio-assets/[audioAssetId]/playback-url` — get signed audio playback URL (1-hr expiry); fetched lazily on first play
+- `POST /api/invitations/[token]/accept` — accept a team invitation. Auth-gated, status-gated, **email-match-gated** (signed-in user's email must equal the invitation's email). Idempotent on the `TeamMember` row. Returns `{ teamId, teamName }` for the client to redirect into. See "Team Invitations" above.
 
 Request/response types: [lib/api/contracts.ts](lib/api/contracts.ts) and [lib/api/responses.ts](lib/api/responses.ts). Create/update note request bodies are discriminated unions (`CreateTextNoteRequest | CreateVoiceNoteRequest`).
 
@@ -301,16 +349,17 @@ Use `var(--*)` directly (or `color-mix(in oklch, var(--*) X%, transparent)` for 
 
 | File | Responsibility |
 |---|---|
-| [app/teams/[teamId]/page.tsx](app/teams/[teamId]/page.tsx) | Server entry. Fetches projects (with rehearsals → notes → assignments → status, for `openNotesCount` + `lastActivity` derivation) and team members in parallel. Maps to flat `ProjectRowData` and `MemberRowData` arrays plus a `roleGlance` count by role. Renders `<TeamMetaBand />` above `<TeamMobileTabs />` which slots `<ProjectsSection />` + `<MembersSection />`. The page header carries no CTAs — primary actions live inside each section header. |
+| [app/teams/[teamId]/page.tsx](app/teams/[teamId]/page.tsx) | Server entry. Fetches projects (with rehearsals → notes → assignments → status, for `openNotesCount` + `lastActivity` derivation), team members, and `PENDING` team invitations in parallel. Maps to flat `ProjectRowData`, `MemberRowData`, and `PendingInvitationRowData` arrays plus a `roleGlance` count by role. Renders `<TeamMetaBand />` above `<TeamMobileTabs />` which slots `<ProjectsSection />` + `<MembersSection />`. The page header carries no CTAs — primary actions live inside each section header. |
 | [team-meta-band.tsx](app/teams/[teamId]/team-meta-band.tsx) | Edge-to-edge `bg-card` band. Breadcrumb (Dashboard › team), team mark + title, the viewer's role chip via `RoleChipPopover`, and a desktop meta strip with `MetaChip`s (Members / Projects / Created) + `RoleGlanceStrip` + "Your role" at the end. On mobile the meta strip is hidden; the role chip moves below the title (preventing orphan when the name wraps) and a compact `X members · Y projects` subtitle replaces the desktop helper line. The team mark shrinks to `size-9` on mobile. |
 | [team-mobile-tabs.tsx](app/teams/[teamId]/team-mobile-tabs.tsx) | Client wrapper. Renders the `Projects (N) / Members (N)` segmented `role="tablist"` visible only below `lg:`. Body is single-column on all sizes — on mobile the inactive section gets `hidden lg:block` so only the active tab renders; on `lg:+` both sections always render in the same single column. There is intentionally no right rail (see "About card removal" below). |
 | [projects-section.tsx](app/teams/[teamId]/projects-section.tsx) | Heading + helper line + list of `ProjectRow`s, OR a generous empty-state panel with a `Create first project` CTA. Filter is **lazy**: defaults to active projects only, no filter UI shown. When `archivedCount > 0`, a single inline link toggles `Show archived (N)` ↔ `Hide archived`. The "no active projects" empty state surfaces the same toggle inline. `New project` button (gated on `canCreate`) sits in the section header. |
 | [project-row.tsx](app/teams/[teamId]/project-row.tsx) | Per-project `<Link>` row into `/projects/[projectId]`. Lighter than `RehearsalRow` — these are entry points, not work surfaces. **No progress bar, no left accent stripe** (status is conveyed by the pill alone — stripes are reserved for *augmenting* signals like the "current" rehearsal indicator). Body shows title + status pill + clamped description; right cluster shows rehearsal count, an optional in-progress-tinted "open notes" accent, and a relative `lastActivity` timestamp. Archived rows fade to `opacity-80`. |
-| [members-section.tsx](app/teams/[teamId]/members-section.tsx) | Heading + helper line + divided card list of `MemberRow`s, OR a `MembersEmptyState`. Toolbar is **lazy** (progressive disclosure): **search** appears at `members.length >= 8`; **role filter** appears at `>= 6 members AND >= 3 distinct roles`. Below thresholds, the toolbar is omitted and a chromeless "Invite by email…" footer surfaces for admins. Role-filter pills hide rows for roles with zero count (no dead `Instructor (0)` pill). Sort is role hierarchy first, then alphabetical. |
+| [members-section.tsx](app/teams/[teamId]/members-section.tsx) | Heading + helper line + divided card list. **Pending invitations** (status `PENDING`) render in a muted block above the active members, separated by section subheaders (`Pending invitations · N` / `Members · N`) when both groups are present; the search + role-filter toolbar applies to both. Toolbar is **lazy** (progressive disclosure): **search** appears at `members.length >= 8`; **role filter** appears at `>= 6 members AND >= 3 distinct roles`. Below thresholds, the toolbar is omitted and a chromeless "Invite by email…" footer surfaces for admins. Role-filter pills hide rows for roles with zero count (no dead `Instructor (0)` pill). Sort is role hierarchy first, then alphabetical. |
 | [member-row.tsx](app/teams/[teamId]/member-row.tsx) | Client component. Avatar + name + email + "You" pill (own row) + `RoleChipPopover` + joined date (desktop). When `canManage && !member.isYou`, renders a `…` `MemberActionsMenu` (Radix `DropdownMenu`) on the right. Currently exposes **Copy email** (uses `navigator.clipboard` + sonner toast); future actions (`Change role`, `Remove`) slot in here without redesigning the row. Overflow column is reserved (`size-6` placeholder) on rows without actions so rows align consistently. |
+| [pending-invitation-row.tsx](app/teams/[teamId]/pending-invitation-row.tsx) | Muted row variant for `PENDING` invitations. Avatar (initials from email) + email + "Pending" pill (in-progress tint) + role chip + "Invited Xd ago" / "Expires in N" meta. Admin overflow menu: **Resend invite** (rotates token, fires fresh email, resets 7-day expiry), **Copy email**, **Revoke** (kills the token immediately). Actions go through `useTransition` + sonner toasts. See "Team Invitations" for the full invitation lifecycle. |
 | [role-chip.tsx](app/teams/[teamId]/role-chip.tsx) | Pure presentational `RoleChip` (server-safe) + `ROLE_LABEL` + `ROLE_DESCRIPTION` constants. Token mapping: ADMIN = `--status-addressed-*` (teal), INSTRUCTOR = `--note-voice-*` (coral), ASSISTANT = `--status-progress-*`, DANCER = neutral muted. |
 | [role-chip-popover.tsx](app/teams/[teamId]/role-chip-popover.tsx) | Client wrapper that wraps `RoleChip` in a `Popover` showing the role label + `ROLE_DESCRIPTION`. **Replaced the persistent role glossary card** — explanation is surfaced contextually wherever a role appears (header, member rows). Used everywhere the team page renders a role chip. |
-| [new-project-button.tsx](app/teams/[teamId]/new-project-button.tsx) / [invite-member-button.tsx](app/teams/[teamId]/invite-member-button.tsx) | Client `Dialog` triggers wrapping `CreateProjectForm` / `AddTeamMemberForm`. Both forms are chromeless (no `Card`) and accept `onSuccess` / `onCancel` so the dialog closes on submit. |
+| [new-project-button.tsx](app/teams/[teamId]/new-project-button.tsx) / [invite-member-button.tsx](app/teams/[teamId]/invite-member-button.tsx) | Client `Dialog` triggers wrapping `CreateProjectForm` / `AddTeamMemberForm` (the latter calls `inviteTeamMember` and sends an email invitation rather than directly creating a `TeamMember` row — see "Team Invitations"). Both forms are chromeless (no `Card`) and accept `onSuccess` / `onCancel` so the dialog closes on submit. |
 
 **About card removal**: the page originally had an `AboutTeamCard` in a right rail containing a role glossary + Created date. The glossary moved into `RoleChipPopover` (contextual help over persistent help), which left the card with just the Created date — not enough to justify a rail. The card was deleted, the rail was deleted, and the Created date moved into the desktop meta strip as a third `MetaChip`. The rail can come back when there's substantial content to put in it (team activity, pending invites, team description).
 
@@ -408,8 +457,9 @@ Every page sits below a persistent global `<AppHeader>` (brand + team switcher w
 
 - `/` — Landing page. Warm hero with inline note mockup, problem section, three-step how-it-works, four-feature 2×2 grid, role row, final CTA. See "Landing Page UI" above.
 - `/sign-in/[[...sign-in]]` — Headless sign-in. Split-screen layout (brand panel `hidden lg:flex`, form on the right). Email + password + Google OAuth + deep-link preservation via `?redirect_url=`. See "Auth UI" above.
-- `/sign-up/[[...sign-up]]` — Headless sign-up. Two-step flow (create account → 6-digit email verification code). See "Auth UI" above.
+- `/sign-up/[[...sign-up]]` — Headless sign-up. Two-step flow (create account → 6-digit email verification code). Reads `?email=` query param; when present, the email field is pre-filled and `readOnly` (used by the team-invitation flow to lock new accounts to the invited address). See "Auth UI" above.
 - `/sign-in/sso-callback` — OAuth return handler. Renders `<AuthenticateWithRedirectCallback />` plus a centered loader.
+- `/invite/[token]` — Team invitation acceptance. Public route (not gated by `proxy.ts`). Server-rendered with one of: signed-out invite card (Create account / Sign in CTAs that preserve the invite URL via `?redirect_url=`), accept card (matching email), wrong-account card (mismatched email — sign out + retry), or info card (not found / expired / revoked / accepted). See "Team Invitations" above.
 - `/dashboard` — Signed-in home. `DashboardMetaBand` ("Welcome back, {firstName}" + cross-team meta strip) above `WorkTiles` (2-up "My notes" / "Notes by me" tiles with real metrics) and `TeamsSection` (compact team rows with role chip + activity meta + `+ New team` button, or generous empty-state CTA). Only page that aggregates across teams. See "Dashboard UI" below.
 - `/teams/[teamId]` — Team organizational home. `TeamMetaBand` (breadcrumb, mark, title, role popover, desktop meta strip with Members / Projects / Created / role glance / Your role) above a single-column `TeamMobileTabs` shell that renders `<ProjectsSection />` + `<MembersSection />`. Mobile gets a `Projects (N) / Members (N)` segmented switcher. Header carries no CTAs — each section owns its action. Role chips are popover triggers for contextual role explanations. See "Team Page UI" below.
 - `/projects/[projectId]` — Project home and structural bridge into the workspace. `ProjectMetaBand` (breadcrumb, title + status pill, meta chips, "Manage cast" / "New rehearsal") above a two-column layout: rehearsals spine on the left (`RehearsalRow`s with date plate, status mini-bar, stalled chips) + a compact `ProjectGroupsSection` rail on the right. On mobile a `ProjectMobileTabs` segmented switcher (`Rehearsals (N)` / `Groups (N)`) toggles between the two so only one renders at a time. See "Project Page UI" below.
