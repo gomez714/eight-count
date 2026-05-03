@@ -1,122 +1,152 @@
-import { auth } from "@clerk/nextjs/server"
-import { redirect } from "next/navigation"
-import Link from "next/link"
-import { ensureDbUser } from "@/lib/auth/ensure-db-user"
-import { db } from "@/lib/db"
+import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
 
-import { CreateTeamForm } from "./create-team-form"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import { ensureDbUser } from "@/lib/auth/ensure-db-user";
+import { db } from "@/lib/db";
+import { isNoteStalled } from "@/lib/notes/stalled";
+import { isActiveStatus, type NoteStatus } from "@/lib/notes/statuses";
+
+import { DashboardMetaBand } from "./dashboard-meta-band";
+import { TeamsSection } from "./teams-section";
+import type {
+  MyNotesMetrics,
+  NotesByMeMetrics,
+  TeamRowData,
+} from "./types";
+import { WorkTiles } from "./work-tiles";
+
+const AUTHOR_ROLES = new Set(["ADMIN", "INSTRUCTOR", "ASSISTANT"]);
+
+function pickFirstName(name: string | null): string | null {
+  if (!name) return null;
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const first = trimmed.split(/\s+/)[0];
+  return first || null;
+}
 
 export default async function DashboardPage() {
-  const { userId } = await auth()
-
+  const { userId } = await auth();
   if (!userId) {
-    redirect("/sign-in")
+    redirect("/sign-in");
   }
 
-  const dbUser = await ensureDbUser()
-
+  const dbUser = await ensureDbUser();
   if (!dbUser) {
-    redirect("/sign-in")
+    redirect("/sign-in");
   }
 
-  const memberships = await db.teamMember.findMany({
-    where: {
-      userId: dbUser.id,
-    },
-    include: {
-      team: true,
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-  })
+  const [memberships, myAssignments, authoredNotes] = await Promise.all([
+    db.teamMember.findMany({
+      where: { userId: dbUser.id },
+      include: {
+        team: {
+          include: {
+            projects: {
+              select: {
+                id: true,
+                rehearsals: {
+                  orderBy: { rehearsalDate: "desc" },
+                  take: 1,
+                  select: { rehearsalDate: true },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+    db.noteAssignment.findMany({
+      where: { userId: dbUser.id },
+      select: {
+        status: { select: { status: true } },
+      },
+    }),
+    db.note.findMany({
+      where: { authorUserId: dbUser.id },
+      select: {
+        createdAt: true,
+        assignments: {
+          select: {
+            status: { select: { status: true } },
+          },
+        },
+      },
+    }),
+  ]);
+
+  // Per-team aggregation for the row cards.
+  const teamRows: TeamRowData[] = memberships.map((membership) => {
+    const projects = membership.team.projects;
+    const rehearsalTimestamps = projects
+      .map((project) => project.rehearsals[0]?.rehearsalDate?.getTime() ?? null)
+      .filter((time): time is number => time !== null);
+    const lastActivityAt =
+      rehearsalTimestamps.length > 0
+        ? new Date(Math.max(...rehearsalTimestamps))
+        : null;
+
+    return {
+      id: membership.team.id,
+      name: membership.team.name,
+      role: membership.role,
+      projectCount: projects.length,
+      lastActivityAt,
+      createdAt: membership.team.createdAt,
+    };
+  });
+
+  // My-notes metrics: count active vs. total.
+  const myNotes: MyNotesMetrics = {
+    onPlate: myAssignments.filter((assignment) =>
+      isActiveStatus(
+        (assignment.status?.status ?? "OPEN") as NoteStatus
+      )
+    ).length,
+    total: myAssignments.length,
+  };
+
+  // Notes-by-me metrics: total + stalled (per the same threshold used on /notes-by-me).
+  const stalledNow = new Date();
+  const notesByMe: NotesByMeMetrics = {
+    total: authoredNotes.length,
+    stalled: authoredNotes.filter((note) =>
+      isNoteStalled({
+        createdAt: note.createdAt,
+        assignments: note.assignments.map((assignment) => ({
+          status: (assignment.status?.status ?? "OPEN") as NoteStatus,
+        })),
+        now: stalledNow,
+      })
+    ).length,
+  };
+
+  // Only show "Notes by me" tile to users with at least one authoring-role
+  // membership; pure dancers can't author notes so the tile is meaningless.
+  const showNotesByMe = memberships.some((membership) =>
+    AUTHOR_ROLES.has(membership.role)
+  );
+
+  const displayName = pickFirstName(dbUser.name);
 
   return (
-    <main className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-6">
-      <section className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">
-          Signed in as {dbUser.email}
-        </p>
-      </section>
+    <>
+      <DashboardMetaBand
+        displayName={displayName}
+        teamsCount={memberships.length}
+        onPlateCount={myNotes.onPlate}
+      />
 
-      <section className="grid gap-4 md:grid-cols-2">
-        <Link href="/my-notes">
-          <Card className="transition-colors hover:bg-muted/50">
-            <CardHeader>
-              <CardTitle className="text-base">My notes</CardTitle>
-              <CardDescription>
-                See feedback assigned to you and update its status.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        </Link>
-        <Link href="/notes-by-me">
-          <Card className="transition-colors hover:bg-muted/50">
-            <CardHeader>
-              <CardTitle className="text-base">Notes by me</CardTitle>
-              <CardDescription>
-                Track progress on the notes you&apos;ve sent across rehearsals.
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        </Link>
-      </section>
+      <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-6 sm:gap-8">
+        <WorkTiles
+          myNotes={myNotes}
+          notesByMe={notesByMe}
+          showNotesByMe={showNotesByMe}
+        />
 
-      <section>
-        <Card>
-          <CardHeader>
-            <CardTitle>Create a team</CardTitle>
-            <CardDescription>
-              Start by creating your first team or organization.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <CreateTeamForm />
-          </CardContent>
-        </Card>
-      </section>
-
-      <section className="space-y-4">
-        <div className="space-y-1">
-          <h2 className="text-xl font-semibold tracking-tight">Your teams</h2>
-          <p className="text-sm text-muted-foreground">
-            Teams you belong to will appear here.
-          </p>
-        </div>
-
-        {memberships.length === 0 ? (
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-sm text-muted-foreground">
-                No teams yet. Create your first one above.
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {memberships.map((membership) => (
-              <Link key={membership.id} href={`/teams/${membership.team.id}`}>
-                <Card className="transition-colors hover:bg-muted/50">
-                  <CardHeader>
-                    <CardTitle className="text-base">
-                      {membership.team.name}
-                    </CardTitle>
-                    <CardDescription>Role: {membership.role}</CardDescription>
-                  </CardHeader>
-                </Card>
-              </Link>
-            ))}
-          </div>
-        )}
-      </section>
-    </main>
-  )
+        <TeamsSection teams={teamRows} />
+      </main>
+    </>
+  );
 }
