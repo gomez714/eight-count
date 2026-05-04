@@ -58,7 +58,7 @@ const WORKSPACE_TIP_STEPS: TipStep[] = [
   {
     anchorSelector: "[data-onboarding-anchor='workspace-composer']",
     title: "Drop a note on the current frame",
-    body: "Pick who it's for — full cast, a group, or specific dancers — then write a text note or record a voice note.",
+    body: "Notes auto-anchor to the current video time — tap the timestamp to update it. Pick an audience, then type or record.",
   },
   {
     anchorSelector: "[data-onboarding-anchor='workspace-notes']",

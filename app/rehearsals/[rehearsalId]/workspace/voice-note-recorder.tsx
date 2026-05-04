@@ -526,7 +526,7 @@ export function VoiceNoteRecorder({
             disabled={disabled}
             className="w-fit"
           >
-            Start recording
+            Start recording (3s countdown)
           </Button>
         </div>
       ) : null}

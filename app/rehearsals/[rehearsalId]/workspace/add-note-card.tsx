@@ -262,12 +262,12 @@ export function AddNoteCard({
           type="button"
           onClick={onCapture}
           disabled={disabled}
-          title="Click to lock at the current playhead"
+          title="Tap to update to the current video time"
           className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2 font-mono text-xs text-muted-foreground hover:border-border hover:bg-card disabled:opacity-50"
         >
           <Clock className="size-3" />
           <span>
-            Locked at{" "}
+            Note appears at{" "}
             <span className="font-semibold text-foreground">
               {formatTimestamp(selectedTimestampMs)}
             </span>
