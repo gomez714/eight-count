@@ -2,7 +2,7 @@
 
 import { useSignIn } from "@clerk/nextjs";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -42,7 +42,6 @@ type SignInFormValues = z.infer<typeof signInSchema>;
  */
 export function SignInForm() {
   const { signIn, fetchStatus } = useSignIn();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [isOauthBusy, setIsOauthBusy] = useState(false);
 
@@ -71,7 +70,7 @@ export function SignInForm() {
 
     if (signIn.status === "complete") {
       await signIn.finalize();
-      router.push(redirectAfter);
+      globalThis.location.assign(redirectAfter);
       return;
     }
 

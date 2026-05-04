@@ -1,4 +1,5 @@
 import { SignInButton, SignUpButton } from "@clerk/nextjs";
+import { auth } from "@clerk/nextjs/server";
 import {
   ArrowRight,
   Eye,
@@ -10,6 +11,7 @@ import {
   TimerReset,
 } from "lucide-react";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import type { CSSProperties, ReactNode } from "react";
 
 import { NoteMockup } from "./landing/note-mockup";
@@ -20,7 +22,12 @@ const PRIMARY_BUTTON_CLASSES =
 
 const PRIMARY_INLINE = { color: "var(--primary)" } as const;
 
-export default function Page() {
+export default async function Page() {
+  const { userId } = await auth();
+  if (userId) {
+    redirect("/dashboard");
+  }
+
   return (
     <main className="flex flex-col">
       <Hero />

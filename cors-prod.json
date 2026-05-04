@@ -1,6 +1,6 @@
 [
   {
-    "origin": ["http://localhost:3000", "https://eightcountnotes.com"],
+    "origin": ["https://eightcountnotes.com", "https://www.eightcountnotes.com"],
     "method": ["PUT", "GET", "HEAD"],
     "responseHeader": ["Content-Type"],
     "maxAgeSeconds": 3600

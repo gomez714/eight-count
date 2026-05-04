@@ -36,7 +36,7 @@ export async function AppHeader() {
   return (
     <header className="flex h-[60px] items-center justify-between gap-4 border-b bg-card px-6">
       <div className="flex min-w-0 items-center gap-3">
-        <BrandLockup size="sm" />
+        <BrandLockup size="sm" href={isSignedIn ? "/dashboard" : "/"} />
 
         {isSignedIn ? (
           <>

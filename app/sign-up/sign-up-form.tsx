@@ -2,7 +2,7 @@
 
 import { useSignUp } from "@clerk/nextjs";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -22,8 +22,14 @@ import { Input } from "@/components/ui/input";
 const SAFE_REDIRECT_PREFIX = "/";
 const DEFAULT_REDIRECT = "/dashboard";
 
+const RESEND_LABELS = {
+  idle: "Resend code",
+  sending: "Sending…",
+  sent: "Code sent ✓",
+} as const;
+
 const signUpSchema = z.object({
-  emailAddress: z.string().trim().email("Enter a valid email address."),
+  emailAddress: z.email("Enter a valid email address."),
   password: z
     .string()
     .min(8, "Password must be at least 8 characters.")
@@ -57,7 +63,6 @@ type VerifyFormValues = z.infer<typeof verifySchema>;
  */
 export function SignUpForm() {
   const { signUp, fetchStatus } = useSignUp();
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [step, setStep] = useState<"create" | "verify">("create");
   const [pendingEmail, setPendingEmail] = useState("");
@@ -70,7 +75,7 @@ export function SignUpForm() {
     return (
       <VerifyEmailStep
         email={pendingEmail}
-        onComplete={() => router.push(redirectAfter)}
+        onComplete={() => globalThis.location.assign(redirectAfter)}
         onBack={() => setStep("create")}
       />
     );
@@ -424,11 +429,7 @@ function VerifyEmailStep({
           disabled={resendState !== "idle"}
           className="font-medium text-primary hover:text-primary/80 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {resendState === "sending"
-            ? "Sending…"
-            : resendState === "sent"
-              ? "Code sent ✓"
-              : "Resend code"}
+          {RESEND_LABELS[resendState]}
         </button>
       </div>
     </div>
