@@ -4,12 +4,15 @@ import { notFound, redirect } from "next/navigation";
 import { ensureDbUser } from "@/lib/auth/ensure-db-user";
 import { db } from "@/lib/db";
 import { getProjectGroups } from "@/lib/groups/get-project-groups";
+import { getActiveAssignmentsForProjects } from "@/lib/notes/get-active-assignments-for-project";
+import { detectRepeatingClusters } from "@/lib/notes/repeating";
 import { isNoteStalled } from "@/lib/notes/stalled";
 import { getProjectForUser } from "@/lib/projects/get-project-for-user";
 import type { NoteProgressCounts } from "@/components/note-progress-bar";
 import type { NoteStatus } from "@/lib/notes/statuses";
 
 import { NewRehearsalButton } from "./new-rehearsal-button";
+import { ProjectDrillSection, type DrillBoardRecipient } from "./project-drill-section";
 import { ProjectMetaBand } from "./project-meta-band";
 import {
   ProjectGroupsSection,
@@ -17,6 +20,7 @@ import {
 } from "./project-groups-section";
 import { ProjectMobileTabs } from "./project-mobile-tabs";
 import { RehearsalsSection } from "./rehearsals-section";
+import { RepeatingClustersCard } from "./repeating-clusters-card";
 import type { RehearsalRowData } from "./rehearsal-row";
 
 import { Button } from "@/components/ui/button";
@@ -86,6 +90,12 @@ export default async function ProjectPage({ params }: Readonly<ProjectPageProps>
   const role = membership?.role ?? null;
   const canManageGroups = role === "ADMIN" || role === "INSTRUCTOR";
   const canCreateRehearsal =
+    role === "ADMIN" || role === "INSTRUCTOR" || role === "ASSISTANT";
+  // Staff-only surfaces: the project-level drill board, repeating-clusters
+  // card, and "Manage cast" CTA all concentrate per-dancer struggle data
+  // in ways meant for instructors, not peers. Dancers get their own
+  // personal drill view at /my-notes?view=drill.
+  const isStaff =
     role === "ADMIN" || role === "INSTRUCTOR" || role === "ASSISTANT";
 
   const teamMemberOptions: TeamMemberOption[] = allTeamMembers.map(
@@ -171,6 +181,108 @@ export default async function ProjectPage({ params }: Readonly<ProjectPageProps>
     0
   );
 
+  // Active assignments scoped to this project, used for both the
+  // RepeatingClustersCard (summary) and the ProjectDrillSection (detail).
+  const projectActiveAssignments = await getActiveAssignmentsForProjects([
+    project.id,
+  ]);
+  const projectClusters = detectRepeatingClusters(
+    projectActiveAssignments.map((a) => ({
+      id: a.id,
+      userId: a.userId,
+      projectId: a.note.rehearsal.projectId,
+      tag: a.note.tag,
+      status: a.status?.status ?? "OPEN",
+    }))
+  );
+
+  const clusterSummaries = projectClusters
+    .map((cluster) => {
+      const a = projectActiveAssignments.find((x) => x.userId === cluster.userId);
+      if (!a) return null;
+      return {
+        userId: cluster.userId,
+        userName: a.user.name,
+        userEmail: a.user.email,
+        tag: cluster.tag,
+        count: cluster.count,
+      };
+    })
+    .filter((c): c is NonNullable<typeof c> => c !== null)
+    .sort((a, b) => b.count - a.count);
+
+  // Build per-recipient drill board.
+  const drillByUser = new Map<string, DrillBoardRecipient>();
+  for (const a of projectActiveAssignments) {
+    let recipient = drillByUser.get(a.userId);
+    if (!recipient) {
+      recipient = {
+        userId: a.userId,
+        userName: a.user.name,
+        userEmail: a.user.email,
+        buckets: [],
+        totalItems: 0,
+        repeatingClusterCount: 0,
+      };
+      drillByUser.set(a.userId, recipient);
+    }
+    const bucketTag = a.note.tag;
+    let bucket = recipient.buckets.find((b) => b.tag === bucketTag);
+    if (!bucket) {
+      bucket = {
+        tag: bucketTag,
+        items: [],
+        isRepeating: false,
+        repeatingCount: 0,
+      };
+      recipient.buckets.push(bucket);
+    }
+    bucket.items.push({
+      assignmentId: a.id,
+      noteId: a.noteId,
+      noteType: a.note.noteType,
+      bodyText: a.note.bodyText,
+      audioDurationMs: a.note.audioAsset?.durationMs ?? null,
+      startTimestampMs: a.note.startTimestampMs,
+      status: (a.status?.status ?? "OPEN") as NoteStatus,
+      rehearsalId: a.note.rehearsal.id,
+      rehearsalTitle: a.note.rehearsal.title,
+    });
+    recipient.totalItems += 1;
+  }
+
+  // Mark repeating buckets and count clusters per recipient.
+  for (const cluster of projectClusters) {
+    const recipient = drillByUser.get(cluster.userId);
+    if (!recipient) continue;
+    const bucket = recipient.buckets.find((b) => b.tag === cluster.tag);
+    if (bucket) {
+      bucket.isRepeating = true;
+      bucket.repeatingCount = cluster.count;
+    }
+    recipient.repeatingClusterCount += 1;
+  }
+
+  const drillRecipients: DrillBoardRecipient[] = [...drillByUser.values()].sort(
+    (a, b) => {
+      if (a.repeatingClusterCount !== b.repeatingClusterCount) {
+        return b.repeatingClusterCount - a.repeatingClusterCount;
+      }
+      const aName = (a.userName || a.userEmail).toLowerCase();
+      const bName = (b.userName || b.userEmail).toLowerCase();
+      return aName.localeCompare(bName);
+    }
+  );
+
+  // If the viewer is a recipient in this project, default-expand their row;
+  // otherwise default-expand the dancer with the most repeating clusters.
+  const viewerIsRecipient = drillRecipients.some(
+    (r) => r.userId === dbUser.id
+  );
+  const initialExpandedUserId = viewerIsRecipient
+    ? dbUser.id
+    : (drillRecipients[0]?.userId ?? null);
+
   // Aggregate distinct contributors across the project for the meta band.
   const projectContributorMap = new Map<
     string,
@@ -200,17 +312,19 @@ export default async function ProjectPage({ params }: Readonly<ProjectPageProps>
         contributors={projectContributors}
         actions={
           <>
-            <Button
-              asChild
-              variant="outline"
-              size="sm"
-              aria-label="Manage cast"
-            >
-              <Link href={`/teams/${project.team.id}`}>
-                <Users aria-hidden className="size-3.5" />
-                <span className="hidden sm:inline">Manage cast</span>
-              </Link>
-            </Button>
+            {isStaff ? (
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                aria-label="Manage cast"
+              >
+                <Link href={`/teams/${project.team.id}`}>
+                  <Users aria-hidden className="size-3.5" />
+                  <span className="hidden sm:inline">Manage cast</span>
+                </Link>
+              </Button>
+            ) : null}
             {canCreateRehearsal ? (
               <NewRehearsalButton projectId={project.id} size="sm" />
             ) : null}
@@ -218,7 +332,16 @@ export default async function ProjectPage({ params }: Readonly<ProjectPageProps>
         }
       />
 
-      <main className="mx-auto w-full max-w-7xl px-6 py-6">
+      <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-6 py-6">
+        {isStaff ? <RepeatingClustersCard clusters={clusterSummaries} /> : null}
+
+        {isStaff && drillRecipients.length > 0 ? (
+          <ProjectDrillSection
+            recipients={drillRecipients}
+            initialExpandedUserId={initialExpandedUserId}
+          />
+        ) : null}
+
         <ProjectMobileTabs
           rehearsalCount={rehearsalRows.length}
           groupCount={groupItems.length}

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { AudiencePicker } from "@/app/rehearsals/[rehearsalId]/workspace/audience-picker";
+import { TagPicker } from "@/app/rehearsals/[rehearsalId]/workspace/tag-picker";
 import type {
   AssignableMember,
   AvailableGroup,
@@ -38,11 +39,13 @@ import {
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import type { NoteStatus } from "@/lib/notes/statuses";
+import type { NoteTag } from "@/lib/notes/tags";
 
 export type EditNoteFormValues = {
   bodyText: string | null;
   startTimestampMs: number;
   endTimestampMs: number | null;
+  tag: NoteTag | null;
   isFullCast: boolean;
   selectedGroupIds: string[];
   selectedAssigneeUserIds: string[];
@@ -66,6 +69,7 @@ export type EditableNote = {
   bodyText: string | null;
   startTimestampMs: number;
   endTimestampMs: number | null;
+  tag: NoteTag | null;
   audioAsset: EditableNoteAudio | null;
   targets: Array<{
     kind: "EVERYONE" | "GROUP" | "USER";
@@ -202,6 +206,7 @@ function EditNoteForm({
   const [selectedAssigneeUserIds, setSelectedAssigneeUserIds] = useState<
     string[]
   >(initialAudience.selectedAssigneeUserIds);
+  const [tag, setTag] = useState<NoteTag | null>(note.tag);
 
   const newResolvedUserIds = useMemo(() => {
     const recipients = new Set<string>();
@@ -334,6 +339,7 @@ function EditNoteForm({
       bodyText: validated.bodyText,
       startTimestampMs: validated.startMs,
       endTimestampMs: validated.endMs,
+      tag,
       isFullCast,
       selectedGroupIds,
       selectedAssigneeUserIds,
@@ -479,6 +485,16 @@ function EditNoteForm({
               </FieldContent>
             </Field>
           ) : null}
+
+          <Field>
+            <FieldLabel>Tag</FieldLabel>
+            <FieldContent>
+              <TagPicker value={tag} onChange={setTag} disabled={isPending} size="md" />
+              <FieldDescription>
+                Helps surface repeated corrections — e.g. multiple TIMING notes for the same dancer.
+              </FieldDescription>
+            </FieldContent>
+          </Field>
 
           <Field>
             <FieldLabel>Audience</FieldLabel>

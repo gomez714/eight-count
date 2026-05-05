@@ -4,6 +4,7 @@ import { ChevronDown, Clock, FileText, Mic, Send, Users } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { NoteTargetInput } from "@/lib/api/contracts";
+import type { NoteTag } from "@/lib/notes/tags";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -15,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 import { AudiencePicker } from "./audience-picker";
+import { TagPicker } from "./tag-picker";
 import type { AssignableMember, AvailableGroup } from "./types";
 import { formatTimestamp } from "./utils";
 import { VoiceNoteRecorder } from "./voice-note-recorder";
@@ -33,6 +35,9 @@ type AddNoteCardProps = {
   onToggleGroup: (groupId: string) => void;
   isFullCast: boolean;
   onToggleFullCast: (next: boolean) => void;
+  selectedTag: NoteTag | null;
+  onSelectedTagChange: (next: NoteTag | null) => void;
+  getSelectedTag: () => NoteTag | null;
   noteError: string | null;
   isPending: boolean;
   disabled: boolean;
@@ -123,6 +128,9 @@ export function AddNoteCard({
   onToggleGroup,
   isFullCast,
   onToggleFullCast,
+  selectedTag,
+  onSelectedTagChange,
+  getSelectedTag,
   noteError,
   isPending,
   disabled,
@@ -258,6 +266,14 @@ export function AddNoteCard({
           </PopoverContent>
         </Popover>
 
+        <span aria-hidden className="h-4 w-px bg-border" />
+
+        <TagPicker
+          value={selectedTag}
+          onChange={onSelectedTagChange}
+          disabled={isPending}
+        />
+
         <button
           type="button"
           onClick={onCapture}
@@ -311,6 +327,7 @@ export function AddNoteCard({
             rehearsalId={rehearsalId}
             videoRef={videoRef}
             buildTargets={buildTargets}
+            getTag={getSelectedTag}
             onSaved={onVoiceNoteSaved}
             disabled={disabled}
           />

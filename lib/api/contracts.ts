@@ -1,4 +1,5 @@
 import type { ApiResponse } from "./responses"
+import type { NoteTag } from "@/lib/notes/tags"
 
 export type NoteTargetInput =
   | { kind: "EVERYONE" }
@@ -9,6 +10,7 @@ export type CreateTextNoteRequest = {
   noteType?: "TEXT"
   bodyText: string
   startTimestampMs: number
+  tag?: NoteTag | null
   targets?: NoteTargetInput[]
   /**
    * @deprecated Use `targets` instead. Kept for one release for
@@ -22,6 +24,7 @@ export type CreateVoiceNoteRequest = {
   audioAssetId: string
   startTimestampMs: number
   endTimestampMs: number
+  tag?: NoteTag | null
   targets?: NoteTargetInput[]
 }
 
@@ -105,6 +108,7 @@ export type UpdateTextNoteRequest = {
   noteType?: "TEXT"
   bodyText: string
   startTimestampMs: number
+  tag?: NoteTag | null
   targets: NoteTargetInput[]
 }
 
@@ -112,6 +116,7 @@ export type UpdateVoiceNoteRequest = {
   noteType: "VOICE"
   startTimestampMs: number
   endTimestampMs: number
+  tag?: NoteTag | null
   targets: NoteTargetInput[]
 }
 

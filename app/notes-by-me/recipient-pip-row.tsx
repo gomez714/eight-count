@@ -1,8 +1,10 @@
+import { Repeat } from "lucide-react";
 import type { CSSProperties } from "react";
 
 import { AvatarInitials } from "@/components/avatar-initials";
 import { StatusDot } from "@/app/rehearsals/[rehearsalId]/workspace/status-chip";
 import { NOTE_STATUS_LABELS, type NoteStatus } from "@/lib/notes/statuses";
+import { NOTE_TAG_LABELS } from "@/lib/notes/tags";
 import { cn } from "@/lib/utils";
 
 import type { AuthoredNoteAssignment } from "./types";
@@ -64,6 +66,15 @@ export function RecipientPipRow({
               size={18}
             />
             <span className="font-medium text-foreground">{displayName}</span>
+            {a.repeating ? (
+              <span
+                title={`Repeating: ${a.repeating.count} unresolved ${NOTE_TAG_LABELS[a.repeating.tag]} notes`}
+                className="inline-flex"
+                style={{ color: "var(--repeating-fg)" }}
+              >
+                <Repeat aria-hidden className="size-3" />
+              </span>
+            ) : null}
             <StatusDot status={a.status} />
             <span
               className="text-[10.5px] font-semibold"

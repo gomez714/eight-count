@@ -1,7 +1,8 @@
 "use client";
 
-import { ChevronDown, Zap } from "lucide-react";
-import { useMemo, useState } from "react";
+import { ChevronDown, Inbox, ListChecks, Zap } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 import { TipSequence, type TipStep } from "@/components/onboarding/tip-sequence";
@@ -13,6 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { AssignedNoteCard } from "./assigned-note-card";
+import { DrillView } from "./drill-view";
 import { QueueSummary } from "./queue-summary";
 import {
   DEFAULT_EXPANDED_STATUSES,
@@ -21,8 +23,11 @@ import {
   type AuthorOption,
   type MyNotesFilter,
   type ProjectOption,
+  type TagOption,
   type TypeCounts,
 } from "./types";
+
+type ViewMode = "inbox" | "drill";
 
 const STATUS_FG: Record<NoteStatus, string> = {
   OPEN: "var(--status-open-fg)",
@@ -69,6 +74,7 @@ function rowMatchesFilter(row: AssignedNoteRow, filter: MyNotesFilter): boolean 
     return false;
   }
   if (filter.noteType && row.note.noteType !== filter.noteType) return false;
+  if (filter.tag && row.note.tag !== filter.tag) return false;
   return true;
 }
 
@@ -157,19 +163,91 @@ export function MyNotesList({
   rows,
   tipsDismissed,
 }: Readonly<MyNotesListProps>) {
-  const [filter, setFilter] = useState<MyNotesFilter>(EMPTY_FILTER);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const viewMode: ViewMode = searchParams.get("view") === "drill" ? "drill" : "inbox";
+
+  // Active projects = projects where this user has at least one open or
+  // in-progress note. Used (a) to decide whether each drill row should
+  // show its project name, and (b) to auto-default the project filter
+  // when the user enters drill mode with notes spread across 2+ projects.
+  const activeProjects = useMemo(() => {
+    const counts = new Map<
+      string,
+      { id: string; title: string; openCount: number }
+    >();
+    for (const row of rows) {
+      if (row.status !== "OPEN" && row.status !== "IN_PROGRESS") continue;
+      const proj = row.note.rehearsal.project;
+      const existing = counts.get(proj.id);
+      if (existing) {
+        existing.openCount += 1;
+      } else {
+        counts.set(proj.id, { id: proj.id, title: proj.title, openCount: 1 });
+      }
+    }
+    return [...counts.values()].sort((a, b) => b.openCount - a.openCount);
+  }, [rows]);
+
+  // Lazy-init the filter so a deep-link to ?view=drill on a user with
+  // notes in 2+ projects lands on the busiest project automatically.
+  const [filter, setFilter] = useState<MyNotesFilter>(() => {
+    if (viewMode === "drill" && activeProjects.length >= 2) {
+      return { ...EMPTY_FILTER, projectId: activeProjects[0].id };
+    }
+    return EMPTY_FILTER;
+  });
   const [expanded, setExpanded] = useState<Record<NoteStatus, boolean>>(
     DEFAULT_EXPANDED_STATUSES
   );
+
+  // Tracks whether we already auto-defaulted the project filter once this
+  // session. Stops the click-toggle handler from re-applying the default
+  // after the user has explicitly cleared via "See all projects". The ref
+  // is written only in effects and event handlers, never read during
+  // render, so it stays compatible with the React Compiler rules.
+  const hasAutoDefaultedRef = useRef(false);
+  useEffect(() => {
+    // Mount-only: if the lazy initializer applied an auto-default (the
+    // deep-link case), mark the ref so the toggle doesn't try to default
+    // a second time.
+    if (filter.projectId !== null && viewMode === "drill" && activeProjects.length >= 2) {
+      hasAutoDefaultedRef.current = true;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const toggleStatus = (status: NoteStatus) => {
     setExpanded((prev) => ({ ...prev, [status]: !prev[status] }));
   };
 
+  const setViewMode = (next: ViewMode) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === "drill") {
+      params.set("view", "drill");
+      // Click-to-drill auto-default fires only once per session. After
+      // the user clears the filter via "See all projects" (or the rail),
+      // re-entering drill keeps their explicit choice.
+      if (
+        !hasAutoDefaultedRef.current &&
+        filter.projectId === null &&
+        activeProjects.length >= 2
+      ) {
+        hasAutoDefaultedRef.current = true;
+        setFilter((prev) => ({ ...prev, projectId: activeProjects[0].id }));
+      }
+    } else {
+      params.delete("view");
+    }
+    const query = params.toString();
+    router.replace(query ? `/my-notes?${query}` : "/my-notes");
+  };
+
   // Filter option lists derived from the full row set, so the rail is stable.
-  const { authorOptions, projectOptions, typeCounts } = useMemo(() => {
+  const { authorOptions, projectOptions, tagOptions, typeCounts } = useMemo(() => {
     const authorMap = new Map<string, AuthorOption>();
     const projectMap = new Map<string, ProjectOption>();
+    const tagCounts = new Map<TagOption["tag"], number>();
     const types: TypeCounts = { TEXT: 0, VOICE: 0 };
 
     for (const row of rows) {
@@ -194,6 +272,10 @@ export function MyNotesList({
         projectMap.set(p.id, { id: p.id, title: p.title, count: 1 });
       }
 
+      if (row.note.tag) {
+        tagCounts.set(row.note.tag, (tagCounts.get(row.note.tag) ?? 0) + 1);
+      }
+
       types[row.note.noteType] += 1;
     }
 
@@ -203,10 +285,14 @@ export function MyNotesList({
     const sortedProjects = [...projectMap.values()].sort(
       (a, b) => b.count - a.count || a.title.localeCompare(b.title)
     );
+    const sortedTags: TagOption[] = [...tagCounts.entries()]
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
 
     return {
       authorOptions: sortedAuthors,
       projectOptions: sortedProjects,
+      tagOptions: sortedTags,
       typeCounts: types,
     };
   }, [rows]);
@@ -252,11 +338,62 @@ export function MyNotesList({
   }, [rows, filter]);
 
   const isFilterActive =
-    filter.authorId !== null || filter.projectId !== null || filter.noteType !== null;
+    filter.authorId !== null ||
+    filter.projectId !== null ||
+    filter.noteType !== null ||
+    filter.tag !== null;
+
+  const isDrillMode = viewMode === "drill";
+
+  // When the project filter narrows the drill view down to one project
+  // but the user has open notes in 2+, surface a header so they know
+  // they're seeing a subset and can expand. Clearing here also marks the
+  // session as auto-defaulted so the toggle won't re-default on re-entry.
+  const drillSingleProjectHeader = useMemo(() => {
+    if (!filter.projectId) return null;
+    if (activeProjects.length < 2) return null;
+    const project = activeProjects.find((p) => p.id === filter.projectId);
+    if (!project) return null;
+    return {
+      projectName: project.title,
+      onClearProjectFilter: () => {
+        hasAutoDefaultedRef.current = true;
+        setFilter((prev) => ({ ...prev, projectId: null }));
+      },
+    };
+  }, [filter.projectId, activeProjects]);
+
+  // Each drill row shows its project name only when the user has open
+  // notes spread across 2+ projects — avoids redundant labels when
+  // there's no ambiguity.
+  const showProjectInDrillRows = activeProjects.length > 1;
+
+  // Total active (OPEN/IN_PROGRESS) rows across the user's whole inbox,
+  // ignoring the current filter. Lets DrillView's empty state distinguish
+  // "filtered into a project with nothing" from "globally caught up".
+  const totalActiveRowsUnfiltered = useMemo(
+    () =>
+      rows.filter((r) => r.status === "OPEN" || r.status === "IN_PROGRESS")
+        .length,
+    [rows],
+  );
 
   return (
     <>
-    <div className="mx-auto grid w-full max-w-7xl gap-8 px-6 py-6 lg:grid-cols-[240px_minmax(0,1fr)]">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-6 py-6">
+      <div data-print-hidden className="flex justify-end">
+        <ViewToggle viewMode={viewMode} onChange={setViewMode} />
+      </div>
+
+      {isDrillMode ? (
+        <DrillView
+          rows={filteredRows}
+          showProjectInRows={showProjectInDrillRows}
+          singleProjectHeader={drillSingleProjectHeader}
+          totalActiveRowsUnfiltered={totalActiveRowsUnfiltered}
+        />
+      ) : (
+    <div className="grid gap-8 lg:grid-cols-[240px_minmax(0,1fr)]">
       {/* Left rail */}
       <aside
         data-onboarding-anchor="my-notes-rail"
@@ -266,6 +403,7 @@ export function MyNotesList({
           statusCounts={statusCounts}
           authorOptions={authorOptions}
           projectOptions={projectOptions}
+          tagOptions={tagOptions}
           typeCounts={typeCounts}
           filter={filter}
           onFilterChange={setFilter}
@@ -327,6 +465,8 @@ export function MyNotesList({
         )}
       </div>
     </div>
+      )}
+    </div>
 
     <TipSequence
       groupKey="myNotes"
@@ -334,9 +474,55 @@ export function MyNotesList({
       initiallyDismissed={tipsDismissed}
       // Tour relies on the hero card and rail. If the inbox is empty, the
       // hero won't render — skip the tour entirely so we don't anchor onto
-      // the empty-state card.
-      enabled={rows.length > 0}
+      // the empty-state card. Also skip when in drill mode (anchors absent).
+      enabled={rows.length > 0 && viewMode === "inbox"}
     />
     </>
+  );
+}
+
+type ViewToggleProps = {
+  viewMode: ViewMode;
+  onChange: (next: ViewMode) => void;
+};
+
+function ViewToggle({ viewMode, onChange }: Readonly<ViewToggleProps>) {
+  return (
+    <div
+      role="tablist"
+      aria-label="View mode"
+      className="inline-flex gap-0.5 rounded-md border border-border bg-muted p-0.5"
+    >
+      <button
+        type="button"
+        role="tab"
+        aria-selected={viewMode === "inbox"}
+        onClick={() => onChange("inbox")}
+        className={cn(
+          "inline-flex h-7 items-center gap-1.5 rounded-[calc(var(--radius-md)-3px)] px-2.5 text-[11.5px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+          viewMode === "inbox"
+            ? "bg-card font-semibold text-foreground shadow-sm"
+            : "font-medium text-muted-foreground hover:text-foreground"
+        )}
+      >
+        <Inbox aria-hidden className="size-3.5" />
+        Inbox
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={viewMode === "drill"}
+        onClick={() => onChange("drill")}
+        className={cn(
+          "inline-flex h-7 items-center gap-1.5 rounded-[calc(var(--radius-md)-3px)] px-2.5 text-[11.5px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+          viewMode === "drill"
+            ? "bg-card font-semibold text-foreground shadow-sm"
+            : "font-medium text-muted-foreground hover:text-foreground"
+        )}
+      >
+        <ListChecks aria-hidden className="size-3.5" />
+        Drill view
+      </button>
+    </div>
   );
 }

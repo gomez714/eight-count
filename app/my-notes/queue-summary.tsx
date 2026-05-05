@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, FileText, Mic, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, FileText, Mic, SlidersHorizontal, Tag as TagIcon } from "lucide-react";
 import { useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
@@ -10,12 +10,14 @@ import {
   NOTE_STATUS_LABELS,
   type NoteStatus,
 } from "@/lib/notes/statuses";
+import { NOTE_TAG_LABELS, type NoteTag } from "@/lib/notes/tags";
 import { cn } from "@/lib/utils";
 
 import type {
   AuthorOption,
   MyNotesFilter,
   ProjectOption,
+  TagOption,
   TypeCounts,
 } from "./types";
 
@@ -46,6 +48,7 @@ type QueueSummaryProps = {
   /** Total count options for each filter category (unfiltered). */
   authorOptions: AuthorOption[];
   projectOptions: ProjectOption[];
+  tagOptions: TagOption[];
   typeCounts: TypeCounts;
   filter: MyNotesFilter;
   onFilterChange: (next: MyNotesFilter) => void;
@@ -63,6 +66,7 @@ export function QueueSummary({
   statusCounts,
   authorOptions,
   projectOptions,
+  tagOptions,
   typeCounts,
   filter,
   onFilterChange,
@@ -72,7 +76,8 @@ export function QueueSummary({
   const activeFilterCount =
     (filter.authorId ? 1 : 0) +
     (filter.projectId ? 1 : 0) +
-    (filter.noteType ? 1 : 0);
+    (filter.noteType ? 1 : 0) +
+    (filter.tag ? 1 : 0);
 
   // Mobile-only disclosure: the From / Project / Type sections collapse so
   // the user reaches "Up next" sooner. On lg+ this state is irrelevant —
@@ -92,6 +97,8 @@ export function QueueSummary({
       ...filter,
       noteType: filter.noteType === kind ? null : kind,
     });
+  const toggleTag = (tag: NoteTag) =>
+    onFilterChange({ ...filter, tag: filter.tag === tag ? null : tag });
 
   return (
     <div className="flex flex-col gap-6">
@@ -222,6 +229,43 @@ export function QueueSummary({
                   </span>
                   <span className="text-[11px] font-semibold tabular-nums text-muted-foreground">
                     {author.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
+      {/* Tag */}
+      {tagOptions.length > 0 ? (
+        <section className="flex flex-col gap-2">
+          <RailHeader>Tag</RailHeader>
+          <div className="flex flex-wrap gap-1">
+            {tagOptions.map((option) => {
+              const active = filter.tag === option.tag;
+              return (
+                <button
+                  key={option.tag}
+                  type="button"
+                  onClick={() => toggleTag(option.tag)}
+                  aria-pressed={active}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                    active
+                      ? "border-foreground bg-foreground text-background"
+                      : "border-border bg-card text-foreground hover:bg-muted/60"
+                  )}
+                >
+                  <TagIcon aria-hidden className="size-2.5" />
+                  {NOTE_TAG_LABELS[option.tag]}
+                  <span
+                    className={cn(
+                      "tabular-nums",
+                      active ? "opacity-80" : "text-muted-foreground"
+                    )}
+                  >
+                    {option.count}
                   </span>
                 </button>
               );

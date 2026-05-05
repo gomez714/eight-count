@@ -45,12 +45,20 @@ export type AudioAssetItem = {
   status: "UPLOADING" | "READY" | "FAILED";
 };
 
+import type { NoteTag } from "@/lib/notes/tags";
+
+export type RepeatingMarker = {
+  tag: NoteTag;
+  count: number;
+};
+
 export type NoteItem = {
   id: string;
   noteType: "TEXT" | "VOICE";
   bodyText: string | null;
   startTimestampMs: number;
   endTimestampMs: number | null;
+  tag: NoteTag | null;
   audioAsset: AudioAssetItem | null;
   createdAt: string | Date;
   updatedAt: string | Date;
@@ -60,5 +68,12 @@ export type NoteItem = {
     email: string;
   };
   assignments: NoteAssignmentItem[];
+  /**
+   * Per-assignment repeating marker, keyed by assignment.id. Only contains
+   * entries for assignments that are part of a repeating cluster
+   * (>= REPEATING_THRESHOLD active assignments with the same tag for the
+   * same recipient in the same project).
+   */
+  repeatingByAssignmentId?: Record<string, RepeatingMarker>;
   targets: NoteTargetItem[];
 };

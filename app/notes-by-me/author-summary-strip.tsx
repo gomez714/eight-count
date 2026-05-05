@@ -1,4 +1,4 @@
-import { ArrowRight, Clock } from "lucide-react";
+import { ArrowRight, Clock, Repeat } from "lucide-react";
 import type { CSSProperties } from "react";
 
 import { NoteProgressBar } from "@/components/note-progress-bar";
@@ -12,6 +12,7 @@ type AuthorSummaryStripProps = {
   addressed: number;
   stalledCount: number;
   unassignedCount: number;
+  repeatingDancerCount: number;
   aggregateCounts: AuthoredAssignmentCounts;
   onJumpToStalled?: () => void;
 };
@@ -28,6 +29,7 @@ export function AuthorSummaryStrip({
   addressed,
   stalledCount,
   unassignedCount,
+  repeatingDancerCount,
   aggregateCounts,
   onJumpToStalled,
 }: Readonly<AuthorSummaryStripProps>) {
@@ -51,8 +53,17 @@ export function AuthorSummaryStrip({
           borderColor: "var(--border)",
         };
 
+  const showRepeating = repeatingDancerCount > 0;
+
   return (
-    <div className="grid gap-4 rounded-lg border bg-card p-5 lg:grid-cols-[1.6fr_1fr_1fr]">
+    <div
+      className={cn(
+        "grid gap-4 rounded-lg border bg-card p-5",
+        showRepeating
+          ? "lg:grid-cols-[1.6fr_1fr_1fr_1fr]"
+          : "lg:grid-cols-[1.6fr_1fr_1fr]"
+      )}
+    >
       {/* Follow-through */}
       <section className="flex flex-col gap-3">
         <div>
@@ -138,6 +149,35 @@ export function AuthorSummaryStrip({
           </button>
         ) : null}
       </section>
+
+      {/* Repeating */}
+      {showRepeating ? (
+        <section
+          className="flex flex-col gap-1.5 rounded-md border p-3"
+          style={{
+            backgroundColor: "var(--repeating-bg)",
+            borderColor: "var(--repeating-border)",
+          }}
+        >
+          <div
+            className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider"
+            style={{ color: "var(--repeating-fg)" }}
+          >
+            <Repeat aria-hidden className="size-3" /> Repeating
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span
+              className="text-2xl font-semibold leading-none tracking-tight tabular-nums"
+              style={{ color: "var(--repeating-fg)" }}
+            >
+              {repeatingDancerCount}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {repeatingDancerCount === 1 ? "dancer" : "dancers"} keep getting the same note
+            </span>
+          </div>
+        </section>
+      ) : null}
 
       {/* Unassigned */}
       <section className="flex flex-col gap-1.5 rounded-md border border-dashed border-border bg-muted/40 p-3">

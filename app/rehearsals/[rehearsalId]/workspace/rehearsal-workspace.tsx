@@ -29,6 +29,7 @@ import {
   type EditableNote,
 } from "@/components/edit-note-sheet"
 import { TipSequence, type TipStep } from "@/components/onboarding/tip-sequence"
+import type { NoteTag } from "@/lib/notes/tags"
 
 import { AddNoteCard } from "./add-note-card"
 import { NotesListCard } from "./notes-list-card"
@@ -74,6 +75,7 @@ function toEditableNote(note: NoteItem): EditableNote {
     bodyText: note.bodyText,
     startTimestampMs: note.startTimestampMs,
     endTimestampMs: note.endTimestampMs,
+    tag: note.tag,
     audioAsset: note.audioAsset
       ? {
           id: note.audioAsset.id,
@@ -139,6 +141,12 @@ export function RehearsalWorkspace({
   const [selectedAssigneeUserIds, setSelectedAssigneeUserIds] = useState<
     string[]
   >([])
+  const [selectedTag, setSelectedTag] = useState<NoteTag | null>(null)
+  const selectedTagRef = useRef<NoteTag | null>(null)
+  useEffect(() => {
+    selectedTagRef.current = selectedTag
+  }, [selectedTag])
+  const getSelectedTag = useCallback(() => selectedTagRef.current, [])
   const [noteError, setNoteError] = useState<string | null>(null)
 
   const [editingNote, setEditingNote] = useState<NoteItem | null>(null)
@@ -348,6 +356,7 @@ export function RehearsalWorkspace({
           noteType: "TEXT",
           bodyText: noteText,
           startTimestampMs: selectedTimestampMs,
+          tag: selectedTag,
           targets,
         }
 
@@ -373,6 +382,7 @@ export function RehearsalWorkspace({
         setSelectedAssigneeUserIds([])
         setSelectedGroupIds([])
         setIsFullCast(false)
+        setSelectedTag(null)
         router.refresh()
       } catch (err) {
         setNoteError(
@@ -407,12 +417,14 @@ export function RehearsalWorkspace({
                 noteType: "VOICE",
                 startTimestampMs: values.startTimestampMs,
                 endTimestampMs: values.endTimestampMs ?? values.startTimestampMs,
+                tag: values.tag,
                 targets: buildTargetsFromSelection(values),
               }
             : {
                 noteType: "TEXT",
                 bodyText: values.bodyText ?? "",
                 startTimestampMs: values.startTimestampMs,
+                tag: values.tag,
                 targets: buildTargetsFromSelection(values),
               }
 
@@ -555,6 +567,9 @@ export function RehearsalWorkspace({
                 onToggleGroup={handleToggleGroup}
                 isFullCast={isFullCast}
                 onToggleFullCast={handleToggleFullCast}
+                selectedTag={selectedTag}
+                onSelectedTagChange={setSelectedTag}
+                getSelectedTag={getSelectedTag}
                 noteError={noteError}
                 isPending={isPending}
                 disabled={!playbackUrl || isPending}
@@ -564,6 +579,7 @@ export function RehearsalWorkspace({
                   setSelectedAssigneeUserIds([])
                   setSelectedGroupIds([])
                   setIsFullCast(false)
+                  setSelectedTag(null)
                   router.refresh()
                   toast.success("Voice note added")
                 }}

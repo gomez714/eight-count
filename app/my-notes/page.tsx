@@ -3,7 +3,12 @@ import { redirect } from "next/navigation";
 
 import { SectionTabNav } from "@/components/section-tab-nav";
 import { ensureDbUser } from "@/lib/auth/ensure-db-user";
+import { getActiveAssignmentsForProjects } from "@/lib/notes/get-active-assignments-for-project";
 import { getAssignedNotesForUser } from "@/lib/notes/get-assigned-notes-for-user";
+import {
+  buildRepeatingMarkerByAssignmentId,
+  detectRepeatingClusters,
+} from "@/lib/notes/repeating";
 import {
   isTipGroupDismissed,
   parseOnboardingState,
@@ -32,15 +37,39 @@ export default async function MyNotesPage() {
     "myNotes"
   );
 
+  // Compute repeating clusters scoped to projects this user has notes in.
+  // We need *all* of this user's active assignments across these projects
+  // (not just open ones) so the threshold check is correct.
+  const projectIds = Array.from(
+    new Set(assignments.map((a) => a.note.rehearsal.project.id)),
+  );
+  const projectActive = await getActiveAssignmentsForProjects(projectIds);
+  const myProjectClusters = detectRepeatingClusters(
+    projectActive
+      .filter((a) => a.userId === dbUser.id)
+      .map((a) => ({
+        id: a.id,
+        userId: a.userId,
+        projectId: a.note.rehearsal.projectId,
+        tag: a.note.tag,
+        status: a.status?.status ?? "OPEN",
+      })),
+  );
+  const repeatingByAssignmentId = buildRepeatingMarkerByAssignmentId(
+    myProjectClusters,
+  );
+
   const rows: AssignedNoteRow[] = assignments.map((assignment) => ({
     id: assignment.id,
     status: assignment.status?.status ?? "OPEN",
+    repeating: repeatingByAssignmentId.get(assignment.id) ?? null,
     note: {
       id: assignment.note.id,
       noteType: assignment.note.noteType,
       bodyText: assignment.note.bodyText,
       startTimestampMs: assignment.note.startTimestampMs,
       endTimestampMs: assignment.note.endTimestampMs,
+      tag: assignment.note.tag,
       audioAsset: assignment.note.audioAsset
         ? {
             id: assignment.note.audioAsset.id,

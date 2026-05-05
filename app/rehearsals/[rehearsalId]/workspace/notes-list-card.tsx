@@ -5,6 +5,8 @@ import { useMemo, useState } from "react";
 
 import { AudienceChips } from "@/components/audience-chips";
 import { NoteActionsMenu } from "@/components/note-actions-menu";
+import { RepeatingChip } from "@/components/repeating-chip";
+import { TagChip } from "@/components/tag-chip";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -21,6 +23,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { NoteStatus } from "@/lib/notes/statuses";
+import {
+  NOTE_TAGS,
+  NOTE_TAG_LABELS,
+  type NoteTag,
+} from "@/lib/notes/tags";
 import { cn } from "@/lib/utils";
 
 import { StatusChip } from "./status-chip";
@@ -126,6 +133,11 @@ function matchesAssignee(note: NoteItem, assigneeUserId: string): boolean {
   );
 }
 
+function matchesTag(note: NoteItem, tagFilter: NoteTag | "ALL"): boolean {
+  if (tagFilter === "ALL") return true;
+  return note.tag === tagFilter;
+}
+
 function buildPendingDeleteWarning(note: NoteItem): string | undefined {
   const total = note.assignments.length;
   if (total === 0) return undefined;
@@ -205,6 +217,7 @@ function NoteRow({
           <span className="text-sm font-semibold">
             {note.author.name || note.author.email}
           </span>
+          {note.tag ? <TagChip tag={note.tag} /> : null}
           {canEdit ? (
             <div className="ml-auto">
               <NoteActionsMenu
@@ -242,13 +255,22 @@ function NoteRow({
             {note.assignments.map((assignment) => {
               const status = assignment.status?.status ?? "OPEN";
               const label = assignment.user.name || assignment.user.email;
+              const repeating = note.repeatingByAssignmentId?.[assignment.id];
 
               return (
-                <StatusChip
+                <span
                   key={assignment.id}
-                  status={status}
-                  label={label}
-                />
+                  className="inline-flex items-center gap-1.5"
+                >
+                  <StatusChip status={status} label={label} />
+                  {repeating ? (
+                    <RepeatingChip
+                      tag={repeating.tag}
+                      count={repeating.count}
+                      compact
+                    />
+                  ) : null}
+                </span>
               );
             })}
           </div>
@@ -318,6 +340,7 @@ export function NotesListCard({
 }: NotesListCardProps) {
   const [pillFilter, setPillFilter] = useState<PillFilter>("ALL");
   const [assigneeFilter, setAssigneeFilter] = useState<string>("ALL");
+  const [tagFilter, setTagFilter] = useState<NoteTag | "ALL">("ALL");
 
   const filterCounts = useMemo(
     () => computeFilterCounts(notes, currentUserId),
@@ -328,19 +351,26 @@ export function NotesListCard({
     return notes.filter(
       (note) =>
         matchesPillFilter(note, pillFilter, currentUserId) &&
-        matchesAssignee(note, assigneeFilter)
+        matchesAssignee(note, assigneeFilter) &&
+        matchesTag(note, tagFilter)
     );
-  }, [notes, pillFilter, assigneeFilter, currentUserId]);
+  }, [notes, pillFilter, assigneeFilter, tagFilter, currentUserId]);
 
   const isAssigneeFilterDisabled =
     pillFilter === "UNASSIGNED" || assignableMembers.length === 0;
 
+  const hasTaggedNotes = useMemo(
+    () => notes.some((note) => note.tag !== null),
+    [notes]
+  );
+
   const hasActiveFilters =
-    pillFilter !== "ALL" || assigneeFilter !== "ALL";
+    pillFilter !== "ALL" || assigneeFilter !== "ALL" || tagFilter !== "ALL";
 
   const clearFilters = () => {
     setPillFilter("ALL");
     setAssigneeFilter("ALL");
+    setTagFilter("ALL");
   };
 
   const selectedAssigneeMember = assignableMembers.find(
@@ -442,6 +472,27 @@ export function NotesListCard({
                 ))}
               </SelectContent>
             </Select>
+
+            {hasTaggedNotes ? (
+              <Select
+                value={tagFilter}
+                onValueChange={(value) => setTagFilter(value as NoteTag | "ALL")}
+              >
+                <SelectTrigger size="sm" aria-label="Filter by tag">
+                  <SelectValue>
+                    Tag: {tagFilter === "ALL" ? "All" : NOTE_TAG_LABELS[tagFilter]}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All</SelectItem>
+                  {NOTE_TAGS.map((tag) => (
+                    <SelectItem key={tag} value={tag}>
+                      {NOTE_TAG_LABELS[tag]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null}
 
             <span className="text-xs tabular-nums text-muted-foreground">
               Showing{" "}

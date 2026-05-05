@@ -1,6 +1,12 @@
 import type { NoteStatus } from "@/lib/notes/statuses";
+import type { NoteTag } from "@/lib/notes/tags";
 
 export type AuthoredAssignmentCounts = Record<NoteStatus, number>;
+
+export type AuthoredRepeatingMarker = {
+  tag: NoteTag;
+  count: number;
+};
 
 export type AuthoredNoteFilter =
   | "ALL"
@@ -30,6 +36,7 @@ export type AuthoredNoteAssignment = {
     name: string | null;
     email: string;
   };
+  repeating: AuthoredRepeatingMarker | null;
 };
 
 export type AuthoredNoteAudio = {
@@ -44,6 +51,7 @@ export type AuthoredNoteRow = {
   bodyText: string | null;
   startTimestampMs: number;
   endTimestampMs: number | null;
+  tag: NoteTag | null;
   audioAsset: AuthoredNoteAudio | null;
   createdAt: string | Date;
   targets: AuthoredNoteTarget[];
@@ -51,6 +59,8 @@ export type AuthoredNoteRow = {
   assignmentCounts: AuthoredAssignmentCounts;
   /** Authored more than 3 days ago and still has any active assignment. */
   stalled: boolean;
+  /** True if any of this note's assignments are part of a repeating cluster. */
+  hasRepeating: boolean;
   rehearsal: {
     id: string;
     title: string;

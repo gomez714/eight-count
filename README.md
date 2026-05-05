@@ -102,7 +102,9 @@ The team page is the organizational home — it answers "who is on this team and
 ### Project page
 The project page is the structural bridge between a team and the rehearsal workspace — it answers "what project am I in, what's its state, and what should I do next?"
 
-- **Header band** with breadcrumb (Dashboard › team › project), title, status pill, role pill, an optional description, and primary actions: **Manage cast** and **New rehearsal**. A meta strip below the title summarizes the project at a glance: rehearsal count, cast size, open-note count (tinted to flag work in progress vs. "all clear"), and a contributor avatar stack on desktop.
+- **Header band** with breadcrumb (Dashboard › team › project), title, status pill, role pill, an optional description, and primary actions: **Manage cast** *(staff only — Admin / Instructor / Assistant)* and **New rehearsal**. A meta strip below the title summarizes the project at a glance: rehearsal count, cast size, open-note count (tinted to flag work in progress vs. "all clear"), and a contributor avatar stack on desktop.
+- **Repeating clusters card** *(staff only)* appears above the rehearsals spine when any dancer in the project has 3+ unresolved notes with the same tag — one tinted row per cluster (avatar, name, tag chip, "N unresolved").
+- **Drill board** *(staff only)* appears below the clusters card whenever the project has any open or in-progress notes — a per-dancer collapsible list grouped by tag, useful for instructors scanning who needs to drill what across the whole company. The viewer's own row defaults expanded if they're a recipient; otherwise the dancer with the most clusters expands by default. Dancers don't see this card or the clusters card on the project page; their personal drill list lives at `/my-notes` (Drill view) instead, scoped to just their own notes.
 - **Rehearsals spine** is the main column — a list of rehearsal rows sorted newest-first. Each row shows a date plate, the rehearsal title, a "Current" pill on the most recent session in projects with two or more rehearsals, video duration, total note count with a coral voice-note tally, a small contributor stack, a relative-date label, and a "Stalled" chip when at least one assigned note is older than 3 days with active recipients. A right-side progress block shows `closed / total · %` with the same four-segment stacked bar used elsewhere, plus an "All notes resolved" badge when complete.
 - **Groups rail** on the right (desktop) lists the project's groups in a compact card. Admins and Instructors can create new groups inline, edit member lists, and delete groups. Empty groups get a tinted "empty" pill and an inline "Add members" CTA. Groups are the audience pool the rehearsal composer pulls from when leaving section notes.
 - **Empty state**: a fresh project with no rehearsals shows a generous panel with a "Create first rehearsal" CTA pre-wired into the same dialog that the header's New rehearsal button opens.
@@ -114,6 +116,12 @@ The project page is the structural bridge between a team and the rehearsal works
 - Sessions without a video show a calm empty state: staff see an upload form embedded in it; dancers see a passive "your instructor will upload one for this session" message.
 - Once a video exists, the upload form is hidden. Staff replace the video via a `…` overflow menu in the rehearsal context bar (top of the page) — selecting **Replace video** opens a dialog with the upload form. Replacing keeps existing notes and their timestamps, but dancers won't see the form themselves.
 
+### Note tags & repeating corrections
+- Every note can carry an **optional tag** from a fixed set: **Timing, Spacing, Energy, Musicality, Formation, Technique**. The composer and edit sheet expose a tag picker; tags appear as a small chip on the note row across every view.
+- When the **same dancer** has **3 or more unresolved notes with the same tag** in the **same project**, those notes form a **repeating cluster**. Repeating clusters surface as a coral-violet chip per row on `/my-notes`, as an icon decoration on the recipient pip on `/notes-by-me`, and as a summary card at the top of the project page.
+- Repeating detection is **derived, not stored** — the moment a dancer addresses one of the notes (or the cluster drops below three active assignments), the cluster disappears. No state to maintain, no manual cleanup.
+- Tags are optional. Untagged notes don't participate in repeating detection. Authors can change a note's tag from the edit sheet at any time.
+
 ### Rehearsal workspace
 The rehearsal page is a sticky two-column workspace anchored at the top by a context bar (team / project / rehearsal breadcrumb, title, role pill, and rehearsal meta).
 
@@ -124,7 +132,7 @@ The rehearsal page is a sticky two-column workspace anchored at the top by a con
   - **Progress spine** — aggregate per-recipient progress across all notes: an "X / Y addressed-or-resolved" headline, open and in-progress counts, and a four-segment stacked bar broken down by `OPEN / IN_PROGRESS / ADDRESSED / RESOLVED`.
   - **Filter pills** — single-select pills: `All / Open / In progress / Addressed / Resolved / Unassigned / Voice / @ me`, plus a separate dropdown to filter by an arbitrary assignee. Pills show a precomputed count when inactive; a "Showing X of Y" indicator reflects the result set.
   - **Note thread** — each note row has a fixed timestamp rail (clickable to jump the video), a coral or teal accent stripe distinguishing voice from text, the author + audience chips, the body (text or voice waveform), and a dashed-divider "Assigned" row of avatar + name + status-dot + status-label chips per recipient.
-  - **Sticky composer** at the bottom — a sub-bar with the Text / Voice mode toggle, a "To" audience picker (popover with the existing combobox: full-cast quick-pick, groups, individuals, removable chips), and a locked-timestamp pill that re-captures the current playhead when clicked. Body morphs between a 2-row textarea + Post button (text mode) and the voice recorder (voice mode).
+  - **Sticky composer** at the bottom — a sub-bar with the Text / Voice mode toggle, a "To" audience picker (popover with the existing combobox: full-cast quick-pick, groups, individuals, removable chips), an optional **Tag** picker for the new note, and a locked-timestamp pill that re-captures the current playhead when clicked. Body morphs between a 2-row textarea + Post button (text mode) and the voice recorder (voice mode).
 - **Audience targeting** for each note:
   - **Full cast** — one click notifies every team member.
   - **Group** — select one or more project groups (e.g. "Front line"); union semantics allow mixing groups and individuals.
@@ -142,22 +150,24 @@ The rehearsal page is a sticky two-column workspace anchored at the top by a con
 - To replace the audio of an existing voice note, delete it and record a new one — voice-note edits cover timestamps and audience only.
 - Recording requires Chrome, Firefox, or recent Safari (MediaRecorder support). The mic format is auto-detected: webm/opus on Chrome/Firefox, mp4/AAC on Safari.
 
-### My notes (recipient inbox)
+### My notes (recipient inbox + drill view)
 - Every dancer has a personal work queue at `/my-notes` listing every note assigned to them across all rehearsals and teams.
-- Layout: a **left rail** with an "On your plate" count, a status breakdown, and From / Project / Type filters; a **queue** with an "Up next" hero card on top followed by collapsible status groups (Open, In progress, Addressed, Resolved).
+- A **view toggle** at the top of the page flips between **Inbox** (the default working surface) and **Drill view** (a printable, tag-grouped checklist for actually rehearsing against). The choice persists in the URL via `?view=drill`.
+- **Inbox layout**: a **left rail** with an "On your plate" count, a status breakdown, and From / Project / Tag / Type filters; a **queue** with an "Up next" hero card on top followed by collapsible status groups (Open, In progress, Addressed, Resolved).
 - "**Up next**" surfaces the **oldest unresolved** note (Open or In progress) so the dancer always knows what's been waiting longest. If a filter is applied, the hero updates to honor it.
-- Each card has an inline **status segmented control** (Open / In progress / Addressed / Resolved) — one click changes status, no dropdown — plus an "Open in rehearsal" link, the author's avatar, audience context chips ("Full cast", group, or "You"), and an "Edited" indicator if the note has been modified since creation.
-- The left-rail filters narrow the queue: pick one author, one project, or text vs. voice (each is a single-select toggle; clicking again clears it). The "On your plate" count updates with the filter; the filter-option counts stay stable so the dancer can see what each toggle would surface.
-- On mobile, From / Project / Type collapse behind a "Filters" disclosure with an active-filter count badge so the user reaches "Up next" sooner. "On your plate" and the status breakdown stay visible above the disclosure.
+- Each card has an inline **status segmented control** (Open / In progress / Addressed / Resolved) — one click changes status, no dropdown — plus an "Open in rehearsal" link, the author's avatar, audience context chips ("Full cast", group, or "You"), an optional **Tag chip**, an optional **Repeating chip** (when this assignment is part of a cluster), and an "Edited" indicator if the note has been modified since creation.
+- The left-rail filters narrow the queue: pick one author, one project, one tag, or text vs. voice (each is a single-select toggle; clicking again clears it). The "On your plate" count updates with the filter; the filter-option counts stay stable so the dancer can see what each toggle would surface.
+- On mobile, From / Project / Tag / Type collapse behind a "Filters" disclosure with an active-filter count badge so the user reaches "Up next" sooner. "On your plate" and the status breakdown stay visible above the disclosure.
+- **Drill view** strips the page down to a tag-grouped read-only checklist (Timing → Spacing → … → Other), with a "Recurring drills" header at the top surfacing any clusters. For dancers in two or more active projects, the view auto-narrows to the busiest project and shows a "Showing N notes from {project} — see all projects" header so they always know what show they're drilling. Each row carries the project name as a small chip when there's ambiguity. A **Print** button calls the browser's print dialog; a CSS print stylesheet hides chrome and reformats the page for paper / "Save as PDF".
 - Voice notes play inline with the same coral-tinted player used elsewhere (audio only on this page; no video sync).
 
 ### Notes by me (author follow-through dashboard)
 - Anyone who authors notes (Admin / Instructor / Assistant) sees a follow-through dashboard at `/notes-by-me`.
-- A **summary strip** at the top reports follow-through % across all recipients (with a stacked progress bar broken down by status), the count of **stalled** notes, and the count of **unassigned** notes (group / cast notes that haven't pinned a specific dancer yet).
+- A **summary strip** at the top reports follow-through % across all recipients (with a stacked progress bar broken down by status), the count of **stalled** notes, the count of **unassigned** notes (group / cast notes that haven't pinned a specific dancer yet), and a **Repeating** tile showing how many dancers are caught in a repeating cluster (only visible when at least one cluster exists).
 - A note is **stalled** when it was authored more than 3 days ago and at least one recipient is still Open or In progress. Stalled notes get a tinted card border, a "Stalled" chip in the header, and the OPEN recipient pips on those notes pick up the same tint to flag who is holding things up. Click "Triage now" in the summary strip to filter to just stalled notes.
-- A **filter + sort bar** offers `Outstanding / Stalled / Complete / Unassigned / All` with per-pill counts, plus a sort segmented control (`Stalled first / Most recent / Oldest`). Default view is Outstanding sorted Stalled-first.
-- Each card centers on the recipient list. A progress block shows `n/N addressed` + a stacked progress bar + a "Complete" badge when everyone has addressed or resolved the note. Below the bar is a row of recipient pips: avatar + name + status dot + status word for each assignee.
-- Authors edit body / start / end timestamps and audience, or delete any of their own notes via an overflow menu on each card. Audience changes diff-preserve dancers' existing statuses; voice-note edits cover timestamps and audience only (replacing audio means deleting the note and recording a new one).
+- A **filter + sort bar** offers `Outstanding / Stalled / Complete / Unassigned / All` with per-pill counts, plus a tag-filter row that appears whenever any tagged notes exist, plus a sort segmented control (`Stalled first / Most recent / Oldest`). Default view is Outstanding sorted Stalled-first.
+- Each card carries the note's tag chip in the meta row when present. The card centers on the recipient list. A progress block shows `n/N addressed` + a stacked progress bar + a "Complete" badge when everyone has addressed or resolved the note. Below the bar is a row of recipient pips: avatar + name + status dot + status word for each assignee, plus a small "repeating" icon decoration on pips whose assignment is part of a cluster.
+- Authors edit body / start / end timestamps, the tag, and audience, or delete any of their own notes via an overflow menu on each card. Audience changes diff-preserve dancers' existing statuses; voice-note edits cover timestamps, tag, and audience only (replacing audio means deleting the note and recording a new one).
 - A shared section tab nav at the top of `/my-notes` and `/notes-by-me` makes it easy to flip between the recipient and author views.
 
 ## Roles and permissions
@@ -172,6 +182,8 @@ The rehearsal page is a sticky two-column workspace anchored at the top by a con
 | Author text or voice notes | ✓ | ✓ | ✓ | |
 | Edit or delete own notes | ✓ | ✓ | ✓ | |
 | Address assigned notes | ✓ | ✓ | ✓ | ✓ |
+| See project-page drill board + repeating clusters | ✓ | ✓ | ✓ | |
+| See own personal drill list (/my-notes) | ✓ | ✓ | ✓ | ✓ |
 
 ## Running locally
 

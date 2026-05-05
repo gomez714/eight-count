@@ -9,6 +9,7 @@ import type {
   CreateNoteResponse,
   NoteTargetInput,
 } from "@/lib/api/contracts";
+import type { NoteTag } from "@/lib/notes/tags";
 import { Button } from "@/components/ui/button";
 
 import { formatTimestamp } from "./utils";
@@ -59,6 +60,7 @@ type VoiceNoteRecorderProps = {
   rehearsalId: string;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   buildTargets: () => NoteTargetInput[];
+  getTag: () => NoteTag | null;
   onSaved: () => void;
   disabled?: boolean;
 };
@@ -67,6 +69,7 @@ export function VoiceNoteRecorder({
   rehearsalId,
   videoRef,
   buildTargets,
+  getTag,
   onSaved,
   disabled = false,
 }: VoiceNoteRecorderProps) {
@@ -482,6 +485,7 @@ export function VoiceNoteRecorder({
             audioAssetId: uploadUrlData.data.audioAssetId,
             startTimestampMs: startMs,
             endTimestampMs: endMs,
+            tag: getTag(),
             targets: buildTargets(),
           }),
         }

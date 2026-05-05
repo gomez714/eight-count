@@ -8,6 +8,7 @@ import { NoteActionsMenu } from "@/components/note-actions-menu";
 import { NoteProgressBar } from "@/components/note-progress-bar";
 import { NoteRehearsalLink } from "@/components/note-rehearsal-link";
 import { NoteTimestampPill } from "@/components/note-timestamp-pill";
+import { TagChip } from "@/components/tag-chip";
 import { Button } from "@/components/ui/button";
 import { VoiceNotePlayer } from "@/app/rehearsals/[rehearsalId]/workspace/voice-note-player";
 import { formatNoteTimestamp } from "@/lib/notes/format";
@@ -86,6 +87,7 @@ export function AuthoredNoteCard({
             timestampMs={row.startTimestampMs}
             noteType={row.noteType}
           />
+          {row.tag ? <TagChip tag={row.tag} /> : null}
           <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
             {isVoice ? (
               <>

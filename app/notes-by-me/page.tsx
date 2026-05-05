@@ -3,7 +3,12 @@ import { redirect } from "next/navigation";
 
 import { SectionTabNav } from "@/components/section-tab-nav";
 import { ensureDbUser } from "@/lib/auth/ensure-db-user";
+import { getActiveAssignmentsForProjects } from "@/lib/notes/get-active-assignments-for-project";
 import { getNotesByAuthor } from "@/lib/notes/get-notes-by-author";
+import {
+  buildRepeatingMarkerByAssignmentId,
+  detectRepeatingClusters,
+} from "@/lib/notes/repeating";
 import { isNoteStalled } from "@/lib/notes/stalled";
 import type { NoteStatus } from "@/lib/notes/statuses";
 
@@ -26,6 +31,23 @@ export default async function NotesByMePage() {
   const notes = await getNotesByAuthor(dbUser.id);
   const stalledNow = new Date();
 
+  // Repeating-cluster detection runs across all active assignments in the
+  // projects this author has notes in.
+  const projectIds = Array.from(
+    new Set(notes.map((n) => n.rehearsal.project.id)),
+  );
+  const projectActive = await getActiveAssignmentsForProjects(projectIds);
+  const clusters = detectRepeatingClusters(
+    projectActive.map((a) => ({
+      id: a.id,
+      userId: a.userId,
+      projectId: a.note.rehearsal.projectId,
+      tag: a.note.tag,
+      status: a.status?.status ?? "OPEN",
+    })),
+  );
+  const repeatingByAssignmentId = buildRepeatingMarkerByAssignmentId(clusters);
+
   const rows: AuthoredNoteRow[] = notes.map((note) => {
     const assignments = note.assignments.map((assignment) => ({
       id: assignment.id,
@@ -35,6 +57,7 @@ export default async function NotesByMePage() {
         name: assignment.user.name,
         email: assignment.user.email,
       },
+      repeating: repeatingByAssignmentId.get(assignment.id) ?? null,
     }));
 
     const assignmentCounts: AuthoredAssignmentCounts = {
@@ -53,6 +76,7 @@ export default async function NotesByMePage() {
       bodyText: note.bodyText,
       startTimestampMs: note.startTimestampMs,
       endTimestampMs: note.endTimestampMs,
+      tag: note.tag,
       audioAsset: note.audioAsset
         ? {
             id: note.audioAsset.id,
@@ -82,6 +106,7 @@ export default async function NotesByMePage() {
         assignments,
         now: stalledNow,
       }),
+      hasRepeating: assignments.some((a) => a.repeating !== null),
       rehearsal: {
         id: note.rehearsal.id,
         title: note.rehearsal.title,

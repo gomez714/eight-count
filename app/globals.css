@@ -108,6 +108,10 @@
     --avatar-tone-olive-fg: oklch(0.4 0.09 145);
     --avatar-tone-plum-bg: oklch(0.93 0.04 320);
     --avatar-tone-plum-fg: oklch(0.4 0.09 320);
+
+    --repeating-bg: oklch(0.94 0.04 285);
+    --repeating-fg: oklch(0.42 0.12 290);
+    --repeating-border: oklch(0.84 0.06 285);
 }
 
 .dark {
@@ -170,6 +174,10 @@
     --avatar-tone-olive-fg: oklch(0.8 0.08 130);
     --avatar-tone-plum-bg: oklch(0.3 0.04 320);
     --avatar-tone-plum-fg: oklch(0.8 0.08 320);
+
+    --repeating-bg: oklch(0.3 0.04 285);
+    --repeating-fg: oklch(0.8 0.09 285);
+    --repeating-border: oklch(0.4 0.07 285);
 }
 
 @layer base {
@@ -185,4 +193,45 @@
   html {
     @apply font-sans;
     }
+}
+
+/*
+ * Print rules are scoped to body[data-print-target="drill"] so accidentally
+ * printing other pages (e.g. Cmd+P on a rehearsal page) doesn't get a
+ * borked layout. The drill-view component sets the body attribute while
+ * mounted and clears it on unmount.
+ */
+@media print {
+  body[data-print-target="drill"] header,
+  body[data-print-target="drill"] nav,
+  body[data-print-target="drill"] [data-print-hidden] {
+    display: none !important;
+  }
+
+  body[data-print-target="drill"] [data-print-only] {
+    display: block !important;
+  }
+
+  /* Force light surface for ink economy in drill print mode. */
+  body[data-print-target="drill"] {
+    --background: white;
+    --foreground: oklch(0.15 0 0);
+    --card: white;
+    --card-foreground: oklch(0.15 0 0);
+    --muted: oklch(0.96 0 0);
+    --muted-foreground: oklch(0.3 0 0);
+    --border: oklch(0.85 0 0);
+    background: white;
+    color: oklch(0.15 0 0);
+  }
+
+  body[data-print-target="drill"] .drill-tag-section,
+  body[data-print-target="drill"] .drill-row {
+    break-inside: avoid;
+  }
+
+  body[data-print-target="drill"] .tag-chip {
+    background: transparent !important;
+    border-color: currentColor !important;
+  }
 }

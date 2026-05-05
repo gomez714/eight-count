@@ -3,6 +3,11 @@ import { Film } from "lucide-react"
 import { notFound, redirect } from "next/navigation"
 
 import { ensureDbUser } from "@/lib/auth/ensure-db-user"
+import { getActiveAssignmentsForProjects } from "@/lib/notes/get-active-assignments-for-project"
+import {
+  buildRepeatingMarkerByAssignmentId,
+  detectRepeatingClusters,
+} from "@/lib/notes/repeating"
 import {
   isTipGroupDismissed,
   parseOnboardingState,
@@ -57,6 +62,26 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
     "workspace"
   )
 
+  // Repeating-correction detection runs once per request across all active
+  // assignments in this project. Each note's per-assignment repeating
+  // markers are threaded down so NoteRow can flag clusters per recipient.
+  const projectId = rehearsal.project.id
+  const projectActiveAssignments = await getActiveAssignmentsForProjects([
+    projectId,
+  ])
+  const repeatingClusters = detectRepeatingClusters(
+    projectActiveAssignments.map((a) => ({
+      id: a.id,
+      userId: a.userId,
+      projectId: a.note.rehearsal.projectId,
+      tag: a.note.tag,
+      status: a.status?.status ?? "OPEN",
+    }))
+  )
+  const repeatingByAssignmentId = buildRepeatingMarkerByAssignmentId(
+    repeatingClusters
+  )
+
   return (
     <>
       <RehearsalContextBar
@@ -109,12 +134,19 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
                 (groupMember) => groupMember.teamMember.userId
               ),
             }))}
-            notes={rehearsal.notes.map((note) => ({
+            notes={rehearsal.notes.map((note) => {
+              const noteRepeating: Record<string, { tag: NonNullable<typeof note.tag>; count: number }> = {}
+              for (const assignment of note.assignments) {
+                const marker = repeatingByAssignmentId.get(assignment.id)
+                if (marker) noteRepeating[assignment.id] = marker
+              }
+              return ({
               id: note.id,
               noteType: note.noteType,
               bodyText: note.bodyText,
               startTimestampMs: note.startTimestampMs,
               endTimestampMs: note.endTimestampMs,
+              tag: note.tag,
               audioAsset: note.audioAsset
                 ? {
                     id: note.audioAsset.id,
@@ -144,6 +176,7 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
                     }
                   : null,
               })),
+              repeatingByAssignmentId: noteRepeating,
               targets: note.targets.map((target) => ({
                 id: target.id,
                 kind: target.kind,
@@ -158,7 +191,8 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
                   ? { id: target.group.id, name: target.group.name }
                   : null,
               })),
-            }))}
+            })
+            })}
           />
         ) : (
           <NoVideoEmptyState

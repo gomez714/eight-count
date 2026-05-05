@@ -14,6 +14,7 @@ import {
   validateGroupTargets,
   validateUserTargets,
 } from "@/lib/notes/resolve-targets";
+import { isNoteTag, NOTE_TAGS, type NoteTag } from "@/lib/notes/tags";
 import { getRehearsalForUser } from "@/lib/rehearsals/get-rehearsal-for-user";
 
 export async function POST(
@@ -85,6 +86,18 @@ export async function POST(
 
     const noteType = body.noteType ?? "TEXT";
     const startTimestampMs = body.startTimestampMs;
+
+    let tag: NoteTag | null = null;
+    if (body.tag !== undefined && body.tag !== null) {
+      if (!isNoteTag(body.tag)) {
+        return apiError(
+          400,
+          "INVALID_TAG",
+          `tag must be one of: ${NOTE_TAGS.join("|")}`
+        );
+      }
+      tag = body.tag;
+    }
 
     if (
       typeof startTimestampMs !== "number" ||
@@ -202,6 +215,7 @@ export async function POST(
           startTimestampMs: Math.floor(startTimestampMs),
           endTimestampMs,
           audioAssetId: audioAssetIdToAttach,
+          tag,
         },
       });
 

@@ -1,7 +1,13 @@
 import type { NoteStatus } from "@/lib/notes/statuses";
+import type { NoteTag } from "@/lib/notes/tags";
 
 export { NOTE_STATUSES, NOTE_STATUS_LABELS } from "@/lib/notes/statuses";
 export type { NoteStatus } from "@/lib/notes/statuses";
+
+export type RepeatingMarker = {
+  tag: NoteTag;
+  count: number;
+};
 
 export const DEFAULT_EXPANDED_STATUSES: Record<NoteStatus, boolean> = {
   OPEN: true,
@@ -14,12 +20,19 @@ export type MyNotesFilter = {
   authorId: string | null;
   projectId: string | null;
   noteType: "TEXT" | "VOICE" | null;
+  tag: NoteTag | null;
 };
 
 export const EMPTY_FILTER: MyNotesFilter = {
   authorId: null,
   projectId: null,
   noteType: null,
+  tag: null,
+};
+
+export type TagOption = {
+  tag: NoteTag;
+  count: number;
 };
 
 export type AuthorOption = {
@@ -60,12 +73,14 @@ export type AssignedNoteAudio = {
 export type AssignedNoteRow = {
   id: string;
   status: NoteStatus;
+  repeating: RepeatingMarker | null;
   note: {
     id: string;
     noteType: "TEXT" | "VOICE";
     bodyText: string | null;
     startTimestampMs: number;
     endTimestampMs: number | null;
+    tag: NoteTag | null;
     audioAsset: AssignedNoteAudio | null;
     createdAt: string | Date;
     updatedAt: string | Date;

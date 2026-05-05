@@ -54,6 +54,7 @@ TeamInvitation            Note → NoteTarget[]
 
 - **Teams** have members with roles: `ADMIN | INSTRUCTOR | ASSISTANT | DANCER`
 - **TeamInvitations** sit alongside `TeamMember` and represent pending or historical email invites. Status: `PENDING | ACCEPTED | REVOKED | EXPIRED`. Accepting an invitation creates a `TeamMember` row; the invitation row stays as a record. See "Team Invitations" below.
+- **Notes** carry an optional `tag: NoteTag?` (`TIMING | SPACING | ENERGY | MUSICALITY | FORMATION | TECHNIQUE`). Tags are global enum values, optional, and apply uniformly to TEXT and VOICE notes. See "Note Tags" and "Repeating-correction detection" below.
 - **Projects** belong to a team and can have **ProjectGroups** (e.g., "Front line")
 - **Rehearsals** belong to a project and have one optional `VideoAsset`, many `AudioAsset`s (one per voice note), and many `Note`s
 - **Notes** are either `TEXT` or `VOICE` (`Note.noteType`). They share targeting/assignment/status pipelines (see below)
@@ -66,6 +67,33 @@ Discriminated by `Note.noteType` (`TEXT` | `VOICE`):
 - **VOICE**: `bodyText` null, `startTimestampMs` and `endTimestampMs` set (the recording's start/end against video time), `audioAssetId` references a 1:1 `AudioAsset` row. The author cannot change `noteType` after creation; replacing audio = delete + create new.
 
 `bodyText` is nullable in the schema; the `noteType` discriminator decides which fields are required.
+
+### Note Tags
+
+Notes carry an optional single `tag` from the `NoteTag` enum: `TIMING | SPACING | ENERGY | MUSICALITY | FORMATION | TECHNIQUE`. Tags are author-set, optional everywhere (no required-tag setting), and apply uniformly to TEXT and VOICE.
+
+- Schema: `Note.tag NoteTag?` with `@@index([tag])` to support repeating-cluster queries.
+- Vocabulary lives in [lib/notes/tags.ts](lib/notes/tags.ts) (mirrors Prisma enum literally so the module stays client-safe). Exports `NOTE_TAGS`, `NoteTag` type, `NOTE_TAG_LABELS`, `NOTE_TAG_DESCRIPTIONS`, and an `isNoteTag` runtime guard.
+- Picker: [TagPicker](app/rehearsals/[rehearsalId]/workspace/tag-picker.tsx) — Radix Popover with chevron-pill trigger, single-select, "Clear tag" footer when set. Used in `AddNoteCard` (composer) and `EditNoteSheet`.
+- Display: [components/tag-chip.tsx](components/tag-chip.tsx) is the single neutral chip primitive. No per-tag color palette in v1; tags use `--muted` / `--muted-foreground` tokens.
+- API: `tag?: NoteTag | null` on `CreateTextNoteRequest`, `CreateVoiceNoteRequest`, `UpdateTextNoteRequest`, `UpdateVoiceNoteRequest` in [lib/api/contracts.ts](lib/api/contracts.ts). PATCH semantics — `undefined` leaves the column untouched, `null` clears it, valid enum value sets it.
+
+### Repeating-correction detection
+
+A "repeating cluster" exists when the **same dancer** has **≥3 active assignments** (status OPEN or IN_PROGRESS) with the **same tag** in the **same project**. Threshold and rule live in [lib/notes/repeating.ts](lib/notes/repeating.ts) as `REPEATING_THRESHOLD = 3`.
+
+- **Pure derivation** — no new tables. `detectRepeatingClusters(assignments)` groups active assignments by `(projectId, userId, tag)` and returns groups meeting the threshold. Mirrors the [stalled.ts](lib/notes/stalled.ts) pattern.
+- **Project-scoped** — cross-project clustering would surface stale signals from past shows. Same-tag notes from different projects don't combine.
+- **Helpers**: `buildRepeatingMarkerByAssignmentId(clusters)` produces a `Map<assignmentId, { tag, count }>` for O(1) lookup when rendering rows; `indexClustersByUserAndTag(clusters)` powers the drill board's per-dancer per-tag grouping.
+- **Server-side query**: [lib/notes/get-active-assignments-for-project.ts](lib/notes/get-active-assignments-for-project.ts) returns assignments with status absent OR `OPEN` OR `IN_PROGRESS` for the given projects, with the `note.tag` and user info needed for cluster detection. Called once per request from `/my-notes`, `/notes-by-me`, the project page, and the rehearsal workspace page.
+- **Display**: [components/repeating-chip.tsx](components/repeating-chip.tsx) — token-tinted (`--repeating-{bg,fg,border}`, plum/violet hue ~285) chip with the `Repeat` icon. `compact` mode shows only `Repeating × 3` (used inline next to a `StatusChip`); full mode shows `Repeating · Timing × 3`.
+
+**Surfacing rules**:
+- Workspace `NoteRow` — per-recipient chip in compact mode next to the `StatusChip` (a single note can be repeating for one recipient, not for another).
+- `/my-notes` `AssignedNoteCard` — full chip in the top meta row when this user's assignment is in a cluster.
+- `/notes-by-me` `RecipientPipRow` — small `Repeat` icon decoration next to the per-pip status dot. (`/notes-by-me` is staff-only by virtue of being the author dashboard.)
+- `/notes-by-me` `AuthorSummaryStrip` — fourth metric tile "Repeating: N dancers" only renders when N > 0; the strip's grid switches from 3-col to 4-col when shown.
+- Project page `RepeatingClustersCard` — **staff-only** (Admin / Instructor / Assistant). Surfaces every dancer's cluster by name, which concentrates per-dancer struggle data in a way meant for instructors, not peers. Dancers don't see this card on the project page; their personal repeating-cluster signals still surface on `/my-notes` cards via the `RepeatingChip` and on the drill view's "Recurring drills" header.
 
 ### Note Targeting System
 
@@ -194,6 +222,8 @@ All design tokens (`--primary`, `--card`, `--status-*`, `--note-voice-*`, `--ava
 | Create rehearsals / upload video / author notes (text or voice) | ✓ | ✓ | ✓ | |
 | Edit or delete own notes | ✓ | ✓ | ✓ | |
 | Update their own note status | ✓ | ✓ | ✓ | ✓ |
+| See project-page drill board + repeating clusters card + Manage cast button | ✓ | ✓ | ✓ | |
+| See own personal drill list (`/my-notes` Drill view) | ✓ | ✓ | ✓ | ✓ |
 
 Enforce via `TeamMember.role` after fetching with a `get*ForUser()` function.
 
@@ -227,8 +257,8 @@ export async function createThing(
 ## API Routes
 
 REST endpoints under `app/api/`:
-- `POST /api/rehearsals/[rehearsalId]/notes` — create text or voice note (discriminated by `noteType`) with targets + assignments
-- `PATCH /api/notes/[noteId]` — edit note (author-only; type-aware: text edits body+timestamp+targets, voice edits start/end+targets only). Diffs assignments to preserve existing statuses
+- `POST /api/rehearsals/[rehearsalId]/notes` — create text or voice note (discriminated by `noteType`) with targets + assignments + optional `tag`
+- `PATCH /api/notes/[noteId]` — edit note (author-only; type-aware: text edits body+timestamp+tag+targets, voice edits start/end+tag+targets only). Diffs assignments to preserve existing statuses. Tag PATCH semantics: `undefined` leaves untouched, `null` clears, valid enum sets.
 - `DELETE /api/notes/[noteId]` — delete note and all its targets/assignments; also deletes the linked `AudioAsset` row for voice notes (author-only)
 - `GET /api/rehearsals/[rehearsalId]/audience` — list all audience members and project groups for the target picker UI
 - `POST /api/rehearsals/[rehearsalId]/video/upload-url` — generate GCS signed upload URL for video (staff roles only; mp4 / mov / webm)
@@ -294,9 +324,10 @@ The rehearsal page renders a context bar above the workspace and a sticky two-co
 | [workspace/rehearsal-video-card.tsx](app/rehearsals/[rehearsalId]/workspace/rehearsal-video-card.tsx) | Dark "stage plate" wrapping `<video>` with no native `controls`, custom transport (play / pause + ±5s + mono time), and on-frame overlay pills (file watermark, time pill, center play button when paused). `isPlaying` is tracked locally via the audio element's `onPlay`/`onPause`/`onEnded` events. |
 | [workspace/rehearsal-timeline-card.tsx](app/rehearsals/[rehearsalId]/workspace/rehearsal-timeline-card.tsx) | Separate card with a 48-bucket density strip, scrubbable track, voice/text colored markers, playhead, and 5 evenly-spaced time ticks. Density bars are absolutely positioned (not flex) so they share the same `0–100%` coordinate system as the markers. |
 | [workspace/notes-summary.tsx](app/rehearsals/[rehearsalId]/workspace/notes-summary.tsx) | "Progress spine" — aggregates `NoteAssignment` statuses across all notes (not per-note) into a four-segment stacked bar. Returns `null` when there are no assignments. |
-| [workspace/notes-list-card.tsx](app/rehearsals/[rehearsalId]/workspace/notes-list-card.tsx) | Filter pill row (`ALL / OPEN / IN_PROGRESS / ADDRESSED / RESOLVED / UNASSIGNED / VOICE / MINE`) + assignee dropdown + thread of `NoteRow`s. Pills show precomputed counts; status filters match notes that have *any* assignment with the given status. |
-| [workspace/add-note-card.tsx](app/rehearsals/[rehearsalId]/workspace/add-note-card.tsx) | Sticky composer. Sub-bar with mode tabs, audience popover (wraps the existing `AudiencePicker`), and a locked-timestamp pill that re-captures the current playhead on click (replaces the old standalone "Capture current timestamp" button). |
+| [workspace/notes-list-card.tsx](app/rehearsals/[rehearsalId]/workspace/notes-list-card.tsx) | Filter pill row (`ALL / OPEN / IN_PROGRESS / ADDRESSED / RESOLVED / UNASSIGNED / VOICE / MINE`) + assignee dropdown + tag dropdown (only shown when at least one tagged note exists) + thread of `NoteRow`s. `NoteRow` shows a `TagChip` next to the author name when the note has a tag, and a compact `RepeatingChip` next to each `StatusChip` for assignments that are part of a repeating cluster. Pills show precomputed counts; status filters match notes that have *any* assignment with the given status. |
+| [workspace/add-note-card.tsx](app/rehearsals/[rehearsalId]/workspace/add-note-card.tsx) | Sticky composer. Sub-bar with mode tabs, audience popover (wraps the existing `AudiencePicker`), a [TagPicker](app/rehearsals/[rehearsalId]/workspace/tag-picker.tsx) for the optional note tag, and a locked-timestamp pill that re-captures the current playhead on click. |
 | [workspace/audience-picker.tsx](app/rehearsals/[rehearsalId]/workspace/audience-picker.tsx) | Combobox-style picker (full-cast quick action, groups, individuals). Now rendered inside the composer's audience popover and inside `EditNoteSheet`. |
+| [workspace/tag-picker.tsx](app/rehearsals/[rehearsalId]/workspace/tag-picker.tsx) | Single-select Radix Popover for the optional `NoteTag` enum. See "Note Tags" above. |
 | [workspace/status-chip.tsx](app/rehearsals/[rehearsalId]/workspace/status-chip.tsx) | Per-recipient status chip (`name + 7px dot + status label`). Capped at `max-w-full` with `min-w-0 truncate` on the label and `shrink-0` on the dot/status word, so long names or emails truncate with `…` instead of overflowing the parent card; full label is exposed via `title=` for hover/long-press. Exports `StatusDot` for reuse (used by `notes-summary.tsx`). |
 
 ### Design tokens
@@ -306,6 +337,7 @@ The status palette, voice-note accent, and avatar tones are CSS variables in [ap
 - `--status-open-{bg,fg,border}`, `--status-progress-*`, `--status-addressed-*`, `--status-resolved-*` — derived from the existing teal primary so nothing reads as alarming.
 - `--note-voice-{accent,bg,border}` — coral, used for voice-note accent stripes, waveform bars, and recorder/preview chrome.
 - `--avatar-tone-{neutral,teal,coral,olive,plum}-{bg,fg}` — initials-avatar palette. Light mode is pale-bg + saturated-fg; dark mode is deep-tinted-bg + light-fg. `AvatarInitials` picks a tone deterministically by hashing `toneSeed` (typically a stable `userId`) so the same person reads with the same hue across pages.
+- `--repeating-{bg,fg,border}` — plum/violet (hue ~285), used by `RepeatingChip` and the project-page `RepeatingClustersCard`. Sits in a hue family separate from status/voice/avatar tokens so the "repeating" signal reads as a flag, not a state.
 
 Use `var(--*)` directly (or `color-mix(in oklch, var(--*) X%, transparent)` for translucent tints) rather than hard-coding colors. New status states or avatar tones should be added by extending these tokens, not by introducing per-component palettes.
 
@@ -318,16 +350,19 @@ Use `var(--*)` directly (or `color-mix(in oklch, var(--*) X%, transparent)` for 
 | File | Responsibility |
 |---|---|
 | [app/my-notes/page.tsx](app/my-notes/page.tsx) | Server entry. Fetches via `getAssignedNotesForUser`, maps Prisma rows to flat `AssignedNoteRow[]` (no bucketing — the client owns that), renders `<SectionTabNav active="my-notes" />` + slim title bar + `<MyNotesList rows={rows} />`. |
-| [app/my-notes/my-notes-list.tsx](app/my-notes/my-notes-list.tsx) | Client orchestrator. Owns `MyNotesFilter` (authorId / projectId / noteType — all single-select toggles, AND-combined) and the per-status expanded state. Computes filter options from the full row set, applies the filter, picks the hero (**oldest unresolved**, sorted `createdAt` ASC across `OPEN` + `IN_PROGRESS`), buckets the rest by status, sorts each bucket newest-first. Layout: `lg:grid-cols-[240px_minmax(0,1fr)]` with sticky rail + queue. |
-| [app/my-notes/queue-summary.tsx](app/my-notes/queue-summary.tsx) | Sticky left rail. "On your plate" big number + status breakdown (filtered counts) + From / Project / Type filter sections. Below `lg`, From / Project / Type collapse behind a "Filters" disclosure with an active-filter count badge — initial open state is derived from whether any filter is currently active. The disclosure is a single `<div>` with `cn(open ? "flex" : "hidden", "lg:flex")` so `lg+` always shows everything regardless of mobile state. |
-| [app/my-notes/assigned-note-card.tsx](app/my-notes/assigned-note-card.tsx) | Per-row card with optional `hero` variant (used for "Up next"). Hierarchy: `NoteRehearsalLink` + `NoteTimestampPill` + relative age → author avatar + name + audience chips (or "You" pill when the only target is the implicit USER) → body (text or `VoiceNotePlayer` standalone) → `StatusSegmented` + "Open in rehearsal" anchor. The author's USER target is filtered out of audience chips because the note is in their inbox precisely *because* they were targeted. |
+| [app/my-notes/my-notes-list.tsx](app/my-notes/my-notes-list.tsx) | Client orchestrator. Owns `MyNotesFilter` (authorId / projectId / noteType / tag — all single-select toggles, AND-combined), the per-status expanded state, and the **Inbox / Drill view** toggle (URL-synced via `?view=drill`). Computes filter options from the full row set, applies the filter, picks the hero (**oldest unresolved**, sorted `createdAt` ASC across `OPEN` + `IN_PROGRESS`), buckets the rest by status, sorts each bucket newest-first. Inbox layout: `lg:grid-cols-[240px_minmax(0,1fr)]` with sticky rail + queue. Drill mode renders [DrillView](app/my-notes/drill-view.tsx) instead. See "Drill surfaces" below for the auto-default-to-busiest-project rule. |
+| [app/my-notes/queue-summary.tsx](app/my-notes/queue-summary.tsx) | Sticky left rail. "On your plate" big number + status breakdown (filtered counts) + From / Project / Tag / Type filter sections. Below `lg`, From / Project / Tag / Type collapse behind a "Filters" disclosure with an active-filter count badge — initial open state is derived from whether any filter is currently active. The disclosure is a single `<div>` with `cn(open ? "flex" : "hidden", "lg:flex")` so `lg+` always shows everything regardless of mobile state. The Tag section only renders when at least one tagged note exists in the row set. |
+| [app/my-notes/assigned-note-card.tsx](app/my-notes/assigned-note-card.tsx) | Per-row card with optional `hero` variant (used for "Up next"). Hierarchy: `NoteRehearsalLink` + `NoteTimestampPill` + optional `TagChip` + optional `RepeatingChip` + relative age → author avatar + name + audience chips (or "You" pill when the only target is the implicit USER) → body (text or `VoiceNotePlayer` standalone) → `StatusSegmented` + "Open in rehearsal" anchor. The author's USER target is filtered out of audience chips because the note is in their inbox precisely *because* they were targeted. |
+| [app/my-notes/drill-view.tsx](app/my-notes/drill-view.tsx) | Read-only tag-grouped drill mode. See "Drill surfaces" below. |
 | [app/my-notes/status-segmented.tsx](app/my-notes/status-segmented.tsx) | Inline 4-button radiogroup that's the primary interaction on every card. Active button picks up the per-status accent color from CSS tokens. Calls `updateNoteAssignmentStatus` via `useTransition` for an optimistic feel. |
 | [app/my-notes/note-status-actions.ts](app/my-notes/note-status-actions.ts) | `updateNoteAssignmentStatus` server action — unchanged across the redesign; status mutation flows through the same pipeline as before. |
-| [app/my-notes/types.ts](app/my-notes/types.ts) | `AssignedNoteRow`, `MyNotesFilter`, `EMPTY_FILTER`, `AuthorOption`, `ProjectOption`, `TypeCounts`, `DEFAULT_EXPANDED_STATUSES`. Re-exports `NOTE_STATUSES` / `NOTE_STATUS_LABELS` from `@/lib/notes/statuses`. |
+| [app/my-notes/types.ts](app/my-notes/types.ts) | `AssignedNoteRow` (extended with `repeating: RepeatingMarker \| null` and `note.tag: NoteTag \| null`), `MyNotesFilter` (extended with `tag`), `EMPTY_FILTER`, `AuthorOption`, `ProjectOption`, `TagOption`, `TypeCounts`, `DEFAULT_EXPANDED_STATUSES`, `RepeatingMarker`. Re-exports `NOTE_STATUSES` / `NOTE_STATUS_LABELS` from `@/lib/notes/statuses`. |
 
-**Filter rule**: AND across categories. Each category is a single-select toggle (click again to clear). Rail counts: status breakdown reflects the **filtered** queue; From / Project / Type option counts are the **unfiltered** totals (so they stay stable as the user clicks).
+**Filter rule**: AND across categories. Each category is a single-select toggle (click again to clear). Rail counts: status breakdown reflects the **filtered** queue; From / Project / Tag / Type option counts are the **unfiltered** totals (so they stay stable as the user clicks).
 
 **Hero rule**: oldest unresolved (any `OPEN` or `IN_PROGRESS`) row in the filtered set. If the filter excludes all unresolved rows, no hero is rendered — only the status groups appear.
+
+**Server-side repeating computation**: [page.tsx](app/my-notes/page.tsx) calls `getActiveAssignmentsForProjects` once per request scoped to projects this user has notes in, then runs `detectRepeatingClusters` filtered to `dbUser.id` so only this user's clusters surface on `/my-notes`. The resulting `Map<assignmentId, RepeatingMarker>` is threaded into each `AssignedNoteRow.repeating` for O(1) chip rendering.
 
 ## Notes By Me UI
 
@@ -341,11 +376,61 @@ Use `var(--*)` directly (or `color-mix(in oklch, var(--*) X%, transparent)` for 
 | [app/notes-by-me/filter-sort-bar.tsx](app/notes-by-me/filter-sort-bar.tsx) | Filter pills (counts shown inside each pill; the STALLED pill takes the in-progress tint when count > 0 and inactive) + sort segmented (`STALLED_FIRST / RECENT / OLDEST`). |
 | [app/notes-by-me/authored-note-card.tsx](app/notes-by-me/authored-note-card.tsx) | Per-note triage row. Top row: rehearsal breadcrumb + accent timestamp pill + voice/text marker + Stalled chip + relative age + `NoteActionsMenu`. Body: `Sent to` + audience chips (USER targets filtered out) + clamped 2-line text or `VoiceNotePlayer` standalone. Progress block: `n/N addressed` + `<NoteProgressBar>` + Complete badge + `<RecipientPipRow>`. Unassigned notes show a dashed banner with an inline **Assign** button that opens `EditNoteSheet`. |
 | [app/notes-by-me/recipient-pip-row.tsx](app/notes-by-me/recipient-pip-row.tsx) | Per-assignment chip: `AvatarInitials` (toneSeed = `user.id`) + name + `StatusDot` + status word. When the parent note is stalled, OPEN pips pick up the in-progress tint to flag who is holding things up. |
-| [app/notes-by-me/types.ts](app/notes-by-me/types.ts) | `AuthoredNoteRow` (extends with `assignmentCounts` and `stalled`), `AuthoredAssignmentCounts`, `AuthoredNoteFilter`, `AuthoredNoteSort`, `AuthoredNoteAssignment`, `AuthoredNoteTarget`, `AuthoredNoteAudio`. |
+| [app/notes-by-me/types.ts](app/notes-by-me/types.ts) | `AuthoredNoteRow` (extends with `assignmentCounts`, `stalled`, `tag`, `hasRepeating`), `AuthoredAssignmentCounts`, `AuthoredNoteFilter`, `AuthoredNoteSort`, `AuthoredNoteAssignment` (now carries `repeating: AuthoredRepeatingMarker | null`), `AuthoredNoteTarget`, `AuthoredNoteAudio`, `AuthoredRepeatingMarker`. |
 
 **Stalled derivation**: a note is stalled when `now - createdAt > 3 days` AND at least one assignment is `OPEN` or `IN_PROGRESS`. Threshold is `STALLED_THRESHOLD_DAYS` in [lib/notes/stalled.ts](lib/notes/stalled.ts). Computed server-side once per request so client filtering/sorting is just a boolean check.
 
 **Filter relationships**: STALLED is a strict subset of OUTSTANDING (a stalled note necessarily has at least one active assignment). `OUTSTANDING + COMPLETE + UNASSIGNED === ALL`.
+
+**Tag + repeating integration**: `AuthoredNoteCard` shows the tag chip in the top meta row when present. `RecipientPipRow` shows a small `Repeat` icon decoration next to the status dot per pip when that assignment is in a repeating cluster (uses `--repeating-fg` for the icon color). `FilterSortBar` adds a tag-filter row below the status pills when at least one tagged note exists; ANDs with the status filter. `AuthorSummaryStrip` adds a fourth tile "Repeating: N dancers" when N > 0 (the grid switches from 3-col to 4-col only in that case).
+
+## Drill surfaces
+
+Drill mode is **read-only** — all updates still happen through the normal note flows (create, edit, status change). No dedicated drill route in v1; capability ships in two places.
+
+### `/my-notes` Drill view
+
+A view-mode toggle at the top of `/my-notes` flips between **Inbox** (default) and **Drill view**. Persisted in the URL as `?view=drill` so it's bookmarkable but not stored server-side.
+
+| File | Responsibility |
+|---|---|
+| [app/my-notes/drill-view.tsx](app/my-notes/drill-view.tsx) | Tag-grouped checklist. Top "Recurring drills" section surfaces clusters; tag sections render in fixed order (TIMING → SPACING → ENERGY → MUSICALITY → FORMATION → TECHNIQUE → Other). Each row is read-only: optional project chip (when 2+ projects active) + rehearsal title link + timestamp + clamped body or voice-note placeholder + status dot. "Print" button calls `window.print()`. Optional `singleProjectHeader` prop renders a "Showing N notes from X · See all projects" banner when filtered. |
+| [app/my-notes/my-notes-list.tsx](app/my-notes/my-notes-list.tsx) | Owns the toggle. Computes `activeProjects` (sorted by openCount desc) once. Lazy-initializes the project filter to the busiest active project on entering drill mode (deep-link case via `useState` initializer; click-toggle case in `setViewMode`). Threads `showProjectInRows` and `singleProjectHeader` props to `DrillView`. Tour gating uses `viewMode === "inbox"` so the tip sequence skips while in drill mode (anchors are absent). |
+
+**Auto-default rule**: when the user has open + in-progress notes in **2+ projects**, the project filter pre-applies to the project with the most open notes. The `SingleProjectHeader` button "See all projects" clears just the project filter. If the user clears the filter and re-enters drill mode, they get auto-defaulted again — accepted trade-off vs. tracking explicit-clear state through React Compiler's "no setState in effect" rule.
+
+**Project chip on rows**: each drill row shows its project title as a small muted chip when the user has notes in 2+ projects (so they always know what show they're drilling). Hidden when there's no ambiguity.
+
+### Project-page drill surfaces
+
+`/projects/[projectId]` adds two sibling cards between the meta band and `RehearsalsSection`, both backed by the same `getActiveAssignmentsForProjects` query. **Both are staff-only** — gated behind `isStaff = role === "ADMIN" || role === "INSTRUCTOR" || role === "ASSISTANT"`. Dancers don't see the project drill board or the repeating-clusters card; their personal drill view at `/my-notes?view=drill` is the dancer-side alternative, scoped to their own notes.
+
+The "Manage cast" button in the project meta band's `actions` slot is also staff-only — for dancers, it would link to a team page they can only read, so it's hidden rather than rendered as a misleading CTA.
+
+| File | Responsibility |
+|---|---|
+| [app/projects/[projectId]/repeating-clusters-card.tsx](app/projects/[projectId]/repeating-clusters-card.tsx) | Compact summary card. One row per cluster: avatar + dancer name + tag chip + "N unresolved". Hides when `clusters.length === 0`. Uses the `--repeating-*` tokens for surface tinting. |
+| [app/projects/[projectId]/project-drill-section.tsx](app/projects/[projectId]/project-drill-section.tsx) | Per-dancer collapsible drill board. Default expansion is the viewer's own row when they're a recipient, otherwise the dancer with the most clusters. Within each dancer, tag buckets sort: repeating clusters first, then by item count, then canonical tag order, then untagged ("Other") last. Each item is a read-only `DrillRow` from `components/drill/`. Hides when no active assignments exist in the project. |
+
+### Print stylesheet
+
+`@media print` block in [app/globals.css](app/globals.css), **scoped to `body[data-print-target="drill"]`**. The `DrillView` component sets `document.body.dataset.printTarget = "drill"` in a `useEffect` while mounted and clears it on unmount, so accidentally printing any other page (Cmd+P on a rehearsal page, etc.) gets a normal browser-default print, not the drill-formatted layout.
+
+While the drill view is mounted:
+- Hides `header, nav, [data-print-hidden]`; reveals `[data-print-only]`.
+- Forces white surfaces on the body for ink economy.
+- `break-inside: avoid` on `.drill-tag-section` and `.drill-row` so dancer/tag groups don't split across pages.
+- `.tag-chip` switches to outlined (currentColor border, transparent bg) for B&W printability.
+
+### What's deliberately deferred
+
+- Dedicated `/projects/[id]/drill-list` sub-route with shareable `?dancer=USER_ID` URLs.
+- Whole-company print sheets (instructor printing all dancers in one document).
+- PDF export endpoint — `window.print()` → "Save as PDF" is sufficient for v1.
+- Curated "tonight's drill list" entity (`DrillSheet` + `DrillSheetItem`) for hand-picked subsets.
+- Per-tag color coding — single neutral chip in v1.
+- Multi-tag per note — single tag column.
+- Cross-project repeating detection — project-scoped only.
 
 ## Team Page UI
 
@@ -375,7 +460,9 @@ Use `var(--*)` directly (or `color-mix(in oklch, var(--*) X%, transparent)` for 
 
 | File | Responsibility |
 |---|---|
-| [app/projects/[projectId]/page.tsx](app/projects/[projectId]/page.tsx) | Server entry. Fetches the project, rehearsals (with notes/assignments/authors/video duration), groups, and team members in parallel. Aggregates per-rehearsal totals (text/voice counts, assignment status counts, distinct contributors, stalled count via [`isNoteStalled`](lib/notes/stalled.ts)) and project-wide totals (rehearsal count, cast count, open notes, distinct contributors). Renders `<ProjectMetaBand />` above `<ProjectMobileTabs>` which slots `<RehearsalsSection />` + `<ProjectGroupsSection />`. |
+| [app/projects/[projectId]/page.tsx](app/projects/[projectId]/page.tsx) | Server entry. Fetches the project, rehearsals (with notes/assignments/authors/video duration), groups, and team members in parallel. Aggregates per-rehearsal totals (text/voice counts, assignment status counts, distinct contributors, stalled count via [`isNoteStalled`](lib/notes/stalled.ts)) and project-wide totals (rehearsal count, cast count, open notes, distinct contributors). Also runs `getActiveAssignmentsForProjects` + `detectRepeatingClusters` to build per-dancer drill recipients and cluster summaries. Renders `<ProjectMetaBand />` above `<RepeatingClustersCard />` + `<ProjectDrillSection />` + `<ProjectMobileTabs>` which slots `<RehearsalsSection />` + `<ProjectGroupsSection />`. |
+| [repeating-clusters-card.tsx](app/projects/[projectId]/repeating-clusters-card.tsx) | Tinted summary card listing active repeating clusters one row at a time. **Staff-only** — gated on `isStaff` in the page entry. See "Drill surfaces" above. |
+| [project-drill-section.tsx](app/projects/[projectId]/project-drill-section.tsx) | Per-dancer collapsible drill board for the project. **Staff-only** — gated on `isStaff` in the page entry. See "Drill surfaces" above. |
 | [project-meta-band.tsx](app/projects/[projectId]/project-meta-band.tsx) | Edge-to-edge `bg-card` band. Breadcrumb (Dashboard › team › project), title + `ProjectStatusPill` + `RolePill`, optional description, actions slot, and a meta strip with `MetaChip`s (Rehearsals / Cast / Open notes). On mobile the meta strip flattens into compact `[icon] {value} {label}` chips on a single line, the description is `line-clamp-2`, the title shrinks to `text-xl`, the breadcrumb's "Dashboard" segment is hidden, and the contributor `AvatarStack` is hidden. On `sm:+` it gains the eyebrow + `border-t` divider + accent suffix + the contributor stack. |
 | [project-mobile-tabs.tsx](app/projects/[projectId]/project-mobile-tabs.tsx) | Client wrapper. Renders a segmented `role="tablist"` (`Rehearsals (N)` / `Groups (N)`) visible only below `lg:`, plus the `lg:grid-cols-[minmax(0,1fr)_320px]` two-column layout. On mobile the inactive panel gets `hidden lg:flex`; on `lg:+` the override always wins so both panels render together. Default tab on mobile is Rehearsals. |
 | [rehearsals-section.tsx](app/projects/[projectId]/rehearsals-section.tsx) | Heading + helper line + list of `RehearsalRow`s, OR a generous empty-state panel guiding staff to create the first rehearsal (gated on `canManage`). |
@@ -438,8 +525,13 @@ The persistent header lives in [components/app-header.tsx](components/app-header
 | [components/note-rehearsal-link.tsx](components/note-rehearsal-link.tsx) | `project › rehearsal-title` breadcrumb link to `/rehearsals/[id]`. |
 | [components/note-timestamp-pill.tsx](components/note-timestamp-pill.tsx) | Accent-tinted mono pill (`var(--primary)` for text, `var(--note-voice-accent)` for voice). Renders as a `<button>` when `onClick` is set, otherwise a static `<span>`. |
 | [components/section-tab-nav.tsx](components/section-tab-nav.tsx) | Thin sub-nav (`My notes` / `Notes by me`) rendered below the global header on the two notes pages. Active tab is auto-derived from `pathname` but can be overridden. |
+| [components/tag-chip.tsx](components/tag-chip.tsx) | Single neutral chip (`--muted` / `--muted-foreground`) carrying a `NoteTag`. Has the `tag-chip` class for the print stylesheet to switch to outlined rendering. |
+| [components/repeating-chip.tsx](components/repeating-chip.tsx) | Plum-tinted chip (`--repeating-*`) with `Repeat` icon. `compact` mode shows `Repeating × 3`; default mode shows `Repeating · Timing × 3`. |
 | [lib/notes/format.ts](lib/notes/format.ts) | `formatNoteTimestamp(ms)` — single source of truth for `mm:ss` rendering across the app. The workspace's `./utils.ts` re-exports this as `formatTimestamp` so its many existing imports keep working. |
 | [lib/notes/stalled.ts](lib/notes/stalled.ts) | `isNoteStalled({ createdAt, assignments, now })` + `STALLED_THRESHOLD_DAYS = 3`. Pure, server- and client-safe; `now` is injectable so it's deterministic in tests. |
+| [lib/notes/tags.ts](lib/notes/tags.ts) | `NOTE_TAGS` const tuple, `NoteTag` type, `NOTE_TAG_LABELS`, `NOTE_TAG_DESCRIPTIONS`, `isNoteTag` runtime guard. Mirrors the Prisma enum literally (no Prisma import) so the module stays client-safe. |
+| [lib/notes/repeating.ts](lib/notes/repeating.ts) | `detectRepeatingClusters`, `buildRepeatingMarkerByAssignmentId`, `indexClustersByUserAndTag`, `REPEATING_THRESHOLD = 3`. Pure derivation. See "Repeating-correction detection" above. |
+| [lib/notes/get-active-assignments-for-project.ts](lib/notes/get-active-assignments-for-project.ts) | Server-side query helper returning all OPEN / IN_PROGRESS (and status-absent) assignments for the given project IDs, with the user / status / note.tag / rehearsal info needed for cluster detection and the drill board. |
 
 ## Landing Page UI
 
@@ -549,10 +641,10 @@ Every page sits below a persistent global `<AppHeader>` (brand + team switcher w
 - `/invite/[token]` — Team invitation acceptance. Public route (not gated by `proxy.ts`). Server-rendered with one of: signed-out invite card (Create account / Sign in CTAs that preserve the invite URL via `?redirect_url=`), accept card (matching email), wrong-account card (mismatched email — sign out + retry), or info card (not found / expired / revoked / accepted). See "Team Invitations" above.
 - `/dashboard` — Signed-in home. `DashboardMetaBand` ("Welcome back, {firstName}" + cross-team meta strip) above `OnboardingChecklist` (dismissible role-gated tour for new users), `WorkTiles` (2-up "My notes" / "Notes by me" tiles with real metrics), and `TeamsSection` (compact team rows with role chip + activity meta + `+ New team` button, or generous empty-state CTA). Only page that aggregates across teams. See "Dashboard UI" and "Onboarding tour" below.
 - `/teams/[teamId]` — Team organizational home. `TeamMetaBand` (breadcrumb, mark, title, role popover, desktop meta strip with Members / Projects / Created / role glance / Your role) above a single-column `TeamMobileTabs` shell that renders `<ProjectsSection />` + `<MembersSection />`. Mobile gets a `Projects (N) / Members (N)` segmented switcher. Header carries no CTAs — each section owns its action. Role chips are popover triggers for contextual role explanations. See "Team Page UI" below.
-- `/projects/[projectId]` — Project home and structural bridge into the workspace. `ProjectMetaBand` (breadcrumb, title + status pill, meta chips, "Manage cast" / "New rehearsal") above a two-column layout: rehearsals spine on the left (`RehearsalRow`s with date plate, status mini-bar, stalled chips) + a compact `ProjectGroupsSection` rail on the right. On mobile a `ProjectMobileTabs` segmented switcher (`Rehearsals (N)` / `Groups (N)`) toggles between the two so only one renders at a time. See "Project Page UI" below.
-- `/rehearsals/[rehearsalId]` — Rehearsal workspace. Page header is a `RehearsalContextBar` (breadcrumb / title / role / meta); body is a sticky two-column workspace with the stage-plate video + density timeline on the left and a thread (progress spine, pill filters, note list, sticky composer) on the right. Voice-note playback is video-synced here. First-time note-authors see a 3-step `TipSequence` (timeline / composer / notes thread) once the video URL resolves — see "Onboarding tour" below. See "Rehearsal Workspace UI" above.
-- `/my-notes` — Recipient inbox / personal work queue. `SectionTabNav` + slim title bar, then a 2-column layout: sticky `QueueSummary` rail (240px on `lg+`, mobile-collapsing for From/Project/Type filters) + queue with an "Up next" hero (oldest unresolved note) and collapsible status groups. Each card uses an inline `StatusSegmented` radio control as the primary action. First-time visitors with at least one assigned note see a 2-step `TipSequence` (Up-next hero / filter rail) — see "Onboarding tour" below. See "My Notes UI" below.
-- `/notes-by-me` — Author follow-through dashboard. `SectionTabNav` + slim title bar, then `AuthorSummaryStrip` (follow-through %, stalled, unassigned) + `FilterSortBar` (Outstanding / Stalled / Complete / Unassigned / All; sort: Stalled first / Most recent / Oldest) + a list of `AuthoredNoteCard`s with per-recipient pip rows. Stalled is computed server-side via [lib/notes/stalled.ts](lib/notes/stalled.ts) (`createdAt` older than 3 days AND any active assignment). See "Notes By Me UI" below.
+- `/projects/[projectId]` — Project home and structural bridge into the workspace. `ProjectMetaBand` (breadcrumb, title + status pill, meta chips, "Manage cast" / "New rehearsal") above an optional `RepeatingClustersCard` + optional `ProjectDrillSection` (per-dancer collapsible drill board) + a two-column layout: rehearsals spine on the left (`RehearsalRow`s with date plate, status mini-bar, stalled chips) + a compact `ProjectGroupsSection` rail on the right. On mobile a `ProjectMobileTabs` segmented switcher (`Rehearsals (N)` / `Groups (N)`) toggles between the two so only one renders at a time. See "Project Page UI" and "Drill surfaces" below.
+- `/rehearsals/[rehearsalId]` — Rehearsal workspace. Page header is a `RehearsalContextBar` (breadcrumb / title / role / meta); body is a sticky two-column workspace with the stage-plate video + density timeline on the left and a thread (progress spine, pill filters + assignee/tag dropdowns, note list with tag + repeating chips, sticky composer with `TagPicker`) on the right. Voice-note playback is video-synced here. First-time note-authors see a 3-step `TipSequence` (timeline / composer / notes thread) once the video URL resolves — see "Onboarding tour" below. See "Rehearsal Workspace UI" above.
+- `/my-notes` — Recipient inbox / personal work queue. `SectionTabNav` + slim title bar + `Inbox / Drill view` toggle (URL-synced via `?view=drill`). **Inbox mode**: 2-column layout with sticky `QueueSummary` rail (240px on `lg+`, mobile-collapsing for From/Project/Tag/Type filters) + queue with an "Up next" hero (oldest unresolved note) and collapsible status groups. Each card uses an inline `StatusSegmented` radio control plus optional `TagChip` and `RepeatingChip` in the meta row. **Drill mode**: tag-grouped read-only checklist with `Recurring drills` header, auto-defaults the project filter to the busiest project for users in 2+ projects, and a Print button (`window.print()`). First-time visitors in inbox mode with at least one assigned note see a 2-step `TipSequence` (Up-next hero / filter rail). See "My Notes UI" and "Drill surfaces" below.
+- `/notes-by-me` — Author follow-through dashboard. `SectionTabNav` + slim title bar, then `AuthorSummaryStrip` (follow-through %, stalled, unassigned, plus a Repeating tile when any clusters exist) + `FilterSortBar` (Outstanding / Stalled / Complete / Unassigned / All; sort: Stalled first / Most recent / Oldest; tag-filter row when any tagged notes exist) + a list of `AuthoredNoteCard`s (with `TagChip` in the meta row) with per-recipient pip rows (with a small `Repeat` decoration on pips that are part of a cluster). Stalled is computed server-side via [lib/notes/stalled.ts](lib/notes/stalled.ts) (`createdAt` older than 3 days AND any active assignment); repeating clusters via [lib/notes/repeating.ts](lib/notes/repeating.ts). See "Notes By Me UI" and "Repeating-correction detection" above.
 
 ## Key Conventions
 

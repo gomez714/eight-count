@@ -10,6 +10,8 @@ import { AudienceChips } from "@/components/audience-chips";
 import { AvatarInitials } from "@/components/avatar-initials";
 import { NoteRehearsalLink } from "@/components/note-rehearsal-link";
 import { NoteTimestampPill } from "@/components/note-timestamp-pill";
+import { RepeatingChip } from "@/components/repeating-chip";
+import { TagChip } from "@/components/tag-chip";
 import { VoiceNotePlayer } from "@/app/rehearsals/[rehearsalId]/workspace/voice-note-player";
 import { cn } from "@/lib/utils";
 
@@ -93,13 +95,20 @@ export function AssignedNoteCard({
           hero ? "pl-6 pr-5 py-5" : "pl-5 pr-4 py-4"
         )}
       >
-        {/* Top meta: rehearsal context + timestamp + relative age */}
+        {/* Top meta: rehearsal context + timestamp + tag + repeating + relative age */}
         <div className="flex flex-wrap items-center gap-2.5">
           <NoteRehearsalLink rehearsal={note.rehearsal} />
           <NoteTimestampPill
             timestampMs={note.startTimestampMs}
             noteType={note.noteType}
           />
+          {note.tag ? <TagChip tag={note.tag} /> : null}
+          {row.repeating ? (
+            <RepeatingChip
+              tag={row.repeating.tag}
+              count={row.repeating.count}
+            />
+          ) : null}
           <span className="ml-auto text-xs text-muted-foreground">
             {formatRelativeAge(noteCreatedAt)}
             {wasEdited ? (

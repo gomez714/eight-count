@@ -21,10 +21,11 @@ import type {
   UpdateNoteResponse,
 } from "@/lib/api/contracts";
 import type { NoteStatus } from "@/lib/notes/statuses";
+import type { NoteTag } from "@/lib/notes/tags";
 
 import { AuthoredNoteCard } from "./authored-note-card";
 import { AuthorSummaryStrip } from "./author-summary-strip";
-import { FilterSortBar } from "./filter-sort-bar";
+import { FilterSortBar, type TagFilterOption } from "./filter-sort-bar";
 import type {
   AuthoredAssignmentCounts,
   AuthoredNoteFilter,
@@ -66,6 +67,11 @@ function rowMatchesFilter(
   }
 }
 
+function rowMatchesTag(row: AuthoredNoteRow, tag: NoteTag | null): boolean {
+  if (tag === null) return true;
+  return row.tag === tag;
+}
+
 function compareRows(
   a: AuthoredNoteRow,
   b: AuthoredNoteRow,
@@ -90,6 +96,7 @@ function toEditableNote(row: AuthoredNoteRow): EditableNote {
     bodyText: row.bodyText,
     startTimestampMs: row.startTimestampMs,
     endTimestampMs: row.endTimestampMs,
+    tag: row.tag,
     audioAsset: row.audioAsset
       ? {
           id: row.audioAsset.id,
@@ -136,6 +143,7 @@ export function NotesByMeList({ notes }: Readonly<NotesByMeListProps>) {
   const router = useRouter();
   const [filter, setFilter] = useState<AuthoredNoteFilter>("OUTSTANDING");
   const [sort, setSort] = useState<AuthoredNoteSort>("STALLED_FIRST");
+  const [tagFilter, setTagFilter] = useState<NoteTag | null>(null);
 
   const [editingRow, setEditingRow] = useState<AuthoredNoteRow | null>(null);
   const [audience, setAudience] = useState<{
@@ -159,6 +167,7 @@ export function NotesByMeList({ notes }: Readonly<NotesByMeListProps>) {
     let addressed = 0;
     let stalledCount = 0;
     let unassignedCount = 0;
+    const repeatingUserIds = new Set<string>();
 
     for (const row of notes) {
       if (row.assignments.length === 0) {
@@ -177,6 +186,9 @@ export function NotesByMeList({ notes }: Readonly<NotesByMeListProps>) {
       totalAssignments += row.assignments.length;
       addressed +=
         row.assignmentCounts.ADDRESSED + row.assignmentCounts.RESOLVED;
+      for (const a of row.assignments) {
+        if (a.repeating) repeatingUserIds.add(a.user.id);
+      }
     }
 
     return {
@@ -185,6 +197,7 @@ export function NotesByMeList({ notes }: Readonly<NotesByMeListProps>) {
       addressed,
       stalledCount,
       unassignedCount,
+      repeatingDancerCount: repeatingUserIds.size,
     };
   }, [notes]);
 
@@ -212,9 +225,19 @@ export function NotesByMeList({ notes }: Readonly<NotesByMeListProps>) {
 
   const filteredAndSorted = useMemo(() => {
     return notes
-      .filter((row) => rowMatchesFilter(row, filter))
+      .filter((row) => rowMatchesFilter(row, filter) && rowMatchesTag(row, tagFilter))
       .sort((a, b) => compareRows(a, b, sort));
-  }, [notes, filter, sort]);
+  }, [notes, filter, tagFilter, sort]);
+
+  const tagOptions = useMemo<TagFilterOption[]>(() => {
+    const counts = new Map<NoteTag, number>();
+    for (const row of notes) {
+      if (row.tag) counts.set(row.tag, (counts.get(row.tag) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+  }, [notes]);
 
   const handleOpenEdit = async (row: AuthoredNoteRow) => {
     setEditingRow(row);
@@ -265,12 +288,14 @@ export function NotesByMeList({ notes }: Readonly<NotesByMeListProps>) {
                 startTimestampMs: values.startTimestampMs,
                 endTimestampMs:
                   values.endTimestampMs ?? values.startTimestampMs,
+                tag: values.tag,
                 targets: buildTargetsFromSelection(values),
               }
             : {
                 noteType: "TEXT",
                 bodyText: values.bodyText ?? "",
                 startTimestampMs: values.startTimestampMs,
+                tag: values.tag,
                 targets: buildTargetsFromSelection(values),
               };
 
@@ -341,6 +366,7 @@ export function NotesByMeList({ notes }: Readonly<NotesByMeListProps>) {
         addressed={summary.addressed}
         stalledCount={summary.stalledCount}
         unassignedCount={summary.unassignedCount}
+        repeatingDancerCount={summary.repeatingDancerCount}
         aggregateCounts={summary.aggregate}
         onJumpToStalled={() => setFilter("STALLED")}
       />
@@ -351,6 +377,9 @@ export function NotesByMeList({ notes }: Readonly<NotesByMeListProps>) {
         sort={sort}
         onSortChange={setSort}
         counts={filterCounts}
+        tagOptions={tagOptions}
+        tagFilter={tagFilter}
+        onTagFilterChange={setTagFilter}
       />
 
       <div className="flex flex-col gap-2.5">

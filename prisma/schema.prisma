@@ -49,6 +49,15 @@ enum NoteTargetKind {
   USER
 }
 
+enum NoteTag {
+  TIMING
+  SPACING
+  ENERGY
+  MUSICALITY
+  FORMATION
+  TECHNIQUE
+}
+
 enum TeamInvitationStatus {
   PENDING
   ACCEPTED
@@ -268,6 +277,7 @@ model Note {
   startTimestampMs Int
   endTimestampMs   Int?
   audioAssetId     String?  @unique
+  tag              NoteTag?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -283,6 +293,7 @@ model Note {
   @@index([videoAssetId])
   @@index([authorUserId])
   @@index([startTimestampMs])
+  @@index([tag])
 }
 
 model NoteAssignment {

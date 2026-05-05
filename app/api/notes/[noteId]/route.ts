@@ -15,6 +15,7 @@ import {
   validateGroupTargets,
   validateUserTargets,
 } from "@/lib/notes/resolve-targets";
+import { isNoteTag, NOTE_TAGS, type NoteTag } from "@/lib/notes/tags";
 
 const AUTHOR_ROLES = new Set(["ADMIN", "INSTRUCTOR", "ASSISTANT"]);
 
@@ -108,6 +109,24 @@ export async function PATCH(
       );
     }
 
+    // Tag is optional. Three cases:
+    //   - undefined → leave the column untouched (don't include in update data)
+    //   - null      → explicitly clear the tag
+    //   - valid enum value → set
+    let tagUpdate: { tag: NoteTag | null } | undefined;
+    if (body.tag === null) {
+      tagUpdate = { tag: null };
+    } else if (body.tag !== undefined) {
+      if (!isNoteTag(body.tag)) {
+        return apiError(
+          400,
+          "INVALID_TAG",
+          `tag must be one of: ${NOTE_TAGS.join("|")}`
+        );
+      }
+      tagUpdate = { tag: body.tag };
+    }
+
     let bodyText: string | null = note.bodyText;
     let endTimestampMs: number | null = null;
 
@@ -195,6 +214,7 @@ export async function PATCH(
           bodyText,
           startTimestampMs: Math.floor(startTimestampMs),
           endTimestampMs,
+          ...tagUpdate,
         },
       });
 
