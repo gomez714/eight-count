@@ -59,6 +59,12 @@ export async function transcribeFromUrl({
   url.searchParams.set("model", process.env.DEEPGRAM_MODEL ?? "nova-3");
   url.searchParams.set("language", "en");
   url.searchParams.set("smart_format", "true");
+  // Opt out of Deepgram's Model Improvement Program. Without this flag,
+  // submitted audio can be retained and used to train Deepgram's models —
+  // which would conflict with the /privacy commitment that voice
+  // recordings aren't used for AI training. Audio for opted-out requests
+  // is retained only for the duration needed to process the request.
+  url.searchParams.set("mip_opt_out", "true");
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), DEEPGRAM_TIMEOUT_MS);
