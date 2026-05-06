@@ -10,6 +10,13 @@ export type DrillRowItem = {
   rehearsalTitle: string;
   noteType: "TEXT" | "VOICE";
   bodyText: string | null;
+  /**
+   * Voice-note transcript when transcription has succeeded. When present
+   * and non-empty, the row uses this as its readable body — the highest-
+   * value reason to ship transcripts at all (drill mode becomes useful
+   * for offline study without the audio player).
+   */
+  voiceTranscript: string | null;
   audioDurationMs: number | null;
   startTimestampMs: number;
   status: NoteStatus;
@@ -25,8 +32,49 @@ type DrillRowProps = {
   projectName?: string;
 };
 
-export function DrillRow({ item, projectName }: Readonly<DrillRowProps>) {
+function renderDrillBody(item: DrillRowItem) {
   const isVoice = item.noteType === "VOICE";
+  const hasVoiceTranscript =
+    isVoice &&
+    typeof item.voiceTranscript === "string" &&
+    item.voiceTranscript.trim().length > 0;
+
+  if (hasVoiceTranscript) {
+    return (
+      <span className="truncate" title={item.voiceTranscript ?? undefined}>
+        <Mic
+          aria-hidden
+          className="mr-1 inline size-3 text-muted-foreground"
+        />
+        {item.voiceTranscript}
+      </span>
+    );
+  }
+
+  if (isVoice) {
+    return (
+      <span className="inline-flex items-center gap-1 text-muted-foreground">
+        <Mic aria-hidden className="size-3" />
+        Voice note
+        {item.audioDurationMs != null && (
+          <> · {formatNoteTimestamp(item.audioDurationMs)}</>
+        )}
+      </span>
+    );
+  }
+
+  return (
+    <span className="truncate" title={item.bodyText ?? undefined}>
+      <FileText
+        aria-hidden
+        className="mr-1 inline size-3 text-muted-foreground"
+      />
+      {item.bodyText}
+    </span>
+  );
+}
+
+export function DrillRow({ item, projectName }: Readonly<DrillRowProps>) {
   return (
     <li className="drill-row flex items-center gap-2 rounded-md border bg-background px-3 py-2">
       {projectName ? (
@@ -51,23 +99,7 @@ export function DrillRow({ item, projectName }: Readonly<DrillRowProps>) {
         {formatNoteTimestamp(item.startTimestampMs)}
       </span>
       <span className="inline-flex min-w-0 flex-1 items-center gap-1.5 truncate text-[13px] text-foreground">
-        {isVoice ? (
-          <span className="inline-flex items-center gap-1 text-muted-foreground">
-            <Mic aria-hidden className="size-3" />
-            Voice note
-            {item.audioDurationMs != null
-              ? ` · ${formatNoteTimestamp(item.audioDurationMs)}`
-              : null}
-          </span>
-        ) : (
-          <span className="truncate" title={item.bodyText ?? undefined}>
-            <FileText
-              aria-hidden
-              className="mr-1 inline size-3 text-muted-foreground"
-            />
-            {item.bodyText}
-          </span>
-        )}
+        {renderDrillBody(item)}
       </span>
       <StatusDot status={item.status} />
     </li>

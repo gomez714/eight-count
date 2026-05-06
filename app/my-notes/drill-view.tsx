@@ -86,11 +86,20 @@ function uniqueRepeatingClusters(rows: AssignedNoteRow[]): RepeatingMarker[] {
 }
 
 function toDrillItem(row: AssignedNoteRow): DrillRowItem {
+  // Only surface the transcript when it's actually READY — otherwise the
+  // row falls back to the existing "Voice note · 0:32" placeholder, which
+  // is honest for PROCESSING / FAILED states.
+  const voiceTranscript =
+    row.note.audioAsset?.transcriptStatus === "READY"
+      ? (row.note.audioAsset.transcript ?? null)
+      : null;
+
   return {
     rehearsalId: row.note.rehearsal.id,
     rehearsalTitle: row.note.rehearsal.title,
     noteType: row.note.noteType,
     bodyText: row.note.bodyText,
+    voiceTranscript,
     audioDurationMs: row.note.audioAsset?.durationMs ?? null,
     startTimestampMs: row.note.startTimestampMs,
     status: row.status,

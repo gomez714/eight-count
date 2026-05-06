@@ -82,6 +82,8 @@ export default async function NotesByMePage() {
             id: note.audioAsset.id,
             mimeType: note.audioAsset.mimeType,
             durationMs: note.audioAsset.durationMs,
+            transcript: note.audioAsset.transcript,
+            transcriptStatus: note.audioAsset.transcriptStatus,
           }
         : null,
       createdAt: note.createdAt,

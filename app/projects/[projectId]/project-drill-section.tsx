@@ -15,6 +15,7 @@ export type DrillItem = {
   noteId: string;
   noteType: "TEXT" | "VOICE";
   bodyText: string | null;
+  voiceTranscript: string | null;
   audioDurationMs: number | null;
   startTimestampMs: number;
   status: NoteStatus;
@@ -164,6 +165,7 @@ export function ProjectDrillSection({
                             rehearsalTitle: item.rehearsalTitle,
                             noteType: item.noteType,
                             bodyText: item.bodyText,
+                            voiceTranscript: item.voiceTranscript,
                             audioDurationMs: item.audioDurationMs,
                             startTimestampMs: item.startTimestampMs,
                             status: item.status,

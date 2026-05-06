@@ -540,6 +540,7 @@ export function RehearsalWorkspace({
               notes={sortedNotes}
               assignableMembers={assignableMembers}
               currentUserId={currentUserId}
+              canRetryTranscript={canAuthorNotes}
               videoRef={videoRef}
               onJumpToTimestamp={jumpToTimestamp}
               onEditNote={handleOpenEdit}

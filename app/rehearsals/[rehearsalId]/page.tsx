@@ -153,6 +153,8 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
                     mimeType: note.audioAsset.mimeType,
                     durationMs: note.audioAsset.durationMs,
                     status: note.audioAsset.status,
+                    transcript: note.audioAsset.transcript,
+                    transcriptStatus: note.audioAsset.transcriptStatus,
                   }
                 : null,
               createdAt: note.createdAt,

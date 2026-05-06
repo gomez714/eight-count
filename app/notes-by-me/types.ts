@@ -43,6 +43,8 @@ export type AuthoredNoteAudio = {
   id: string;
   mimeType: string;
   durationMs: number | null;
+  transcript: string | null;
+  transcriptStatus: "PENDING" | "PROCESSING" | "READY" | "FAILED";
 };
 
 export type AuthoredNoteRow = {

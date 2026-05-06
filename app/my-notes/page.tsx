@@ -75,6 +75,8 @@ export default async function MyNotesPage() {
             id: assignment.note.audioAsset.id,
             mimeType: assignment.note.audioAsset.mimeType,
             durationMs: assignment.note.audioAsset.durationMs,
+            transcript: assignment.note.audioAsset.transcript,
+            transcriptStatus: assignment.note.audioAsset.transcriptStatus,
           }
         : null,
       createdAt: assignment.note.createdAt,

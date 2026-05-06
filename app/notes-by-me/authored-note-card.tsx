@@ -11,6 +11,7 @@ import { NoteTimestampPill } from "@/components/note-timestamp-pill";
 import { TagChip } from "@/components/tag-chip";
 import { Button } from "@/components/ui/button";
 import { VoiceNotePlayer } from "@/app/rehearsals/[rehearsalId]/workspace/voice-note-player";
+import { VoiceNoteTranscript } from "@/app/rehearsals/[rehearsalId]/workspace/voice-note-transcript";
 import { formatNoteTimestamp } from "@/lib/notes/format";
 import { cn } from "@/lib/utils";
 
@@ -139,6 +140,14 @@ export function AuthoredNoteCard({
             <VoiceNotePlayer
               audioAssetId={row.audioAsset.id}
               durationMs={row.audioAsset.durationMs}
+              transcriptSlot={
+                <VoiceNoteTranscript
+                  audioAssetId={row.audioAsset.id}
+                  initialStatus={row.audioAsset.transcriptStatus}
+                  initialTranscript={row.audioAsset.transcript}
+                  canRetry
+                />
+              }
             />
           ) : (
             <p className="line-clamp-2 whitespace-pre-wrap text-[13.5px] leading-relaxed text-foreground">

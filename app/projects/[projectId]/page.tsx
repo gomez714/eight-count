@@ -33,6 +33,16 @@ type ProjectPageProps = {
   }>;
 };
 
+// Pulled out so the derivation doesn't bump the page function's already-high
+// cognitive complexity score, and so the same rule lives next to the
+// `/my-notes` drill view's identical guard if/when it gets shared.
+function readyTranscript(
+  audioAsset: { transcript: string | null; transcriptStatus: string } | null
+): string | null {
+  if (audioAsset?.transcriptStatus !== "READY") return null;
+  return audioAsset.transcript;
+}
+
 export default async function ProjectPage({ params }: Readonly<ProjectPageProps>) {
   const { userId } = await auth();
 
@@ -242,6 +252,7 @@ export default async function ProjectPage({ params }: Readonly<ProjectPageProps>
       noteId: a.noteId,
       noteType: a.note.noteType,
       bodyText: a.note.bodyText,
+      voiceTranscript: readyTranscript(a.note.audioAsset),
       audioDurationMs: a.note.audioAsset?.durationMs ?? null,
       startTimestampMs: a.note.startTimestampMs,
       status: (a.status?.status ?? "OPEN") as NoteStatus,

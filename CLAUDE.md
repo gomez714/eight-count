@@ -17,6 +17,10 @@ npx prisma studio         # Open database GUI
 
 npm run db:backfill-onboarding  # One-shot script: mark active users as already-onboarded.
                                 # See "Onboarding tour" below.
+
+npm run db:backfill-transcripts # One-shot script: run Deepgram transcription on
+                                # voice notes recorded before transcripts shipped.
+                                # See "Voice Note Transcription" below.
 ```
 
 ## Environment Variables
@@ -28,6 +32,7 @@ Required in `.env`:
 - Clerk routing: `NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in`, `NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up`
 - GCS: `GCS_BUCKET_NAME`, `GOOGLE_CLOUD_PROJECT_ID`, plus service account credentials
 - Email (team invitations): `RESEND_API_KEY`, `NEXT_PUBLIC_APP_URL` (absolute URL the invite-acceptance link is built from — e.g. `http://localhost:3000` locally, the deployed origin in prod), and optional `EMAIL_FROM` (e.g. `Eight Count <invites@yourdomain.com>`). Falls back to `Eight Count <onboarding@resend.dev>` which Resend only delivers to your own account email — verify a domain in Resend before inviting non-self addresses.
+- Transcription: `DEEPGRAM_API_KEY` (required for voice-note transcription) and optional `DEEPGRAM_MODEL` (defaults to `nova-3`). When unset, voice-note rows mark `transcriptStatus = FAILED` instead of crashing — production deployments should always set it; the route logs a loud `[transcription]` error if missing in `NODE_ENV=production`. See "Voice Note Transcription" below.
 
 ## Tech Stack
 
@@ -57,6 +62,7 @@ TeamInvitation            Note → NoteTarget[]
 - **Notes** carry an optional `tag: NoteTag?` (`TIMING | SPACING | ENERGY | MUSICALITY | FORMATION | TECHNIQUE`). Tags are global enum values, optional, and apply uniformly to TEXT and VOICE notes. See "Note Tags" and "Repeating-correction detection" below.
 - **Projects** belong to a team and can have **ProjectGroups** (e.g., "Front line")
 - **Rehearsals** belong to a project and have one optional `VideoAsset`, many `AudioAsset`s (one per voice note), and many `Note`s
+- **AudioAssets** carry transcript state alongside upload state: `transcript`, `transcriptStatus: TranscriptStatus` (`PENDING | PROCESSING | READY | FAILED`), `transcriptError`, `transcribedAt`. See "Voice Note Transcription" below.
 - **Notes** are either `TEXT` or `VOICE` (`Note.noteType`). They share targeting/assignment/status pipelines (see below)
 
 ### Note Types
@@ -265,8 +271,10 @@ REST endpoints under `app/api/`:
 - `POST /api/video-assets/[videoAssetId]/complete` — mark video upload complete (**uploader-only**: caller must equal `videoAsset.uploadedByUserId`)
 - `GET /api/rehearsals/[rehearsalId]/video/playback-url` — get signed video playback URL (1-hr expiry)
 - `POST /api/rehearsals/[rehearsalId]/audio/upload-url` — generate GCS signed upload URL for a voice-note audio asset (staff roles only; 25 MB cap; webm/mp4/ogg/mpeg)
-- `POST /api/audio-assets/[audioAssetId]/complete` — mark audio upload complete and store `durationMs` (**uploader-only**: caller must equal `audioAsset.uploadedByUserId`)
+- `POST /api/audio-assets/[audioAssetId]/complete` — mark audio upload complete and store `durationMs` (**uploader-only**: caller must equal `audioAsset.uploadedByUserId`). Also kicks off Deepgram transcription via `after()` — see "Voice Note Transcription" below.
 - `GET /api/audio-assets/[audioAssetId]/playback-url` — get signed audio playback URL (1-hr expiry); fetched lazily on first play
+- `GET /api/audio-assets/[audioAssetId]/transcript` — get current transcript state (`status`, `transcript`, `transcriptError`) for polling. Auth: any team member of the owning team.
+- `POST /api/audio-assets/[audioAssetId]/transcript/retry` — re-trigger transcription for a `FAILED` (or any) row. **Staff-only** (ADMIN / INSTRUCTOR / ASSISTANT). Resets row to `PENDING` and fires a fresh `after(() => runTranscription(...))`.
 - `POST /api/invitations/[token]/accept` — accept a team invitation. Auth-gated, status-gated, **email-match-gated** (signed-in user's email must equal the invitation's email). Idempotent on the `TeamMember` row. Returns `{ teamId, teamName }` for the client to redirect into. See "Team Invitations" above.
 
 Request/response types: [lib/api/contracts.ts](lib/api/contracts.ts) and [lib/api/responses.ts](lib/api/responses.ts). Create/update note request bodies are discriminated unions (`CreateTextNoteRequest | CreateVoiceNoteRequest`).
@@ -311,6 +319,71 @@ Mime detection: prefers `audio/webm;codecs=opus`, falls back through `audio/webm
 The UI is a custom transport — coral-tinted pill with a circular play / pause button, a 32-bar decorative waveform that fills as playback progresses, and a mono duration label. The native `<audio>` element is still in the DOM (with `ref` + event handlers) but its `controls` are hidden; click-on-bars seeks. The recorder preview state in [voice-note-recorder.tsx](app/rehearsals/[rehearsalId]/workspace/voice-note-recorder.tsx) uses the same transport via a local `PreviewPlayer` component (it shows `current / total` time since the verify-before-save flow benefits from precise feedback). The waveform bars are *decorative only* — heights come from a static `Math.sin`-based formula, not real audio analysis.
 
 **Mobile sticky video during sync playback**: while a synced voice note is playing on mobile, the rehearsal video pins to the top of the viewport so the user can keep watching while scrolling the notes thread. Mechanism: each `VoiceNotePlayer` calls `onSyncPlaybackChange(audioAssetId, isPlaying)` from `handleAudioPlay` (when sync engages) and from `stopSync` (when audio pauses, ends, the video is paused, or the player unmounts). The workspace tracks a `Set<string>` of currently-syncing asset IDs so overlapping playback decrements correctly. When the set is non-empty, a wrapper around `RehearsalVideoCard` picks up `max-lg:sticky max-lg:top-0 max-lg:z-20`. Because CSS Grid items only sticky within their cell, the workspace switches the outer container from `grid` to `flex` on mobile and applies `display: contents` to the left-column wrapper so the video and timeline become direct flex children — that makes the video's containing block the entire column, allowing sticky to span the full notes thread. On `lg+` the layout reverts to grid and the existing column-sticky behavior is unchanged.
+
+## Voice Note Transcription
+
+Voice notes are auto-transcribed to text via Deepgram (Nova-3 model, English, smart-format) so the same recording can be skimmed, drilled on, and printed without the audio player. The pipeline is fire-and-forget — the user's "save voice note" flow doesn't wait on transcription, and the transcript shows up underneath the player a few seconds later.
+
+### Schema
+
+`AudioAsset` carries four transcript-related fields:
+- `transcript: String?` — the text once it lands. `null` until `transcriptStatus = READY`.
+- `transcriptStatus: TranscriptStatus` (`PENDING | PROCESSING | READY | FAILED`, default `PENDING`).
+- `transcriptError: String?` — failure message (truncated to 500 chars) when status = `FAILED`. Surfaced to staff on retry.
+- `transcribedAt: DateTime?` — set when `READY` is written.
+
+There's an `@@index([transcriptStatus])` on `AudioAsset` so the backfill scan (`WHERE transcriptStatus = 'PENDING'`) is fast.
+
+### Pipeline
+
+| File | Responsibility |
+|---|---|
+| [lib/transcription/deepgram.ts](lib/transcription/deepgram.ts) | REST wrapper for Deepgram's `/v1/listen` endpoint. POSTs the GCS signed URL (Deepgram fetches the audio itself — we never re-upload bytes from our server). 30s `AbortController` timeout. Throws `TranscriptionError` on any failure. |
+| [lib/transcription/run.ts](lib/transcription/run.ts) | Orchestrator. Marks `PROCESSING`, signs the URL via `createSignedReadUrl`, calls `transcribeFromUrl`, writes `READY` (transcript + transcribedAt) or `FAILED` (transcriptError). **Never throws** — wraps everything in try/catch so `after()` callbacks don't crash. Skips assets that aren't `status = READY` (e.g. mid-upload). |
+| [app/api/audio-assets/[audioAssetId]/complete/route.ts](app/api/audio-assets/[audioAssetId]/complete/route.ts) | Sets `export const maxDuration = 60` and calls `after(() => runTranscription(updated.id))` after the response is sent. Voice notes are capped at 2 min, Deepgram returns in ~5–15s, so this fits well inside the function's timeout. |
+| [app/api/audio-assets/[audioAssetId]/transcript/route.ts](app/api/audio-assets/[audioAssetId]/transcript/route.ts) | `GET` for polling. Auth: any team member of the owning team — same access surface as audio playback. Returns `{ status, transcript, transcriptError }`. |
+| [app/api/audio-assets/[audioAssetId]/transcript/retry/route.ts](app/api/audio-assets/[audioAssetId]/transcript/retry/route.ts) | `POST` for staff retry. Auth: ADMIN / INSTRUCTOR / ASSISTANT only. Resets row to `PENDING`, fires `after(() => runTranscription(...))` again. `maxDuration = 60`. |
+
+### UI
+
+[voice-note-transcript.tsx](app/rehearsals/[rehearsalId]/workspace/voice-note-transcript.tsx) is rendered into `VoiceNotePlayer`'s optional `transcriptSlot` prop, which keeps the player focused on playback/sync and lets the transcript layer be optional per call site.
+
+Three visual states:
+- **READY with text** — closed-by-default disclosure ("Show transcript ▾") that opens to a soft `--note-voice-accent`-tinted box with the text + an "Auto-generated transcript" footer line.
+- **READY with empty text** — italicized "No speech detected in this voice note." (silent recording case — transcription succeeded but Deepgram returned no words).
+- **PENDING / PROCESSING** — single muted line "Transcribing voice note…" with a `--note-voice-accent`-pulsing dot. Polls `GET /transcript` every 3s, capped at 60s. Past the cap, swaps to "Still working — refresh to check again."
+- **FAILED** — muted "Transcript unavailable." When `canRetry` is true, surfaces a small "Try again" button that calls the retry endpoint via `useTransition` + sonner toast.
+
+### Where it's wired
+
+| Surface | `canRetry` | Notes |
+|---|---|---|
+| Workspace [notes-list-card.tsx](app/rehearsals/[rehearsalId]/workspace/notes-list-card.tsx) | When viewer is staff (`canAuthorNotes` from the page) | Shown inline under each voice note. |
+| `/my-notes` [assigned-note-card.tsx](app/my-notes/assigned-note-card.tsx) | `false` | Recipients see the transcript but no retry — failed transcripts are rare and dancers ping their instructor. |
+| `/notes-by-me` [authored-note-card.tsx](app/notes-by-me/authored-note-card.tsx) | `true` | Authors of voice notes are staff by definition (only staff roles can record). |
+| Drill view ([drill-row.tsx](components/drill/drill-row.tsx)) | n/a (read-only) | When `transcriptStatus === READY` and the transcript is non-empty, the drill row renders the transcript text inline as the row body (replacing the "Voice note · 0:32" placeholder). When status isn't `READY` (or the transcript is empty), the row falls back to the placeholder. This is the highest-impact transcript surface — drill mode becomes useful for offline study and printing. |
+
+The drill view's project-page sibling ([project-drill-section.tsx](app/projects/[projectId]/project-drill-section.tsx)) does the same fallback. The mapping function `readyTranscript(audioAsset)` in [app/projects/[projectId]/page.tsx](app/projects/[projectId]/page.tsx) is module-scoped (kept out of the page entry to avoid bumping its already-high cognitive complexity score).
+
+### Realtime feel
+
+Polling is the cheapest mechanism that works correctly:
+- 3-second interval — Deepgram returns in ~5–15s for typical voice notes, so the user typically sees `READY` within 1–2 polls.
+- 60-second ceiling — past that, the UI shows "Still working — refresh to check again" and stops polling. Avoids infinite spinners on a stuck row.
+- Stops on terminal state (`READY` / `FAILED`) — both `useEffect` cleanup and `AbortController` are wired so unmounting the row (e.g. status filter change) doesn't leak.
+
+### Backfill
+
+[scripts/backfill-audio-transcripts.ts](scripts/backfill-audio-transcripts.ts) — `npm run db:backfill-transcripts` (uses `tsx`, same pattern as `db:backfill-onboarding`).
+
+- Idempotent: only processes `AudioAsset` rows where `transcriptStatus = PENDING` and `status = READY`.
+- Sequential (1 at a time) so we don't spike Deepgram quota.
+- `DRY_RUN = true` flag at the top of the file — preview the work before running for real.
+- `MAX_PROCESS = 100` cap — first run in prod is bounded; re-run to drain the rest.
+
+### Privacy
+
+The privacy page lists Deepgram in the vendor section and mentions transcripts under "What we store" — see [app/privacy/page.tsx](app/privacy/page.tsx). The wording deliberately *links* to Deepgram's privacy policy and terms instead of paraphrasing their commitments, so the public claim doesn't drift if Deepgram updates their policies.
 
 ## Rehearsal Workspace UI
 

@@ -11,7 +11,8 @@
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
     "postinstall": "prisma generate",
-    "db:backfill-onboarding": "tsx scripts/backfill-onboarding-state.ts"
+    "db:backfill-onboarding": "tsx scripts/backfill-onboarding-state.ts",
+    "db:backfill-transcripts": "tsx scripts/backfill-audio-transcripts.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.2.7",

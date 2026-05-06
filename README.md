@@ -14,6 +14,7 @@ A web application for choreographers to leave time-stamped text and voice feedba
 | Forms | react-hook-form + Zod |
 | Video / audio storage | Google Cloud Storage (signed URLs) |
 | Recording | MediaRecorder API (mic-only) |
+| Transcription | Deepgram (Nova-3 model, server-side) |
 | Toasts | Sonner |
 | Email | Resend (team invitation emails) |
 
@@ -35,7 +36,7 @@ A public privacy policy lives at `/privacy` — readable without an account. It'
 - **What we won't do** — no data sale, no AI training on your videos or voice recordings, no leaking team content outside the team.
 - **What we might do — with notice** — Eight Count may eventually train *internal* features (like stalled-note prediction or pattern detection) on anonymized notes and assignment activity. Videos are excluded. Anything new gets announced before it ships.
 - **Visibility by role** — a 4-row table (Admin / Instructor / Assistant / Dancer) showing what each role *sees* vs. *can write*. Within a team, every member sees every team member's notes — the role differences are about who can author, not who can read. "My notes" is yours alone (no instructor visibility); pending invitations are admin-only; nothing crosses team boundaries.
-- **Where your data lives** — a list of every vendor and a link to each one's privacy policy: Clerk (auth), Google Cloud Storage (media), Neon (database), Resend (invitation emails).
+- **Where your data lives** — a list of every vendor and a link to each one's privacy policy: Clerk (auth), Google Cloud Storage (media), Neon (database), Resend (invitation emails), Deepgram (voice-note transcription).
 - **Your data, your control** — how to update profile info, request deletion, and contact us. (User-initiated deletion / export flows are on the roadmap; for now it's an email channel.)
 
 The same role-visibility split is also surfaced contextually in the product — every role chip on the team page is a popover trigger that shows the role's *Sees* + *Can do* breakdown without leaving the page.
@@ -147,8 +148,15 @@ The rehearsal page is a sticky two-column workspace anchored at the top by a con
 - The preview UI is a coral-tinted player (decorative-bar waveform, play / pause button, current-time / total-time mono display) wired to play **in sync with the video**: the video rewinds to the recording's start and plays alongside the audio so the author can confirm alignment before saving. **Re-record** discards the blob without uploading; **Save** uploads the audio to Google Cloud Storage via signed URL and creates the note.
 - Saved voice notes use the same decorative-bar player throughout the app. In the rehearsal workspace it runs in sync mode (video seeks to the recording start, mutes, and plays alongside the audio); on `/my-notes` and `/notes-by-me` the audio plays standalone. Manually pausing the video also pauses the audio in sync mode.
 - On mobile, the rehearsal video pins to the top of the viewport during synced voice playback so the user can keep watching while scrolling further down the notes thread. It returns to normal flow when playback ends, pauses, or the user navigates away.
-- To replace the audio of an existing voice note, delete it and record a new one — voice-note edits cover timestamps and audience only.
+- To replace the audio of an existing voice note, delete it and record a new one — voice-note edits cover timestamps, tag, and audience only.
 - Recording requires Chrome, Firefox, or recent Safari (MediaRecorder support). The mic format is auto-detected: webm/opus on Chrome/Firefox, mp4/AAC on Safari.
+
+### Voice note transcription
+- Every saved voice note is **automatically transcribed to text** by Deepgram (Nova-3 model, English) so the same recording can be skimmed, drilled on, and printed alongside text notes.
+- Transcription happens **after** the user's save flow — the upload returns immediately and Deepgram runs in the background. The transcript usually lands within 5–15 seconds and shows up under the player as a collapsible "Show transcript ▾" disclosure that opens to the text in a soft accent-tinted box.
+- While transcription is in progress, the disclosure is replaced with a muted "Transcribing voice note…" line that polls every 3 seconds for completion (60-second ceiling, then asks the user to refresh). On terminal failure, the line reads "Transcript unavailable" — staff (Admin / Instructor / Assistant) get a "Try again" button next to it; dancers don't (one retry per failure, no per-user retry storms).
+- **Drill view gets the biggest UX win**: voice notes used to render as a `[Voice note · 0:32]` placeholder in the read-only drill checklist, useless for offline study. With transcripts available, the drill row now renders the transcript text inline — the same transcript on print, in single-line truncated form on screen. This makes drill mode actually printable and bringable to the studio without headphones.
+- Privacy: the privacy page lists Deepgram in the vendor section and links to their public policy / terms instead of paraphrasing — so the public claim doesn't drift if Deepgram updates their commitments.
 
 ### My notes (recipient inbox + drill view)
 - Every dancer has a personal work queue at `/my-notes` listing every note assigned to them across all rehearsals and teams.
@@ -158,8 +166,8 @@ The rehearsal page is a sticky two-column workspace anchored at the top by a con
 - Each card has an inline **status segmented control** (Open / In progress / Addressed / Resolved) — one click changes status, no dropdown — plus an "Open in rehearsal" link, the author's avatar, audience context chips ("Full cast", group, or "You"), an optional **Tag chip**, an optional **Repeating chip** (when this assignment is part of a cluster), and an "Edited" indicator if the note has been modified since creation.
 - The left-rail filters narrow the queue: pick one author, one project, one tag, or text vs. voice (each is a single-select toggle; clicking again clears it). The "On your plate" count updates with the filter; the filter-option counts stay stable so the dancer can see what each toggle would surface.
 - On mobile, From / Project / Tag / Type collapse behind a "Filters" disclosure with an active-filter count badge so the user reaches "Up next" sooner. "On your plate" and the status breakdown stay visible above the disclosure.
-- **Drill view** strips the page down to a tag-grouped read-only checklist (Timing → Spacing → … → Other), with a "Recurring drills" header at the top surfacing any clusters. For dancers in two or more active projects, the view auto-narrows to the busiest project and shows a "Showing N notes from {project} — see all projects" header so they always know what show they're drilling. Each row carries the project name as a small chip when there's ambiguity. A **Print** button calls the browser's print dialog; a CSS print stylesheet hides chrome and reformats the page for paper / "Save as PDF".
-- Voice notes play inline with the same coral-tinted player used elsewhere (audio only on this page; no video sync).
+- **Drill view** strips the page down to a tag-grouped read-only checklist (Timing → Spacing → … → Other), with a "Recurring drills" header at the top surfacing any clusters. For dancers in two or more active projects, the view auto-narrows to the busiest project and shows a "Showing N notes from {project} — see all projects" header so they always know what show they're drilling. Each row carries the project name as a small chip when there's ambiguity. **Voice notes appear inline as their transcript text** when transcription has succeeded — you can read what to drill on without playing audio, which is the load-bearing piece for printing or studying away from the device. A **Print** button calls the browser's print dialog; a CSS print stylesheet hides chrome and reformats the page for paper / "Save as PDF".
+- Voice notes (in Inbox view) play inline with the same coral-tinted player used elsewhere (audio only on this page; no video sync). The transcript disclosure appears under the player so dancers can skim before listening.
 
 ### Notes by me (author follow-through dashboard)
 - Anyone who authors notes (Admin / Instructor / Assistant) sees a follow-through dashboard at `/notes-by-me`.
@@ -201,6 +209,7 @@ Environment variables required (see `.env`):
 - `RESEND_API_KEY` — Resend API key for sending team invitation emails
 - `NEXT_PUBLIC_APP_URL` — absolute origin used to build the accept link in invitation emails (e.g. `http://localhost:3000` locally, the deployed URL in production)
 - `EMAIL_FROM` *(optional)* — sender address, e.g. `Eight Count <invites@yourdomain.com>`. Falls back to `Eight Count <onboarding@resend.dev>` which Resend only delivers to your own account email — verify a domain in Resend before inviting non-self addresses.
+- `DEEPGRAM_API_KEY` — Deepgram API key, used to transcribe voice notes in the background. Sign up at [deepgram.com](https://deepgram.com) and generate a key. Without it, voice notes still record and play normally, but every transcript row marks `FAILED`. Optional `DEEPGRAM_MODEL` env override (defaults to `nova-3` in code).
 
 Apply migrations:
 
@@ -210,12 +219,14 @@ npx prisma migrate dev
 
 ## Shipping to production
 
-When deploying for real users, the invitation flow needs:
+When deploying for real users:
 
 1. **A verified sending domain in Resend**. Add the domain in the Resend dashboard, paste the SPF + DKIM (and ideally DMARC) DNS records into your registrar, and wait for verification.
 2. **Set `EMAIL_FROM`** in your production environment to a verified address on that domain (e.g. `Eight Count <invites@yourdomain.com>`).
 3. **Set `NEXT_PUBLIC_APP_URL`** to the deployed origin (no trailing slash) — the value is baked into the magic-link URL in every invitation email.
-4. **Run migrations on production** with `npx prisma migrate deploy` (not `migrate dev`).
-5. **Backfill onboarding state for existing users**: open `scripts/backfill-onboarding-state.ts`, clear or trim the `SKIP_EMAILS` array (only used for local QA), then run `npm run db:backfill-onboarding` against the production database. This marks every user with prior activity as already onboarded so the tour only shows for genuine new signups. Idempotent — safe to re-run.
+4. **Set `DEEPGRAM_API_KEY`** in your production environment (and Preview environment if you want transcription to run in preview deployments). Without it, voice notes upload and play correctly but every transcript row terminates as `FAILED` and the route logs a loud `[transcription] DEEPGRAM_API_KEY is not set` error.
+5. **Run migrations on production** with `npx prisma migrate deploy` (not `migrate dev`).
+6. **Backfill onboarding state for existing users**: open `scripts/backfill-onboarding-state.ts`, clear or trim the `SKIP_EMAILS` array (only used for local QA), then run `npm run db:backfill-onboarding` against the production database. This marks every user with prior activity as already onboarded so the tour only shows for genuine new signups. Idempotent — safe to re-run.
+7. **Backfill transcripts for pre-transcription voice notes**: open `scripts/backfill-audio-transcripts.ts`, leave `DRY_RUN=true` for the first run (lists what would be processed), then flip to `DRY_RUN=false` and run `npm run db:backfill-transcripts`. The script processes one row at a time with a 250ms polite delay so it doesn't burst Deepgram, and `MAX_PROCESS=100` caps the first run to bound cost. Idempotent — re-run to drain anything missed. Roughly $0.01 per voice note, so a thousand-note backfill is under $10.
 
-Send yourself a real invite to a fresh inbox to verify deliverability before opening invitations to teammates.
+Send yourself a real invite to a fresh inbox to verify deliverability before opening invitations to teammates. Record a voice note end-to-end and confirm the transcript appears under the player within ~15s before declaring transcription production-ready.

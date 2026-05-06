@@ -4,7 +4,7 @@ import { RoleChip } from "../teams/[teamId]/role-chip";
 
 // NOTE: update this date whenever the policy changes — readers use it to
 // confirm they're seeing the current version.
-const LAST_UPDATED = "May 3, 2026";
+const LAST_UPDATED = "May 5, 2026";
 
 // Monitored personal address. When Eight Count gets its own domain and a
 // dedicated privacy@ inbox, swap this over and update the README's
@@ -58,7 +58,9 @@ export default function PrivacyPage() {
             </strong>{" "}
             — team and project names, rehearsal sessions, the notes you write
             (text or voice), the audience you assign each note to, and each
-            recipient&apos;s status on each note.
+            recipient&apos;s status on each note. Voice notes are also
+            automatically transcribed to text so they can be skimmed,
+            referenced, and printed alongside text notes.
           </li>
           <li>
             <strong className="font-semibold text-foreground">Media</strong> —
@@ -246,6 +248,19 @@ export default function PrivacyPage() {
             </ExternalLink>
             .
           </li>
+          <li>
+            <strong className="font-semibold text-foreground">Deepgram</strong>{" "}
+            transcribes voice notes into text. Audio is sent to Deepgram&apos;s
+            API for processing — see their{" "}
+            <ExternalLink href="https://deepgram.com/privacy">
+              privacy policy
+            </ExternalLink>{" "}
+            and{" "}
+            <ExternalLink href="https://deepgram.com/terms">
+              terms of service
+            </ExternalLink>{" "}
+            for their full data-handling commitments.
+          </li>
         </ul>
       </Section>
 
@@ -298,7 +313,7 @@ function Header() {
           </h1>
           <p className="text-sm text-muted-foreground">
             Last updated{" "}
-            <time dateTime="2026-05-03">{LAST_UPDATED}</time>.
+            <time dateTime="2026-05-05">{LAST_UPDATED}</time>.
           </p>
         </div>
       </div>

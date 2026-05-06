@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 
 import type {
@@ -7,6 +7,11 @@ import type {
 } from "@/lib/api/contracts";
 import { apiError } from "@/lib/api/responses";
 import { db } from "@/lib/db";
+import { runTranscription } from "@/lib/transcription/run";
+
+// Transcription runs in `after()` below — give the function enough headroom
+// for both the response and the Deepgram round-trip on a 2-min recording.
+export const maxDuration = 60;
 
 export async function POST(
   request: NextRequest,
@@ -71,6 +76,11 @@ export async function POST(
         durationMs,
       },
     });
+
+    // Fire-and-forget transcription. `after()` runs once the response has
+    // been sent, so the client never waits on Deepgram. `runTranscription`
+    // is contract-bound to never throw — errors are persisted to the row.
+    after(() => runTranscription(updated.id));
 
     return NextResponse.json({
       ok: true,

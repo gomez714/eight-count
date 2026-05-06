@@ -34,6 +34,7 @@ import { StatusChip } from "./status-chip";
 import type { AssignableMember, NoteItem } from "./types";
 import { formatTimestamp } from "./utils";
 import { VoiceNotePlayer } from "./voice-note-player";
+import { VoiceNoteTranscript } from "./voice-note-transcript";
 
 type PillFilter =
   | "ALL"
@@ -153,6 +154,7 @@ function buildPendingDeleteWarning(note: NoteItem): string | undefined {
 type NoteRowProps = {
   note: NoteItem;
   canEdit: boolean;
+  canRetryTranscript: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   onJumpToTimestamp: (timestampMs: number) => void;
   onEdit: (note: NoteItem) => void;
@@ -163,6 +165,7 @@ type NoteRowProps = {
 function NoteRow({
   note,
   canEdit,
+  canRetryTranscript,
   videoRef,
   onJumpToTimestamp,
   onEdit,
@@ -236,6 +239,14 @@ function NoteRow({
             videoRef={videoRef}
             startTimestampMs={note.startTimestampMs}
             onSyncPlaybackChange={onSyncPlaybackChange}
+            transcriptSlot={
+              <VoiceNoteTranscript
+                audioAssetId={note.audioAsset.id}
+                initialStatus={note.audioAsset.transcriptStatus}
+                initialTranscript={note.audioAsset.transcript}
+                canRetry={canRetryTranscript}
+              />
+            }
           />
         ) : (
           <p className="text-sm leading-relaxed text-foreground">
@@ -321,6 +332,8 @@ type NotesListCardProps = {
   notes: NoteItem[];
   assignableMembers: AssignableMember[];
   currentUserId: string;
+  /** Staff (ADMIN / INSTRUCTOR / ASSISTANT) — gates transcript retry. */
+  canRetryTranscript: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   onJumpToTimestamp: (timestampMs: number) => void;
   onEditNote: (note: NoteItem) => void;
@@ -332,6 +345,7 @@ export function NotesListCard({
   notes,
   assignableMembers,
   currentUserId,
+  canRetryTranscript,
   videoRef,
   onJumpToTimestamp,
   onEditNote,
@@ -417,6 +431,7 @@ export function NotesListCard({
             key={note.id}
             note={note}
             canEdit={note.author.id === currentUserId}
+            canRetryTranscript={canRetryTranscript}
             videoRef={videoRef}
             onJumpToTimestamp={onJumpToTimestamp}
             onEdit={onEditNote}

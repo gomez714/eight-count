@@ -65,6 +65,13 @@ enum TeamInvitationStatus {
   EXPIRED
 }
 
+enum TranscriptStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
 model User {
   id          String  @id @default(cuid())
   clerkUserId String  @unique
@@ -255,6 +262,15 @@ model AudioAsset {
   uploadedByUserId String
   status           AudioAssetStatus @default(UPLOADING)
 
+  /// Transcription pipeline state. PENDING = row exists, transcription not yet
+  /// kicked off (or never will be — e.g. legacy rows before backfill);
+  /// PROCESSING = request in flight to Deepgram; READY = transcript populated;
+  /// FAILED = error in transcriptError, retryable by staff.
+  transcript       String?
+  transcriptStatus TranscriptStatus @default(PENDING)
+  transcriptError  String?
+  transcribedAt    DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -265,6 +281,7 @@ model AudioAsset {
   @@index([rehearsalId])
   @@index([uploadedByUserId])
   @@index([status])
+  @@index([transcriptStatus])
 }
 
 model Note {

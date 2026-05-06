@@ -43,6 +43,8 @@ export type AudioAssetItem = {
   mimeType: string;
   durationMs: number | null;
   status: "UPLOADING" | "READY" | "FAILED";
+  transcript: string | null;
+  transcriptStatus: "PENDING" | "PROCESSING" | "READY" | "FAILED";
 };
 
 import type { NoteTag } from "@/lib/notes/tags";

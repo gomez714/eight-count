@@ -31,6 +31,12 @@ type VoiceNotePlayerProps = {
    * this to know when to pin the video into view (e.g. mobile sticky).
    */
   onSyncPlaybackChange?: (audioAssetId: string, isPlaying: boolean) => void;
+  /**
+   * Optional content rendered beneath the player pill — typically the
+   * `VoiceNoteTranscript` disclosure. Kept as a generic slot so the
+   * player stays focused on playback and sync logic.
+   */
+  transcriptSlot?: React.ReactNode;
 };
 
 export function VoiceNotePlayer({
@@ -39,6 +45,7 @@ export function VoiceNotePlayer({
   videoRef,
   startTimestampMs,
   onSyncPlaybackChange,
+  transcriptSlot,
 }: VoiceNotePlayerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [src, setSrc] = useState<string | null>(null);
@@ -282,6 +289,8 @@ export function VoiceNotePlayer({
           {error}
         </p>
       ) : null}
+
+      {transcriptSlot}
     </div>
   );
 }

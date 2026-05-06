@@ -13,6 +13,7 @@ import { NoteTimestampPill } from "@/components/note-timestamp-pill";
 import { RepeatingChip } from "@/components/repeating-chip";
 import { TagChip } from "@/components/tag-chip";
 import { VoiceNotePlayer } from "@/app/rehearsals/[rehearsalId]/workspace/voice-note-player";
+import { VoiceNoteTranscript } from "@/app/rehearsals/[rehearsalId]/workspace/voice-note-transcript";
 import { cn } from "@/lib/utils";
 
 import { updateNoteAssignmentStatus } from "./note-status-actions";
@@ -156,6 +157,14 @@ export function AssignedNoteCard({
           <VoiceNotePlayer
             audioAssetId={note.audioAsset.id}
             durationMs={note.audioAsset.durationMs}
+            transcriptSlot={
+              <VoiceNoteTranscript
+                audioAssetId={note.audioAsset.id}
+                initialStatus={note.audioAsset.transcriptStatus}
+                initialTranscript={note.audioAsset.transcript}
+                canRetry={false}
+              />
+            }
           />
         ) : (
           <p

@@ -104,6 +104,17 @@ export type AudioPlaybackData = {
 
 export type AudioPlaybackResponse = ApiResponse<AudioPlaybackData>
 
+export type TranscriptStatus = "PENDING" | "PROCESSING" | "READY" | "FAILED"
+
+export type TranscriptData = {
+  audioAssetId: string
+  status: TranscriptStatus
+  transcript: string | null
+  transcriptError: string | null
+}
+
+export type TranscriptResponse = ApiResponse<TranscriptData>
+
 export type UpdateTextNoteRequest = {
   noteType?: "TEXT"
   bodyText: string
