@@ -90,7 +90,14 @@ export default async function ProjectPage({ params }: Readonly<ProjectPageProps>
     }),
     getProjectGroups(project.id),
     db.teamMember.findMany({
-      where: { teamId: project.team.id },
+      where: {
+        teamId: project.team.id,
+        // Active members only — soft-deleted users disappear from
+        // the cast-management surfaces. Historical attribution on
+        // existing notes/assignments stays intact (those queries
+        // don't filter by deletedAt).
+        user: { deletedAt: null },
+      },
       include: { user: true },
       orderBy: { createdAt: "asc" },
     }),

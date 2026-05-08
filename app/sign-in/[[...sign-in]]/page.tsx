@@ -1,8 +1,20 @@
+import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
+
 import { BrandLockup } from "@/components/brand-lockup";
 
 import { SignInForm } from "../sign-in-form";
 
-export default function SignInPage() {
+// If the visitor is already authenticated, send them to the dashboard
+// instead of letting them stare at a sign-in form. This also short-
+// circuits the cascade where a phantom session from an earlier failed
+// attempt makes Clerk's SDK return "session_exists" errors mid-flow.
+export default async function SignInPage() {
+  const { userId } = await auth();
+  if (userId) {
+    redirect("/dashboard");
+  }
+
   return (
     <div className="flex min-h-[calc(100vh-60px)] flex-col lg:flex-row">
       <BrandPanel />

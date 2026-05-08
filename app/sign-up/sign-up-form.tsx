@@ -18,9 +18,15 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { clerkErrorMessage } from "@/lib/auth/clerk-error-message";
 
 const SAFE_REDIRECT_PREFIX = "/";
 const DEFAULT_REDIRECT = "/dashboard";
+const SUPPORT_EMAIL = "lgomez00714@gmail.com";
+// If `signUp.sso()` doesn't navigate away within this window, the SDK is
+// most likely stuck on stale state from a prior failed attempt. Watchdog
+// resets busy state and surfaces an actionable error.
+const OAUTH_TIMEOUT_MS = 6000;
 
 const RESEND_LABELS = {
   idle: "Resend code",
@@ -90,11 +96,38 @@ export function SignUpForm() {
           emailAddress: values.emailAddress,
           password: values.password,
         });
-        if (error) return { error: clerkErrorMessage(error) };
+        if (error) {
+          console.error("[auth] sign-up create failed:", error);
+          return { error: clerkErrorMessage(error) };
+        }
+
+        // Branch on signUp.status instead of assuming we're ready to
+        // send the verification email. Real users have hit cascades
+        // where the first attempt fails (e.g. password breach), and
+        // retry inherited a poisoned state — explicit status checks
+        // surface that instead of silently misbehaving.
+        if (signUp.status === "complete") {
+          const { error: finalizeError } = await signUp.finalize();
+          if (finalizeError) {
+            console.error(
+              "[auth] sign-up finalize failed:",
+              finalizeError
+            );
+            return { error: clerkErrorMessage(finalizeError) };
+          }
+          globalThis.location.assign(redirectAfter);
+          return { error: null };
+        }
 
         const { error: prepareError } =
           await signUp.verifications.sendEmailCode();
-        if (prepareError) return { error: clerkErrorMessage(prepareError) };
+        if (prepareError) {
+          console.error(
+            "[auth] sign-up sendEmailCode failed:",
+            prepareError
+          );
+          return { error: clerkErrorMessage(prepareError) };
+        }
 
         setPendingEmail(values.emailAddress);
         setStep("verify");
@@ -103,17 +136,37 @@ export function SignUpForm() {
       onGoogle={async () => {
         if (isOauthBusy) return null;
         setIsOauthBusy(true);
-        const { error } = await signUp.sso({
-          strategy: "oauth_google",
-          redirectUrl: redirectAfter,
-          redirectCallbackUrl: "/sign-in/sso-callback",
-        });
-        if (error) {
+
+        // Watchdog: if sso() doesn't navigate away within the timeout,
+        // reset busy and surface an actionable error. Fixes the silent-
+        // hang failure mode when signUp is in a stale state.
+        const watchdog = setTimeout(() => {
+          console.error(
+            "[auth] sign-up OAuth didn't initiate within timeout — likely stale signUp state"
+          );
           setIsOauthBusy(false);
-          return clerkErrorMessage(error);
+        }, OAUTH_TIMEOUT_MS);
+
+        try {
+          const { error } = await signUp.sso({
+            strategy: "oauth_google",
+            redirectUrl: redirectAfter,
+            redirectCallbackUrl: "/sign-in/sso-callback",
+          });
+          if (error) {
+            clearTimeout(watchdog);
+            console.error("[auth] sign-up OAuth failed:", error);
+            setIsOauthBusy(false);
+            return clerkErrorMessage(error);
+          }
+          // sso() typically navigates away on success.
+          return null;
+        } catch (err) {
+          clearTimeout(watchdog);
+          console.error("[auth] sign-up OAuth threw:", err);
+          setIsOauthBusy(false);
+          return clerkErrorMessage(err);
         }
-        // sso() typically navigates away on success.
-        return null;
       }}
     />
   );
@@ -271,7 +324,10 @@ function CreateAccountStep({
                 aria-invalid={!!errors.password}
                 {...register("password")}
               />
-              <FieldDescription>At least 8 characters.</FieldDescription>
+              <FieldDescription>
+                At least 8 characters. Passwords are checked against known
+                data breaches — if yours is rejected, just pick a different one.
+              </FieldDescription>
               <FieldError errors={[errors.password]} />
             </FieldContent>
           </Field>
@@ -303,6 +359,16 @@ function CreateAccountStep({
         >
           Sign in
         </Link>
+      </p>
+
+      <p className="text-center text-xs text-muted-foreground">
+        Having trouble?{" "}
+        <a
+          href={`mailto:${SUPPORT_EMAIL}?subject=Sign-up%20help`}
+          className="underline decoration-dotted underline-offset-4 hover:text-foreground hover:decoration-solid"
+        >
+          Email {SUPPORT_EMAIL}
+        </a>
       </p>
     </div>
   );
@@ -340,6 +406,7 @@ function VerifyEmailStep({
     });
 
     if (error) {
+      console.error("[auth] sign-up verify failed:", error);
       setError("root", { message: clerkErrorMessage(error) });
       return;
     }
@@ -347,6 +414,7 @@ function VerifyEmailStep({
     if (signUp.status === "complete") {
       const { error: finalizeError } = await signUp.finalize();
       if (finalizeError) {
+        console.error("[auth] sign-up finalize failed:", finalizeError);
         setError("root", { message: clerkErrorMessage(finalizeError) });
         return;
       }
@@ -354,6 +422,10 @@ function VerifyEmailStep({
       return;
     }
 
+    console.error(
+      "[auth] sign-up verify non-complete status:",
+      signUp.status
+    );
     setError("root", {
       message:
         "Verification didn’t complete. Try again or request a new code.",
@@ -365,6 +437,7 @@ function VerifyEmailStep({
     setResendState("sending");
     const { error } = await signUp.verifications.sendEmailCode();
     if (error) {
+      console.error("[auth] sign-up resend code failed:", error);
       setResendState("idle");
       setError("root", { message: clerkErrorMessage(error) });
       return;
@@ -432,6 +505,16 @@ function VerifyEmailStep({
           {RESEND_LABELS[resendState]}
         </button>
       </div>
+
+      <p className="text-center text-xs text-muted-foreground">
+        Code not arriving?{" "}
+        <a
+          href={`mailto:${SUPPORT_EMAIL}?subject=Sign-up%20help`}
+          className="underline decoration-dotted underline-offset-4 hover:text-foreground hover:decoration-solid"
+        >
+          Email {SUPPORT_EMAIL}
+        </a>
+      </p>
     </div>
   );
 }
@@ -474,14 +557,6 @@ function GoogleIcon() {
       />
     </svg>
   );
-}
-
-function clerkErrorMessage(err: unknown): string {
-  if (typeof err === "object" && err !== null) {
-    const e = err as { longMessage?: string; message?: string };
-    return e.longMessage ?? e.message ?? "Something went wrong.";
-  }
-  return "Something went wrong. Please try again.";
 }
 
 function resolveRedirect(input: string | null): string {

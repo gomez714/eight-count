@@ -20,6 +20,11 @@ export async function getRehearsalForUser(rehearsalId: string, userId: string) {
           team: {
             include: {
               members: {
+                // Only active team members — soft-deleted users
+                // disappear from the audience picker but their
+                // historical notes/assignments stay attributed
+                // (see `notes.assignments.user` below — unfiltered).
+                where: { user: { deletedAt: null } },
                 include: {
                   user: true,
                 },

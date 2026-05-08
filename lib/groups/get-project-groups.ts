@@ -12,6 +12,9 @@ export async function getProjectGroups(projectId: string) {
     },
     include: {
       members: {
+        // Hide group memberships whose user has been soft-deleted —
+        // an empty group reads better than a group with phantom rows.
+        where: { teamMember: { user: { deletedAt: null } } },
         include: {
           teamMember: {
             include: {

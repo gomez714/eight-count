@@ -1,8 +1,20 @@
+import { auth } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
+
 import { BrandLockup } from "@/components/brand-lockup";
 
 import { SignUpForm } from "../sign-up-form";
 
-export default function SignUpPage() {
+// Already authenticated visitors don't need to sign up — bounce them to
+// the dashboard. Also short-circuits the failure mode where a phantom
+// session from an earlier failed attempt confuses signUp.create() into
+// returning "you're already signed in" errors.
+export default async function SignUpPage() {
+  const { userId } = await auth();
+  if (userId) {
+    redirect("/dashboard");
+  }
+
   return (
     <div className="flex min-h-[calc(100vh-60px)] flex-col lg:flex-row">
       <BrandPanel />

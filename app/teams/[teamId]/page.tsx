@@ -67,7 +67,12 @@ export default async function TeamPage({ params }: Readonly<TeamPageProps>) {
       orderBy: { createdAt: "desc" },
     }),
     db.teamMember.findMany({
-      where: { teamId: team.id },
+      where: {
+        teamId: team.id,
+        // Soft-deleted users disappear from team rosters but their
+        // historical notes / assignments stay attributed.
+        user: { deletedAt: null },
+      },
       include: { user: true },
       orderBy: { createdAt: "asc" },
     }),

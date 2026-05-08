@@ -26,7 +26,15 @@ A web application for choreographers to leave time-stamped text and voice feedba
 - **Email + password** and **Google OAuth** are supported. Sign-up runs a two-step flow: enter email + password → enter the 6-digit verification code from your inbox → land on the dashboard. "Resend code" and "Use a different email" are inline.
 - **18+ gate at sign-up**: a small disclaimer card sits above both the OAuth button and the email/password form with a required *"I confirm I'm 18 or older"* checkbox. Both auth paths are blocked until it's checked. The card links to `/privacy#who` for the why.
 - **Deep-link preservation**: a signed-out user clicking a deep link (e.g. `/teams/abc`) is bounced to `/sign-in` by middleware and returned to that exact page after authenticating, instead of being forced into `/dashboard`.
+- **Failure-mode resilience**: friendlier error messages for the common Clerk error codes (password breach, identifier conflicts, etc.); a 6-second OAuth watchdog so a hung Google sign-in doesn't leave the form frozen forever; status-branching after `signIn.create()` / `signUp.create()`; an "Already signed in?" server-side redirect on the auth pages so sessioned users never get stuck on a confusing form. Every error path logs with a `[auth]` prefix to Vercel runtime logs.
+- **"Having trouble?" support link** below both forms and the verify-email step — `mailto:` link to the operator email so blocked users have an escape hatch that doesn't depend on Clerk working.
 - After **sign-out**, users land on the landing page (`/`) — `<ClerkProvider afterSignOutUrl="/">`.
+
+### Account lifecycle (soft-delete + reclaim)
+- Users are **never hard-deleted** from the app's database — the foreign-key chain (notes, projects, rehearsals, assignments, invitations) makes hard delete a multi-table SQL surgery that destroys historical attribution. Instead, `User.deletedAt` marks a row as removed; the row stays so all relations remain valid, and active-member listings (team rosters, audience pickers, group memberships) filter `deletedAt IS NOT NULL` rows out.
+- **Removing someone**: soft-delete the user by setting `deletedAt`. They disappear from team rosters and assignment pickers immediately. Their authored notes / existing assignments stay attributed to them — historical context isn't erased.
+- **Reclaim on re-signup**: if a removed user (or one whose Clerk account was hard-deleted, orphaning their DB row) signs up again with the same email, `ensureDbUser` automatically reattaches the existing row to their new Clerk identity and clears `deletedAt`. They walk back into their notes and team memberships with no manual intervention. The operation logs `[auth] reclaiming…` so it's auditable in Vercel runtime logs.
+- **Trade-off being accepted**: silent reclaim trusts email-match as proof of identity. Reasonable for a B2B beta with admin-controlled invites; a consumer-facing version would want a consent UI ("An account previously existed at this email — reclaim or start fresh?") and an audit table.
 
 ### Privacy & trust (`/privacy`)
 A public privacy policy lives at `/privacy` — readable without an account. It's the canonical place where the beta's scope, data handling, and visibility model are spelled out.
@@ -230,3 +238,15 @@ When deploying for real users:
 7. **Backfill transcripts for pre-transcription voice notes**: open `scripts/backfill-audio-transcripts.ts`, leave `DRY_RUN=true` for the first run (lists what would be processed), then flip to `DRY_RUN=false` and run `npm run db:backfill-transcripts`. The script processes one row at a time with a 250ms polite delay so it doesn't burst Deepgram, and `MAX_PROCESS=100` caps the first run to bound cost. Idempotent — re-run to drain anything missed. Roughly $0.01 per voice note, so a thousand-note backfill is under $10.
 
 Send yourself a real invite to a fresh inbox to verify deliverability before opening invitations to teammates. Record a voice note end-to-end and confirm the transcript appears under the player within ~15s before declaring transcription production-ready.
+
+### Removing a user (soft-delete)
+
+There's no admin UI for user removal yet — until that ships, the operational pattern is direct SQL against the production DB:
+
+```sql
+UPDATE "User" SET "deletedAt" = NOW() WHERE id = '<user_id>';
+```
+
+The user disappears from team rosters, audience pickers, and group memberships immediately. Their authored notes and existing assignments stay attributed to them (the row still exists). If they later sign up with the same email, the app reclaims the row automatically — see "Account lifecycle" above.
+
+For genuinely removing a user *and* their content (the rare "scrub everything" case), see the cascade-delete SQL recipe in CLAUDE.md under "User soft-delete + reclaim" — but soft-delete is the default operation, and reclaim is what most "I want to undo this" cases collapse into.

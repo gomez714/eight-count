@@ -121,13 +121,43 @@ Resolution: `EVERYONE` → all team members; `GROUP` → all group members; `USE
 Two helpers — pick based on whether you need to write:
 
 - **`ensureDbUser()`** ([lib/auth/ensure-db-user.ts](lib/auth/ensure-db-user.ts)) — use in server actions and API routes. Upserts the local `User` row from Clerk on every call (keeps name/email/image current).
-- **`getCurrentDbUser()`** ([lib/auth/get-current-db-user.ts](lib/auth/get-current-db-user.ts)) — use in read-only server components. Looks up the existing row without syncing.
+- **`getCurrentDbUser()`** ([lib/auth/get-current-db-user.ts](lib/auth/get-current-db-user.ts)) — use in read-only server components. Looks up the existing row without syncing. Filters soft-deleted rows (`deletedAt IS NOT NULL`) — see "User soft-delete + reclaim" below.
 
 Both return `null` when unauthenticated. Standard guard:
 ```typescript
 const dbUser = await ensureDbUser();
 if (!dbUser) return { error: "You must be signed in." };
 ```
+
+### Auth UI hardening (sign-in / sign-up)
+
+Both [sign-in-form.tsx](app/sign-in/sign-in-form.tsx) and [sign-up-form.tsx](app/sign-up/sign-up-form.tsx) defend against the failure modes real users hit:
+
+- **Friendlier error messages** — [lib/auth/clerk-error-message.ts](lib/auth/clerk-error-message.ts) maps known Clerk error codes (`form_password_pwned`, `form_identifier_exists`, `session_exists`, etc.) to actionable text. Falls back to Clerk's `longMessage` / `message`.
+- **OAuth watchdog** — `signIn.sso()` / `signUp.sso()` are wrapped with a 6s timeout. If the SDK is in a stale state (e.g. from a prior failed attempt) the OAuth call can hang silently — the watchdog resets busy state and surfaces an error pointing at the support email.
+- **Status branching after `create()`** — instead of assuming `signIn.create()` / `signUp.create()` produces a "ready to finalize / send code" state, both forms check `signIn.status` / `signUp.status` and surface specific messages for `needs_second_factor`, etc.
+- **Already-signed-in redirect** — `/sign-in/[[...sign-in]]/page.tsx` and `/sign-up/[[...sign-up]]/page.tsx` are async server components that call `auth()` and redirect to `/dashboard` if the user has a session. Prevents the "you're already signed in" cascade.
+- **`[auth]`-prefixed `console.error`** on every error path — surfaces failures in Vercel runtime logs so reports of "I couldn't sign in but there's nothing in the logs" stop being a thing.
+- **"Having trouble?" support link** below both forms and the verify-email step — linked `mailto:` to `lgomez00714@gmail.com` (matches the privacy page's `CONTACT_EMAIL`). Update both files together when the support email changes.
+
+### User soft-delete + reclaim
+
+Users are **never hard-deleted** from the DB — the foreign-key chain (notes, projects, rehearsals, assignments, invitations, etc.) makes hard delete a multi-table SQL surgery that destroys historical attribution. Instead, `User.deletedAt: DateTime?` marks a row as removed; the row stays so all relations remain valid, but `deletedAt IS NOT NULL` rows are filtered out of "active member" surfaces.
+
+**Reclaim**: when someone signs up again with the same email as a soft-deleted (or Clerk-side-deleted, but Neon-side-orphaned) row, [`ensureDbUser`](lib/auth/ensure-db-user.ts) detects the email match, attaches the new `clerkUserId` to the existing row, and clears `deletedAt`. The user gets their notes / team memberships / history back automatically. No manual SQL, no data loss. This relies on `User.email` being `@unique` — no two real users can collide.
+
+**What "active member" means**: queries that drive team rosters, audience pickers, and group memberships filter `user: { deletedAt: null }` so removed users disappear. Queries that surface *historical attribution* (note authors, existing assignment recipients) deliberately don't filter — the note still exists, the assignment still has its history, the user's name still renders. Specific filtered call sites:
+- [app/teams/[teamId]/page.tsx](app/teams/[teamId]/page.tsx) — team member roster
+- [app/projects/[projectId]/page.tsx](app/projects/[projectId]/page.tsx) — cast list driving "Manage cast"
+- [lib/rehearsals/get-rehearsal-for-user.ts](lib/rehearsals/get-rehearsal-for-user.ts) — `team.members` for the audience picker
+- [lib/groups/get-project-groups.ts](lib/groups/get-project-groups.ts) — group membership lists
+- [app/teams/[teamId]/member-actions.ts](app/teams/[teamId]/member-actions.ts) — invite-flow existence check (a soft-deleted user with the same email shouldn't block a fresh invite; reclaim handles re-attaching their old data on sign-up)
+
+**Triggering soft-delete**: there's no automated path yet. Two manual options:
+1. SQL: `UPDATE "User" SET "deletedAt" = NOW() WHERE id = '<user_id>';`
+2. Clerk webhook on `user.deleted` (deferred — wire a handler at `/api/webhooks/clerk` if/when needed).
+
+**Tradeoffs we're explicitly accepting**: silent reclaim trusts email-match as proof of identity. For a B2B beta with admin-controlled invites this is a reasonable simplification, but a consumer-facing version would want a consent UI ("An account previously existed at this email — reclaim or start fresh?") and an audit log. Don't apply this pattern blindly to other entities.
 
 ## Authorization
 
@@ -186,6 +216,8 @@ If sign-up's 6-digit verification ever feels like friction, the optimization is 
 ## Auth UI
 
 Sign-in / sign-up are **fully headless**. Clerk handles the auth flow under the hood (`useSignIn` / `useSignUp` from `@clerk/nextjs`), but every input, button, divider, OAuth pill, and verification step is built from the app's own primitives. The only Clerk-rendered surfaces still in the app are the `<UserButton>` dropdown (when signed in) and the transient `<AuthenticateWithRedirectCallback />` on the OAuth return page.
+
+> See "Auth UI hardening" under the Authentication section above for the defensive patterns layered on top of these forms — friendlier error messages, OAuth watchdog, status branching, already-signed-in redirects, `[auth]`-prefixed logging, and the support fallback link.
 
 | File | Responsibility |
 |---|---|

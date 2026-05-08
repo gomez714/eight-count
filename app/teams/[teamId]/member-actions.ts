@@ -63,7 +63,13 @@ export async function inviteTeamMember(
     return { error: "You're already a member of this team." };
   }
 
-  const existingUser = await db.user.findUnique({ where: { email } });
+  // Only consider active users when checking for existing membership.
+  // A soft-deleted user with the same email shouldn't block a fresh
+  // invite — when they sign up again, `ensureDbUser` reclaims their
+  // row and reattaches their history.
+  const existingUser = await db.user.findFirst({
+    where: { email, deletedAt: null },
+  });
   if (existingUser) {
     const existingMembership = await db.teamMember.findUnique({
       where: {

@@ -17,12 +17,19 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { clerkErrorMessage } from "@/lib/auth/clerk-error-message";
 
 const SAFE_REDIRECT_PREFIX = "/";
 const DEFAULT_REDIRECT = "/dashboard";
+const SUPPORT_EMAIL = "lgomez00714@gmail.com";
+// If `signIn.sso()` doesn't navigate away within this window, surface a
+// soft error and reset the form. Clerk's SDK can hang silently when the
+// sign-in resource is in a stale state from a prior failed attempt — this
+// timeout makes that recoverable without a hard refresh.
+const OAUTH_TIMEOUT_MS = 6000;
 
 const signInSchema = z.object({
-  emailAddress: z.string().trim().email("Enter a valid email address."),
+  emailAddress: z.email("Enter a valid email address."),
   password: z.string().min(1, "Password is required."),
 });
 
@@ -64,20 +71,40 @@ export function SignInForm() {
     });
 
     if (error) {
+      console.error("[auth] sign-in create failed:", error);
       setError("root", { message: clerkErrorMessage(error) });
       return;
     }
 
     if (signIn.status === "complete") {
-      await signIn.finalize();
+      const { error: finalizeError } = await signIn.finalize();
+      if (finalizeError) {
+        console.error("[auth] sign-in finalize failed:", finalizeError);
+        setError("root", { message: clerkErrorMessage(finalizeError) });
+        return;
+      }
       globalThis.location.assign(redirectAfter);
       return;
     }
 
-    // Most common non-complete state: needs MFA. Out of scope for v1.
+    // Surface specific non-complete states with actionable guidance
+    // instead of the catch-all "additional verification" message that
+    // confused real users (see issue tracker).
+    console.error("[auth] sign-in non-complete status:", signIn.status);
+    if (signIn.status === "needs_second_factor") {
+      setError("root", {
+        message:
+          "This account has two-factor authentication enabled, which isn't supported in this beta yet. Email " +
+          SUPPORT_EMAIL +
+          " and we'll help you get in.",
+      });
+      return;
+    }
     setError("root", {
       message:
-        "Additional verification is required. Reach out to support if this keeps happening.",
+        "Sign-in didn't complete. Refresh the page and try again, or email " +
+        SUPPORT_EMAIL +
+        " if it keeps happening.",
     });
   };
 
@@ -85,17 +112,43 @@ export function SignInForm() {
     if (isOauthBusy) return;
     setIsOauthBusy(true);
 
-    const { error } = await signIn.sso({
-      strategy: "oauth_google",
-      redirectUrl: redirectAfter,
-      redirectCallbackUrl: "/sign-in/sso-callback",
-    });
-
-    // sso() typically navigates away on success. If it returns with an
-    // error, we re-enable the form and show it.
-    if (error) {
+    // Watchdog: if sso() doesn't navigate away within OAUTH_TIMEOUT_MS,
+    // the SDK is most likely stuck on stale state from a prior failed
+    // attempt. Surface a real error and reset busy so the user can
+    // refresh instead of staring at a frozen form.
+    const watchdog = setTimeout(() => {
+      console.error(
+        "[auth] sign-in OAuth didn't initiate within timeout — likely stale signIn state"
+      );
       setIsOauthBusy(false);
-      setError("root", { message: clerkErrorMessage(error) });
+      setError("root", {
+        message:
+          "Couldn't start Google sign-in. Refresh the page and try again — if it keeps happening, email " +
+          SUPPORT_EMAIL +
+          ".",
+      });
+    }, OAUTH_TIMEOUT_MS);
+
+    try {
+      const { error } = await signIn.sso({
+        strategy: "oauth_google",
+        redirectUrl: redirectAfter,
+        redirectCallbackUrl: "/sign-in/sso-callback",
+      });
+
+      // sso() typically navigates away on success. If it returns with an
+      // error, we re-enable the form and show it.
+      if (error) {
+        clearTimeout(watchdog);
+        console.error("[auth] sign-in OAuth failed:", error);
+        setIsOauthBusy(false);
+        setError("root", { message: clerkErrorMessage(error) });
+      }
+    } catch (err) {
+      clearTimeout(watchdog);
+      console.error("[auth] sign-in OAuth threw:", err);
+      setIsOauthBusy(false);
+      setError("root", { message: clerkErrorMessage(err) });
     }
   };
 
@@ -193,6 +246,16 @@ export function SignInForm() {
           Sign up
         </Link>
       </p>
+
+      <p className="text-center text-xs text-muted-foreground">
+        Having trouble?{" "}
+        <a
+          href={`mailto:${SUPPORT_EMAIL}?subject=Sign-in%20help`}
+          className="underline decoration-dotted underline-offset-4 hover:text-foreground hover:decoration-solid"
+        >
+          Email {SUPPORT_EMAIL}
+        </a>
+      </p>
     </div>
   );
 }
@@ -235,15 +298,6 @@ function GoogleIcon() {
       />
     </svg>
   );
-}
-
-/** Pull a useful message out of a Clerk error. */
-function clerkErrorMessage(err: unknown): string {
-  if (typeof err === "object" && err !== null) {
-    const e = err as { longMessage?: string; message?: string };
-    return e.longMessage ?? e.message ?? "Something went wrong.";
-  }
-  return "Something went wrong. Please try again.";
 }
 
 /**

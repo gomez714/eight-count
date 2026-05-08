@@ -83,6 +83,13 @@ model User {
   /// `null` = user hasn't dismissed anything yet → checklist + tips render.
   onboardingState Json?
 
+  /// Soft-delete timestamp. When set, the user is treated as removed:
+  /// excluded from active-user listings (team rosters, audience pickers,
+  /// etc.) but their historical attribution (authored notes, etc.) stays
+  /// intact. Reclaim happens automatically when someone signs up again
+  /// with the same email — see `ensureDbUser`.
+  deletedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
