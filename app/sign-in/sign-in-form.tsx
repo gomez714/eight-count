@@ -2,7 +2,7 @@
 
 import { useSignIn } from "@clerk/nextjs";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -50,6 +50,7 @@ type SignInFormValues = z.infer<typeof signInSchema>;
 export function SignInForm() {
   const { signIn, fetchStatus } = useSignIn();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [isOauthBusy, setIsOauthBusy] = useState(false);
 
   const redirectAfter = resolveRedirect(searchParams.get("redirect_url"));
@@ -83,7 +84,13 @@ export function SignInForm() {
         setError("root", { message: clerkErrorMessage(finalizeError) });
         return;
       }
-      globalThis.location.assign(redirectAfter);
+      // router.push + router.refresh re-renders the root layout, so
+      // AppHeader picks up the freshly-set Clerk session and swaps
+      // SignIn/SignUp buttons → UserButton without a manual refresh.
+      // The previous `location.assign` did a full page load but the
+      // layout's auth state could still be stale on the next paint.
+      router.push(redirectAfter);
+      router.refresh();
       return;
     }
 

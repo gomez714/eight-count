@@ -2,7 +2,7 @@
 
 import { useSignUp } from "@clerk/nextjs";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -70,6 +70,7 @@ type VerifyFormValues = z.infer<typeof verifySchema>;
 export function SignUpForm() {
   const { signUp, fetchStatus } = useSignUp();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [step, setStep] = useState<"create" | "verify">("create");
   const [pendingEmail, setPendingEmail] = useState("");
   const [isOauthBusy, setIsOauthBusy] = useState(false);
@@ -81,7 +82,15 @@ export function SignUpForm() {
     return (
       <VerifyEmailStep
         email={pendingEmail}
-        onComplete={() => globalThis.location.assign(redirectAfter)}
+        onComplete={() => {
+          // router.push + router.refresh ensures the root layout
+          // (AppHeader) re-renders with the freshly-set Clerk session,
+          // swapping SignIn/SignUp buttons → UserButton immediately.
+          // location.assign did a hard nav but the layout could still
+          // paint with stale auth state — see the auth audit notes.
+          router.push(redirectAfter);
+          router.refresh();
+        }}
         onBack={() => setStep("create")}
       />
     );
@@ -115,7 +124,8 @@ export function SignUpForm() {
             );
             return { error: clerkErrorMessage(finalizeError) };
           }
-          globalThis.location.assign(redirectAfter);
+          router.push(redirectAfter);
+          router.refresh();
           return { error: null };
         }
 
