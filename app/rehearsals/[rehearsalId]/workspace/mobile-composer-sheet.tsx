@@ -17,13 +17,15 @@ import { ComposerPeekRow } from "./composer-peek-row";
 // Exported so the workspace can use them when controlling snap state and
 // deriving `composerExpanded` for the sticky-video logic.
 export const COMPOSER_PEEK_SNAP = "80px";
-// Single expanded snap shared by text and voice modes. Tuned tight (28vh)
-// so we don't leave dead popover space above the iOS keyboard when the
-// textarea focuses — earlier 0.55 left ~200px of empty popover background
-// between the input and the keyboard top after Vaul's keyboard lift. Long
-// textareas grow inside the body via `field-sizing-content` and scroll
-// through `overflow-y-auto` rather than expanding the sheet.
-export const COMPOSER_EXPANDED_SNAP = 0.28;
+// Single expanded snap shared by text and voice modes. Set to 55vh so the
+// textarea sits in the upper portion of the sheet, leaving it visible above
+// a typical on-screen keyboard without relying on Vaul's `repositionInputs`
+// auto-lift (which had keyboard-dismiss restoration bugs on real devices).
+// We accept a few pixels of overlap on the smallest phones rather than the
+// auto-lift's white-screen / stuck-near-keyboard glitches. Long textareas
+// grow inside the body via `field-sizing-content` and scroll through
+// `overflow-y-auto` rather than expanding the sheet.
+export const COMPOSER_EXPANDED_SNAP = 0.55;
 
 export type ComposerSnap = number | string;
 
@@ -157,6 +159,15 @@ export function MobileComposerSheet(props: MobileComposerSheetProps) {
       open
       modal={false}
       dismissible={false}
+      // Disable Vaul's auto-lift for on-screen keyboards. On real devices it
+      // had two glitches: (1) the lift sometimes oversized the drawer to fill
+      // the viewport (whiting out the page), and (2) on keyboard dismiss the
+      // drawer didn't restore to its snap position — it stayed translated up
+      // where the keyboard had been. With auto-lift off, the keyboard
+      // overlays whatever is below it and the drawer stays put. The 55vh
+      // snap puts the textarea in the upper portion of the sheet so it
+      // remains mostly visible above the keyboard.
+      repositionInputs={false}
       snapPoints={[COMPOSER_PEEK_SNAP, COMPOSER_EXPANDED_SNAP]}
       activeSnapPoint={snap}
       setActiveSnapPoint={handleSnapChange}
@@ -168,8 +179,8 @@ export function MobileComposerSheet(props: MobileComposerSheetProps) {
           // h-full is what Vaul's snap math expects — the drawer is 100% of
           // its parent (the portal target / viewport), and Vaul translates
           // the element so only the snap-defined amount is visible at the
-          // bottom. Constraining the height (e.g. `h-[28vh]` or
-          // `max-h-[28vh]`) breaks Vaul's positioning and the drawer ends
+          // bottom. Constraining the height (e.g. `h-[55vh]` or
+          // `max-h-[55vh]`) breaks Vaul's positioning and the drawer ends
           // up below the viewport. Over-drag past EXPANDED_SNAP during the
           // gesture is bounded by Vaul's release-snap (returns to nearest
           // snap on release) and the `dismissible={false}` floor at peek.
