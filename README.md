@@ -144,20 +144,20 @@ The rehearsal page is a sticky two-column workspace anchored at the top by a con
   - **Composer** — a sub-bar with the Text / Voice mode toggle, a "To" audience picker (popover: full-cast quick-pick, groups, individuals, removable chips), an optional **Tag** picker, and a locked-timestamp pill that re-captures the current playhead when clicked. Body morphs between a 2-row textarea + Post button (text mode) and the voice recorder (voice mode). On **desktop** (≥1024px) the composer is a sticky card at the bottom of the right column. On **mobile** (<1024px) the same composer body lives inside a peekable bottom sheet — see "Mobile composer sheet" below.
 
 #### Mobile composer sheet
-Below the `lg:` breakpoint the composer wraps in a [Vaul](https://vaul.emilkowal.ski/)-based bottom sheet with two snap points: an **80-pixel peek bar** (always visible above the system nav) and a **55vh expanded** state. Both shells share the same internal `ComposerBody` component, so mode toggles, audience picker, tag picker, voice recorder, etc. are byte-identical to desktop — only the surrounding shell differs.
+Below the `lg:` breakpoint the composer wraps in a [Vaul](https://vaul.emilkowal.ski/)-based bottom sheet with two snap points: an **80-pixel peek bar** (always visible above the system nav) and a **28vh expanded** state (tuned tight so there's no dead popover space above the iOS keyboard once Vaul lifts the sheet on textarea focus). Both shells share the same internal `ComposerBody` component, so mode toggles, audience picker, tag picker, voice recorder, etc. are byte-identical to desktop — only the surrounding shell differs.
 
 - **Peek row** is a single horizontal strip showing the current state: a compact mode toggle (Text / Voice icons), a tap-to-recapture timestamp pill, an audience chip ("To: Front line"), and a "Tap to write…" / "Tap to record…" affordance with a chevron-up. Each is its own `<button>` with an `aria-label` so screen readers announce them distinctly. Buttons are sized 36px tall — larger than the desktop sub-bar's 28px to suit thumb taps.
 - **Tap interactions from peek**:
   - **Timestamp pill** → recaptures the current playhead, *stays in peek* (the most common adjustment doesn't require a full expansion).
   - **Audience chip** → expands the sheet AND opens the audience picker pre-opened (both setState calls batch).
   - **Mode toggle** → swaps mode but doesn't expand. Suppressed during recording (would unmount the recorder mid-take).
-  - **"Tap to write/record…" / chevron** → expands to the single 55vh snap.
+  - **"Tap to write/record…" / chevron** → expands to the single 28vh snap.
 - **Sheet behaviors**:
   - **Non-modal** (`modal={false}`) — the page underneath stays interactive. The user can scroll the notes thread, tap notes, scrub the timeline while the sheet is in peek.
   - **Non-dismissible** (`dismissible={false}`) — peek is the floor; drag-down past it bounces back to peek instead of disappearing entirely.
   - **Auto-collapse on success**: a successful text submit (detected via the `isPending` true → false transition with empty text) or voice save snaps back to peek automatically.
   - **Recording lock**: while the voice recorder is in countdown or recording (not while saving/uploading), drag-down attempts and mode toggles are bounced — the sheet stays at the expanded snap until the user explicitly cancels or saves.
-- **iOS keyboard**: Vaul's built-in `repositionInputs` handles the keyboard via `visualViewport` (iOS 16.4+), lifting the sheet above the keyboard when the textarea focuses. The 55vh snap leaves enough headroom that the lifted sheet doesn't get its top clipped.
+- **iOS keyboard**: Vaul's built-in `repositionInputs` handles the keyboard via `visualViewport` (iOS 16.4+), lifting the sheet above the keyboard when the textarea focuses. The 28vh snap is tuned tight so the lifted sheet sits flush above the keyboard with no wasted background between the input and the keyboard top.
 
 #### Contextual sticky video (mobile)
 On mobile, the rehearsal video pins to the top of the viewport whenever it's actively in use — not always (which would waste 25–30vh permanently), not never (which would force the user to scroll back up to reference the video). The video pins on **any** of four signals being active:

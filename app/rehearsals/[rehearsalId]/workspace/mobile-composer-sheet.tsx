@@ -17,10 +17,13 @@ import { ComposerPeekRow } from "./composer-peek-row";
 // Exported so the workspace can use them when controlling snap state and
 // deriving `composerExpanded` for the sticky-video logic.
 export const COMPOSER_PEEK_SNAP = "80px";
-// Single expanded snap shared by text and voice modes. Both fit comfortably
-// at this height and a single snap means mode toggling doesn't resize the
-// sheet — toggling is a content swap, not a sheet-position change.
-export const COMPOSER_EXPANDED_SNAP = 0.55;
+// Single expanded snap shared by text and voice modes. Tuned tight (28vh)
+// so we don't leave dead popover space above the iOS keyboard when the
+// textarea focuses — earlier 0.55 left ~200px of empty popover background
+// between the input and the keyboard top after Vaul's keyboard lift. Long
+// textareas grow inside the body via `field-sizing-content` and scroll
+// through `overflow-y-auto` rather than expanding the sheet.
+export const COMPOSER_EXPANDED_SNAP = 0.28;
 
 export type ComposerSnap = number | string;
 
@@ -165,11 +168,11 @@ export function MobileComposerSheet(props: MobileComposerSheetProps) {
           // h-full is what Vaul's snap math expects — the drawer is 100% of
           // its parent (the portal target / viewport), and Vaul translates
           // the element so only the snap-defined amount is visible at the
-          // bottom. Constraining the height (e.g. `h-[55vh]` or `max-h-[55vh]`)
-          // breaks Vaul's positioning and the drawer ends up below the
-          // viewport. Over-drag past EXPANDED_SNAP during the gesture is
-          // bounded by Vaul's release-snap (returns to nearest snap on
-          // release) and the `dismissible={false}` floor at peek.
+          // bottom. Constraining the height (e.g. `h-[28vh]` or
+          // `max-h-[28vh]`) breaks Vaul's positioning and the drawer ends
+          // up below the viewport. Over-drag past EXPANDED_SNAP during the
+          // gesture is bounded by Vaul's release-snap (returns to nearest
+          // snap on release) and the `dismissible={false}` floor at peek.
           className={cn(
             "fixed inset-x-0 bottom-0 z-40 flex h-full flex-col rounded-t-xl border-t bg-popover text-popover-foreground shadow-lg",
             "outline-none focus-visible:ring-2 focus-visible:ring-ring"

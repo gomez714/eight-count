@@ -536,8 +536,8 @@ export function VoiceNoteRecorder({
       {state === "idle" ? (
         <div className="flex flex-col gap-2">
           <p className="text-sm text-muted-foreground">
-            Click Start to pause the video and prepare a 3-second countdown.
-            The video then resumes (muted) while you narrate. Max 2:00.
+            Video will be paused and the countdown will start. Then it will play while you record.
+            Max 2:00.
           </p>
           <Button
             type="button"
