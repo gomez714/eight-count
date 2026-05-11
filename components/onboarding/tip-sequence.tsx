@@ -25,6 +25,13 @@ type TipSequenceProps = {
    * needs to resolve before the timeline anchor renders).
    */
   enabled?: boolean;
+  /**
+   * Fires immediately before any user-driven advance (Next, Got it, Skip).
+   * Lets the host page reset transient layout state — e.g. collapsing a
+   * bottom sheet — so the next tip's anchor isn't obscured. The component
+   * itself stays generic; the host owns whatever cleanup is needed.
+   */
+  onBeforeAdvance?: () => void;
 };
 
 const FIND_RETRY_INTERVAL_MS = 100;
@@ -35,6 +42,7 @@ export function TipSequence({
   steps,
   initiallyDismissed,
   enabled = true,
+  onBeforeAdvance,
 }: Readonly<TipSequenceProps>) {
   const [stepIndex, setStepIndex] = useState(0);
   const [dismissed, setDismissed] = useState(initiallyDismissed);
@@ -94,14 +102,16 @@ export function TipSequence({
   if (!step) return null;
 
   const handleNext = () => {
+    onBeforeAdvance?.();
     if (stepIndex < steps.length - 1) {
       setStepIndex((i) => i + 1);
     } else {
-      handleDismiss();
+      handleDismiss({ skipBeforeAdvance: true });
     }
   };
 
-  const handleDismiss = () => {
+  const handleDismiss = (opts?: { skipBeforeAdvance?: boolean }) => {
+    if (!opts?.skipBeforeAdvance) onBeforeAdvance?.();
     setDismissed(true);
     startTransition(async () => {
       await dismissTipGroupAction(groupKey);

@@ -141,7 +141,33 @@ The rehearsal page is a sticky two-column workspace anchored at the top by a con
   - **Progress spine** — aggregate per-recipient progress across all notes: an "X / Y addressed-or-resolved" headline, open and in-progress counts, and a four-segment stacked bar broken down by `OPEN / IN_PROGRESS / ADDRESSED / RESOLVED`.
   - **Filter pills** — single-select pills: `All / Open / In progress / Addressed / Resolved / Unassigned / Voice / @ me`, plus a separate dropdown to filter by an arbitrary assignee. Pills show a precomputed count when inactive; a "Showing X of Y" indicator reflects the result set.
   - **Note thread** — each note row has a fixed timestamp rail (clickable to jump the video), a coral or teal accent stripe distinguishing voice from text, the author + audience chips, the body (text or voice waveform), and a dashed-divider "Assigned" row of avatar + name + status-dot + status-label chips per recipient.
-  - **Sticky composer** at the bottom — a sub-bar with the Text / Voice mode toggle, a "To" audience picker (popover with the existing combobox: full-cast quick-pick, groups, individuals, removable chips), an optional **Tag** picker for the new note, and a locked-timestamp pill that re-captures the current playhead when clicked. Body morphs between a 2-row textarea + Post button (text mode) and the voice recorder (voice mode).
+  - **Composer** — a sub-bar with the Text / Voice mode toggle, a "To" audience picker (popover: full-cast quick-pick, groups, individuals, removable chips), an optional **Tag** picker, and a locked-timestamp pill that re-captures the current playhead when clicked. Body morphs between a 2-row textarea + Post button (text mode) and the voice recorder (voice mode). On **desktop** (≥1024px) the composer is a sticky card at the bottom of the right column. On **mobile** (<1024px) the same composer body lives inside a peekable bottom sheet — see "Mobile composer sheet" below.
+
+#### Mobile composer sheet
+Below the `lg:` breakpoint the composer wraps in a [Vaul](https://vaul.emilkowal.ski/)-based bottom sheet with two snap points: an **80-pixel peek bar** (always visible above the system nav) and a **55vh expanded** state. Both shells share the same internal `ComposerBody` component, so mode toggles, audience picker, tag picker, voice recorder, etc. are byte-identical to desktop — only the surrounding shell differs.
+
+- **Peek row** is a single horizontal strip showing the current state: a compact mode toggle (Text / Voice icons), a tap-to-recapture timestamp pill, an audience chip ("To: Front line"), and a "Tap to write…" / "Tap to record…" affordance with a chevron-up. Each is its own `<button>` with an `aria-label` so screen readers announce them distinctly. Buttons are sized 36px tall — larger than the desktop sub-bar's 28px to suit thumb taps.
+- **Tap interactions from peek**:
+  - **Timestamp pill** → recaptures the current playhead, *stays in peek* (the most common adjustment doesn't require a full expansion).
+  - **Audience chip** → expands the sheet AND opens the audience picker pre-opened (both setState calls batch).
+  - **Mode toggle** → swaps mode but doesn't expand. Suppressed during recording (would unmount the recorder mid-take).
+  - **"Tap to write/record…" / chevron** → expands to the single 55vh snap.
+- **Sheet behaviors**:
+  - **Non-modal** (`modal={false}`) — the page underneath stays interactive. The user can scroll the notes thread, tap notes, scrub the timeline while the sheet is in peek.
+  - **Non-dismissible** (`dismissible={false}`) — peek is the floor; drag-down past it bounces back to peek instead of disappearing entirely.
+  - **Auto-collapse on success**: a successful text submit (detected via the `isPending` true → false transition with empty text) or voice save snaps back to peek automatically.
+  - **Recording lock**: while the voice recorder is in countdown or recording (not while saving/uploading), drag-down attempts and mode toggles are bounced — the sheet stays at the expanded snap until the user explicitly cancels or saves.
+- **iOS keyboard**: Vaul's built-in `repositionInputs` handles the keyboard via `visualViewport` (iOS 16.4+), lifting the sheet above the keyboard when the textarea focuses. The 55vh snap leaves enough headroom that the lifted sheet doesn't get its top clipped.
+
+#### Contextual sticky video (mobile)
+On mobile, the rehearsal video pins to the top of the viewport whenever it's actively in use — not always (which would waste 25–30vh permanently), not never (which would force the user to scroll back up to reference the video). The video pins on **any** of four signals being active:
+
+1. A voice note is sync-playing (existing — the video seeks and plays alongside the audio so the user can keep watching while scrolling).
+2. The user tapped a timestamp pill on any note in the last ~10 seconds (so the user can see what they jumped to while continuing to read).
+3. The video is actively playing.
+4. The mobile composer sheet is expanded (text or voice mode).
+
+When all four signals are inactive, the video scrolls away normally. The CSS mechanism is the same `max-lg:sticky max-lg:top-0` pattern that already existed; the change is the trigger expanding from a single signal (voice sync) to four.
 - **Audience targeting** for each note:
   - **Full cast** — one click notifies every team member.
   - **Group** — select one or more project groups (e.g. "Front line"); union semantics allow mixing groups and individuals.
@@ -155,7 +181,7 @@ The rehearsal page is a sticky two-column workspace anchored at the top by a con
 - The recording's `startTimestampMs` is the video position when the countdown ends; `endTimestampMs` is captured when the author clicks Stop (or the 2-minute cap auto-stops). The video is paused at the end position so the author can see where the take wraps up.
 - The preview UI is a coral-tinted player (decorative-bar waveform, play / pause button, current-time / total-time mono display) wired to play **in sync with the video**: the video rewinds to the recording's start and plays alongside the audio so the author can confirm alignment before saving. **Re-record** discards the blob without uploading; **Save** uploads the audio to Google Cloud Storage via signed URL and creates the note.
 - Saved voice notes use the same decorative-bar player throughout the app. In the rehearsal workspace it runs in sync mode (video seeks to the recording start, mutes, and plays alongside the audio); on `/my-notes` and `/notes-by-me` the audio plays standalone. Manually pausing the video also pauses the audio in sync mode.
-- On mobile, the rehearsal video pins to the top of the viewport during synced voice playback so the user can keep watching while scrolling further down the notes thread. It returns to normal flow when playback ends, pauses, or the user navigates away.
+- On mobile, the rehearsal video pins to the top of the viewport during synced voice playback so the user can keep watching while scrolling further down the notes thread. (Synced playback is one of four sticky-video triggers — see "Contextual sticky video" under the Rehearsal workspace section above.)
 - To replace the audio of an existing voice note, delete it and record a new one — voice-note edits cover timestamps, tag, and audience only.
 - Recording requires Chrome, Firefox, or recent Safari (MediaRecorder support). The mic format is auto-detected: webm/opus on Chrome/Firefox, mp4/AAC on Safari.
 

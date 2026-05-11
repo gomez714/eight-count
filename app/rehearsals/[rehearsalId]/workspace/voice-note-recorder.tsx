@@ -63,6 +63,11 @@ type VoiceNoteRecorderProps = {
   getTag: () => NoteTag | null;
   onSaved: () => void;
   disabled?: boolean;
+  // Fires `true` when the countdown begins, `false` on cancel/stop/error/
+  // unmount. Used by the mobile composer sheet to lock dismissal during
+  // recording so the user can't accidentally swipe away mid-take. Saving
+  // (uploading) does NOT keep this true — the mic is already released.
+  onRecordingStateChange?: (isRecording: boolean) => void;
 };
 
 export function VoiceNoteRecorder({
@@ -72,6 +77,7 @@ export function VoiceNoteRecorder({
   getTag,
   onSaved,
   disabled = false,
+  onRecordingStateChange,
 }: VoiceNoteRecorderProps) {
   const [state, setState] = useState<RecorderState>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -215,6 +221,11 @@ export function VoiceNoteRecorder({
       restoreVideoMute();
       stopPreviewSync();
       if (previewUrl) URL.revokeObjectURL(previewUrl);
+      // Defensive: notify parent that the recording-locked state is over.
+      // Covers the edge case where the recorder unmounts while still in
+      // countdown/recording (e.g., user toggles mode mid-take). Safe to call
+      // even when the recorder was never recording — false matches reality.
+      onRecordingStateChange?.(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -318,6 +329,7 @@ export function VoiceNoteRecorder({
         return url;
       });
       setState("preview");
+      onRecordingStateChange?.(false);
     };
     recorder.onerror = () => {
       cleanupTimers();
@@ -325,6 +337,7 @@ export function VoiceNoteRecorder({
       restoreVideoMute();
       setError("Recording failed. Please try again.");
       setState("idle");
+      onRecordingStateChange?.(false);
     };
 
     // Pause the video and capture the moment the user wants the note to
@@ -343,6 +356,7 @@ export function VoiceNoteRecorder({
 
     setCountdownValue(COUNTDOWN_SECONDS);
     setState("countdown");
+    onRecordingStateChange?.(true);
 
     // Tick down each second; the final tick begins recording.
     for (let i = 1; i <= COUNTDOWN_SECONDS; i++) {
@@ -368,6 +382,7 @@ export function VoiceNoteRecorder({
     restoreVideoMute();
     setCountdownValue(COUNTDOWN_SECONDS);
     setState("idle");
+    onRecordingStateChange?.(false);
   };
 
   const handleStop = () => {

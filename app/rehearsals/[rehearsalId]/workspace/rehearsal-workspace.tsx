@@ -31,7 +31,15 @@ import {
 import { TipSequence, type TipStep } from "@/components/onboarding/tip-sequence"
 import type { NoteTag } from "@/lib/notes/tags"
 
+import { useMediaQuery } from "@/lib/hooks/use-media-query"
+
 import { AddNoteCard } from "./add-note-card"
+import type { ComposerMode } from "./composer-body"
+import {
+  COMPOSER_PEEK_SNAP,
+  type ComposerSnap,
+  MobileComposerSheet,
+} from "./mobile-composer-sheet"
 import { NotesListCard } from "./notes-list-card"
 import { NotesSummary } from "./notes-summary"
 import { RehearsalTimelineCard } from "./rehearsal-timeline-card"
@@ -127,6 +135,10 @@ export function RehearsalWorkspace({
   const timelineRef = useRef<HTMLDivElement | null>(null)
   const isScrubbingRef = useRef(false)
   const activePointerIdRef = useRef<number | null>(null)
+  // Picks which composer shell mounts. Returns null on first render (SSR /
+  // pre-hydration); both shells skip rendering until it resolves so we never
+  // double-mount VoiceNoteRecorder (which would double-request the mic).
+  const isDesktop = useMediaQuery("(min-width: 1024px)")
 
   const [playbackUrl, setPlaybackUrl] = useState<string | null>(null)
   const [isLoadingVideo, setIsLoadingVideo] = useState(true)
@@ -142,6 +154,8 @@ export function RehearsalWorkspace({
     string[]
   >([])
   const [selectedTag, setSelectedTag] = useState<NoteTag | null>(null)
+  const [composerMode, setComposerMode] = useState<ComposerMode>("TEXT")
+  const [audienceOpen, setAudienceOpen] = useState(false)
   const selectedTagRef = useRef<NoteTag | null>(null)
   useEffect(() => {
     selectedTagRef.current = selectedTag
@@ -152,16 +166,16 @@ export function RehearsalWorkspace({
   const [editingNote, setEditingNote] = useState<NoteItem | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
 
-  // Tracks which voice notes are currently driving synced video playback.
-  // While non-empty, the rehearsal video pins to the top of the viewport on
-  // mobile so the user can keep watching while scrolling notes. A Set (not a
-  // boolean) handles overlapping playback gracefully — if A is still going
-  // when B starts, the video stays pinned until both finish.
+  // ── Sticky-video triggers (mobile only) ──────────────────────────────
+  // The video pins to the top of the viewport on mobile when any of four
+  // signals are active. Set unions to a single `isVideoPinned` boolean
+  // applied via the existing `max-lg:sticky` className on the video card.
+  //
+  // 1. Voice-note sync playback. Tracks which audio assets are currently
+  //    driving synced video playback (Set handles overlap gracefully).
   const [syncingAudioIds, setSyncingAudioIds] = useState<Set<string>>(
     () => new Set()
   )
-  const isVoiceSyncActive = syncingAudioIds.size > 0
-
   const handleSyncPlaybackChange = useCallback(
     (audioAssetId: string, isPlaying: boolean) => {
       setSyncingAudioIds((prev) => {
@@ -173,6 +187,39 @@ export function RehearsalWorkspace({
     },
     []
   )
+  // 2. Video actively playing.
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false)
+  // 3. Recent timestamp tap. Pinned for ~10s after a user-initiated jump
+  //    so the video stays in view while they read what they just jumped to.
+  const tapPinTimeoutRef = useRef<number | null>(null)
+  const [timestampTapPinned, setTimestampTapPinned] = useState(false)
+  useEffect(() => {
+    return () => {
+      if (tapPinTimeoutRef.current !== null) {
+        window.clearTimeout(tapPinTimeoutRef.current)
+      }
+    }
+  }, [])
+  // 4. Composer sheet expanded (mobile only). Derived from the lifted snap
+  //    state below — no separate signal needed.
+
+  // Lifted from MobileComposerSheet so #4 above can read it without a
+  // callback round-trip. Desktop ignores it (no sheet mounted).
+  const [composerSnap, setComposerSnap] =
+    useState<ComposerSnap>(COMPOSER_PEEK_SNAP)
+  const composerExpanded = composerSnap !== COMPOSER_PEEK_SNAP
+
+  // Voice-recording lock state. True during countdown/recording (not while
+  // saving). Used by the sheet to disable mode toggles and bounce snap
+  // changes back to EXPANDED_SNAP so accidental swipes can't kill an
+  // in-flight take.
+  const [isRecording, setIsRecording] = useState(false)
+
+  const isVideoPinned =
+    syncingAudioIds.size > 0 ||
+    composerExpanded ||
+    isVideoPlaying ||
+    timestampTapPinned
 
   const [isPending, startTransition] = useTransition()
   const [isEditPending, startEditTransition] = useTransition()
@@ -250,6 +297,18 @@ export function RehearsalWorkspace({
     videoRef.current.currentTime = timestampMs / 1000
     setCurrentPlaybackMs(timestampMs)
     videoRef.current.focus()
+
+    // Pin the video sticky for ~10s after a user-initiated jump so they can
+    // see what they jumped to while continuing to scroll. Re-tapping resets
+    // the timer (clear-then-set) instead of accumulating.
+    if (tapPinTimeoutRef.current !== null) {
+      window.clearTimeout(tapPinTimeoutRef.current)
+    }
+    setTimestampTapPinned(true)
+    tapPinTimeoutRef.current = window.setTimeout(() => {
+      setTimestampTapPinned(false)
+      tapPinTimeoutRef.current = null
+    }, 10_000)
   }
 
   const handleTimelinePointer = (clientX: number) => {
@@ -501,7 +560,7 @@ export function RehearsalWorkspace({
         <div className="contents lg:flex lg:flex-col lg:gap-4 lg:sticky lg:top-4 lg:self-start">
           <div
             className={cn(
-              isVoiceSyncActive &&
+              isVideoPinned &&
                 "max-lg:sticky max-lg:top-0 max-lg:z-20 max-lg:shadow-md max-lg:transition-shadow"
             )}
           >
@@ -515,6 +574,7 @@ export function RehearsalWorkspace({
               videoDurationMs={videoDurationMs}
               onDurationChange={setVideoDurationMs}
               onCurrentTimeChange={setCurrentPlaybackMs}
+              onPlayingChange={setIsVideoPlaying}
             />
           </div>
           <div data-onboarding-anchor="workspace-timeline">
@@ -531,8 +591,12 @@ export function RehearsalWorkspace({
           </div>
         </div>
 
-        {/* RIGHT — thread column: spine, filter+list card, sticky composer */}
-        <div className="flex min-w-0 flex-col gap-4">
+        {/* RIGHT — thread column: spine, filter+list card, sticky composer.
+            On mobile the composer sheet sits ~80px tall at the bottom of the
+            viewport over the page content, so add padding-bottom to ensure
+            the last notes/items aren't hidden under the peek dock. lg+ uses
+            an in-flow sticky composer instead and doesn't need the padding. */}
+        <div className="flex min-w-0 flex-col gap-4 max-lg:pb-24">
           <NotesSummary notes={sortedNotes} />
 
           <div data-onboarding-anchor="workspace-notes">
@@ -550,42 +614,91 @@ export function RehearsalWorkspace({
           </div>
 
           {canAuthorNotes ? (
-            <div
-              data-onboarding-anchor="workspace-composer"
-              className="sticky bottom-4 z-10"
-            >
-              <AddNoteCard
-                rehearsalId={rehearsalId}
-                videoRef={videoRef}
-                selectedTimestampMs={selectedTimestampMs}
-                noteText={noteText}
-                onNoteTextChange={setNoteText}
-                selectedAssigneeUserIds={selectedAssigneeUserIds}
-                assignableMembers={assignableMembers}
-                availableGroups={availableGroups}
-                selectedGroupIds={selectedGroupIds}
-                onToggleAssignee={handleToggleAssignee}
-                onToggleGroup={handleToggleGroup}
-                isFullCast={isFullCast}
-                onToggleFullCast={handleToggleFullCast}
-                selectedTag={selectedTag}
-                onSelectedTagChange={setSelectedTag}
-                getSelectedTag={getSelectedTag}
-                noteError={noteError}
-                isPending={isPending}
-                disabled={!playbackUrl || isPending}
-                onCapture={captureCurrentTimestamp}
-                onSubmit={handleCreateNote}
-                onVoiceNoteSaved={() => {
-                  setSelectedAssigneeUserIds([])
-                  setSelectedGroupIds([])
-                  setIsFullCast(false)
-                  setSelectedTag(null)
-                  router.refresh()
-                  toast.success("Voice note added")
-                }}
-              />
-            </div>
+            <>
+              {isDesktop === true ? (
+                <div
+                  data-onboarding-anchor="workspace-composer"
+                  className="sticky bottom-4 z-10"
+                >
+                  <AddNoteCard
+                    rehearsalId={rehearsalId}
+                    videoRef={videoRef}
+                    selectedTimestampMs={selectedTimestampMs}
+                    noteText={noteText}
+                    onNoteTextChange={setNoteText}
+                    mode={composerMode}
+                    onModeChange={setComposerMode}
+                    audienceOpen={audienceOpen}
+                    onAudienceOpenChange={setAudienceOpen}
+                    selectedAssigneeUserIds={selectedAssigneeUserIds}
+                    assignableMembers={assignableMembers}
+                    availableGroups={availableGroups}
+                    selectedGroupIds={selectedGroupIds}
+                    onToggleAssignee={handleToggleAssignee}
+                    onToggleGroup={handleToggleGroup}
+                    isFullCast={isFullCast}
+                    onToggleFullCast={handleToggleFullCast}
+                    selectedTag={selectedTag}
+                    onSelectedTagChange={setSelectedTag}
+                    getSelectedTag={getSelectedTag}
+                    noteError={noteError}
+                    isPending={isPending}
+                    disabled={!playbackUrl || isPending}
+                    onCapture={captureCurrentTimestamp}
+                    onSubmit={handleCreateNote}
+                    onVoiceNoteSaved={() => {
+                      setSelectedAssigneeUserIds([])
+                      setSelectedGroupIds([])
+                      setIsFullCast(false)
+                      setSelectedTag(null)
+                      router.refresh()
+                      toast.success("Voice note added")
+                    }}
+                  />
+                </div>
+              ) : null}
+              {isDesktop === false ? (
+                <MobileComposerSheet
+                  rehearsalId={rehearsalId}
+                  videoRef={videoRef}
+                  selectedTimestampMs={selectedTimestampMs}
+                  noteText={noteText}
+                  onNoteTextChange={setNoteText}
+                  mode={composerMode}
+                  onModeChange={setComposerMode}
+                  audienceOpen={audienceOpen}
+                  onAudienceOpenChange={setAudienceOpen}
+                  selectedAssigneeUserIds={selectedAssigneeUserIds}
+                  assignableMembers={assignableMembers}
+                  availableGroups={availableGroups}
+                  selectedGroupIds={selectedGroupIds}
+                  onToggleAssignee={handleToggleAssignee}
+                  onToggleGroup={handleToggleGroup}
+                  isFullCast={isFullCast}
+                  onToggleFullCast={handleToggleFullCast}
+                  selectedTag={selectedTag}
+                  onSelectedTagChange={setSelectedTag}
+                  getSelectedTag={getSelectedTag}
+                  noteError={noteError}
+                  isPending={isPending}
+                  disabled={!playbackUrl || isPending}
+                  onCapture={captureCurrentTimestamp}
+                  onSubmit={handleCreateNote}
+                  onVoiceNoteSaved={() => {
+                    setSelectedAssigneeUserIds([])
+                    setSelectedGroupIds([])
+                    setIsFullCast(false)
+                    setSelectedTag(null)
+                    router.refresh()
+                    toast.success("Voice note added")
+                  }}
+                  snap={composerSnap}
+                  onSnapChange={setComposerSnap}
+                  isRecording={isRecording}
+                  onRecordingStateChange={setIsRecording}
+                />
+              ) : null}
+            </>
           ) : (
             <div className="rounded-lg border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
               Only admins, instructors, and assistants can author notes.
@@ -613,8 +726,19 @@ export function RehearsalWorkspace({
         initiallyDismissed={workspaceTipsDismissed}
         // Only run for note-authoring roles (the composer step's anchor only
         // exists when canAuthorNotes), and only after the video URL resolves
-        // so the timeline anchor isn't pointing at an empty stage.
-        enabled={canAuthorNotes && playbackUrl !== null}
+        // so the timeline anchor isn't pointing at an empty stage. Also
+        // hidden while the mobile composer sheet is expanded — the tip's
+        // anchor positioning doesn't follow Vaul's transform animation, so
+        // hiding the tip until the sheet collapses prevents the orphaned-
+        // popover look. State is preserved across the gate (TipSequence
+        // returns null when disabled but stays mounted), so the same step
+        // resumes when the sheet returns to peek.
+        enabled={canAuthorNotes && playbackUrl !== null && !composerExpanded}
+        // On every advance (Next / Got it / Skip), collapse the mobile
+        // composer sheet back to peek so the next tip's anchor isn't
+        // obscured by the expanded sheet (~55vh covers the notes section).
+        // No-op on desktop since the sheet isn't mounted there.
+        onBeforeAdvance={() => setComposerSnap(COMPOSER_PEEK_SNAP)}
       />
     </>
   )

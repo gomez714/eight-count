@@ -22,6 +22,10 @@ type RehearsalVideoCardProps = {
   videoDurationMs: number
   onDurationChange: (durationMs: number) => void
   onCurrentTimeChange: (currentMs: number) => void
+  // Notifies the workspace whenever play state flips. Used to pin the video
+  // sticky on mobile while it's actively playing so the user can keep
+  // watching while scrolling notes.
+  onPlayingChange?: (isPlaying: boolean) => void
 }
 
 export function RehearsalVideoCard({
@@ -34,6 +38,7 @@ export function RehearsalVideoCard({
   videoDurationMs,
   onDurationChange,
   onCurrentTimeChange,
+  onPlayingChange,
 }: RehearsalVideoCardProps) {
   const [isPlaying, setIsPlaying] = useState(false)
 
@@ -126,9 +131,18 @@ export function RehearsalVideoCard({
               Math.floor((event.currentTarget.currentTime ?? 0) * 1000)
             )
           }}
-          onPlay={() => setIsPlaying(true)}
-          onPause={() => setIsPlaying(false)}
-          onEnded={() => setIsPlaying(false)}
+          onPlay={() => {
+            setIsPlaying(true)
+            onPlayingChange?.(true)
+          }}
+          onPause={() => {
+            setIsPlaying(false)
+            onPlayingChange?.(false)
+          }}
+          onEnded={() => {
+            setIsPlaying(false)
+            onPlayingChange?.(false)
+          }}
           onClick={handlePlayToggle}
         >
           Your browser does not support video playback.
