@@ -17,15 +17,14 @@ import { ComposerPeekRow } from "./composer-peek-row";
 // Exported so the workspace can use them when controlling snap state and
 // deriving `composerExpanded` for the sticky-video logic.
 export const COMPOSER_PEEK_SNAP = "80px";
-// Single expanded snap shared by text and voice modes. Set to 55vh so the
-// textarea sits in the upper portion of the sheet, leaving it visible above
-// a typical on-screen keyboard without relying on Vaul's `repositionInputs`
-// auto-lift (which had keyboard-dismiss restoration bugs on real devices).
-// We accept a few pixels of overlap on the smallest phones rather than the
-// auto-lift's white-screen / stuck-near-keyboard glitches. Long textareas
+// Single expanded snap shared by text and voice modes. Tuned tight (28vh)
+// to size the sheet roughly to its content. Vaul's keyboard auto-lift is
+// disabled below (`repositionInputs={false}`) because of real-device
+// glitches; on Android the OS resizes the visible viewport when the
+// keyboard appears so the sheet naturally sits above it. Long textareas
 // grow inside the body via `field-sizing-content` and scroll through
 // `overflow-y-auto` rather than expanding the sheet.
-export const COMPOSER_EXPANDED_SNAP = 0.55;
+export const COMPOSER_EXPANDED_SNAP = 0.28;
 
 export type ComposerSnap = number | string;
 
@@ -179,8 +178,8 @@ export function MobileComposerSheet(props: MobileComposerSheetProps) {
           // h-full is what Vaul's snap math expects — the drawer is 100% of
           // its parent (the portal target / viewport), and Vaul translates
           // the element so only the snap-defined amount is visible at the
-          // bottom. Constraining the height (e.g. `h-[55vh]` or
-          // `max-h-[55vh]`) breaks Vaul's positioning and the drawer ends
+          // bottom. Constraining the height (e.g. `h-[28vh]` or
+          // `max-h-[28vh]`) breaks Vaul's positioning and the drawer ends
           // up below the viewport. Over-drag past EXPANDED_SNAP during the
           // gesture is bounded by Vaul's release-snap (returns to nearest
           // snap on release) and the `dismissible={false}` floor at peek.

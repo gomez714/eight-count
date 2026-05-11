@@ -736,7 +736,7 @@ export function RehearsalWorkspace({
         enabled={canAuthorNotes && playbackUrl !== null && !composerExpanded}
         // On every advance (Next / Got it / Skip), collapse the mobile
         // composer sheet back to peek so the next tip's anchor isn't
-        // obscured by the expanded sheet (~55vh covers the bottom of the
+        // obscured by the expanded sheet (~28vh covers the bottom of the
         // notes section). No-op on desktop since the sheet isn't mounted.
         onBeforeAdvance={() => setComposerSnap(COMPOSER_PEEK_SNAP)}
       />
