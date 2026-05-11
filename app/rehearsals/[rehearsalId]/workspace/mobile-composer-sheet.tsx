@@ -25,7 +25,7 @@ export const COMPOSER_PEEK_SNAP = "80px"
 // preferable to clipping voice preview's player + Save button. Long
 // textareas grow inside the body via `field-sizing-content` and scroll
 // through `overflow-y-auto` rather than expanding the sheet.
-export const COMPOSER_EXPANDED_SNAP = "280px"
+export const COMPOSER_EXPANDED_SNAP = "220px"
 
 export type ComposerSnap = number | string
 
