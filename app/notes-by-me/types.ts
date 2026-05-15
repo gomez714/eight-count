@@ -1,3 +1,4 @@
+import type { ThreadReactionSummary } from "@/lib/notes/comments";
 import type { NoteStatus } from "@/lib/notes/statuses";
 import type { NoteTag } from "@/lib/notes/tags";
 
@@ -6,6 +7,12 @@ export type AuthoredAssignmentCounts = Record<NoteStatus, number>;
 export type AuthoredRepeatingMarker = {
   tag: NoteTag;
   count: number;
+};
+
+export type AuthoredThreadSummary = {
+  commentCount: number;
+  reactions: ThreadReactionSummary[];
+  hasUnread: boolean;
 };
 
 export type AuthoredNoteFilter =
@@ -63,6 +70,7 @@ export type AuthoredNoteRow = {
   stalled: boolean;
   /** True if any of this note's assignments are part of a repeating cluster. */
   hasRepeating: boolean;
+  thread: AuthoredThreadSummary;
   rehearsal: {
     id: string;
     title: string;

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Drawer as DrawerPrimitive } from "vaul"
 
 import { cn } from "@/lib/utils"
@@ -17,7 +17,7 @@ import { ComposerPeekRow } from "./composer-peek-row"
 // Exported so the workspace can use them when controlling snap state and
 // deriving `composerExpanded` for the sticky-video logic.
 export const COMPOSER_PEEK_SNAP = "80px"
-// Single expanded snap shared by text and voice modes. Sized to the
+// Default expanded snap shared by text and voice modes. Sized to the
 // composer's worst-case content height rather than as a viewport fraction:
 // drag handle 18 + sub-bar 84 (wrapped on narrow phones) + body padding 24
 // + voice preview body 150 ≈ 276 → 280 with a hair of breathing room.
@@ -26,6 +26,14 @@ export const COMPOSER_PEEK_SNAP = "80px"
 // textareas grow inside the body via `field-sizing-content` and scroll
 // through `overflow-y-auto` rather than expanding the sheet.
 export const COMPOSER_EXPANDED_SNAP = "220px"
+// Writing-mode snap — auto-activated when the user focuses the textarea
+// in text mode. Tall enough for a comfortable textarea (~180px), the
+// sub-bar, and the Post button. Sized to its content (not a viewport
+// fraction) so it doesn't leave a dead zone between the composer and
+// the keyboard. When this snap is active, the workspace hides the video
+// and timeline on mobile so the user has room to write. See "Mobile
+// composer sheet → Writing mode" in CLAUDE.md.
+export const COMPOSER_WRITING_SNAP = "340px"
 
 export type ComposerSnap = number | string
 
@@ -139,12 +147,12 @@ export function MobileComposerSheet(props: MobileComposerSheetProps) {
     onSnapChange(COMPOSER_EXPANDED_SNAP)
   }
 
-  // Tapping the audience chip in peek expands AND opens the picker. Both
-  // setState calls batch — by the time ComposerBody mounts (because
-  // !isPeek), audienceOpen is already true, so the popover renders open.
+  // Tapping the audience chip in peek opens the picker. The workspace's
+  // `onAudienceOpenChange` wrapper handles snap promotion (writing snap)
+  // so the inline panel has room — see `handleAudienceOpenChange` in
+  // rehearsal-workspace.tsx. We just fire the open call.
   const handleTapAudience = () => {
     onAudienceOpenChange(true)
-    onSnapChange(COMPOSER_EXPANDED_SNAP)
   }
 
   const handleVoiceNoteSaved = () => {
@@ -154,13 +162,46 @@ export function MobileComposerSheet(props: MobileComposerSheetProps) {
 
   const isPeek = snap === COMPOSER_PEEK_SNAP
 
+  // Vaul's `modal={false}` prop only affects Vaul's own pointer-down
+  // and focus-outside handlers — it does NOT propagate to the underlying
+  // Radix `DialogPrimitive.Root`, which always renders in modal mode
+  // (engaging Radix's FocusScope). FocusScope traps focus inside the
+  // drawer by listening for `focusin` events on the document and
+  // refocusing the last drawer element when focus moves outside. That
+  // makes interactive elements on the page (e.g. comment composer
+  // textareas) impossible to click into while the sheet is open.
+  //
+  // Escape it with a capture-phase `focusin` listener that runs before
+  // Radix's bubble-phase listener and stops propagation when focus is
+  // moving to an element outside the drawer. `stopImmediatePropagation`
+  // in capture also stops bubble-phase handlers, so Radix's refocus
+  // never fires.
+  useEffect(() => {
+    const handler = (e: FocusEvent) => {
+      const target = e.target as Element | null
+      if (!target) return
+      // Vaul tags its content element with `data-vaul-drawer`. Anything
+      // outside that subtree is fair game for focus.
+      const drawerContent = document.querySelector("[data-vaul-drawer]")
+      if (drawerContent && !drawerContent.contains(target)) {
+        e.stopImmediatePropagation()
+      }
+    }
+    document.addEventListener("focusin", handler, true)
+    return () => document.removeEventListener("focusin", handler, true)
+  }, [])
+
   return (
     <DrawerPrimitive.Root
       open
       modal={false}
       dismissible={false}
       repositionInputs={false}
-      snapPoints={[COMPOSER_PEEK_SNAP, COMPOSER_EXPANDED_SNAP]}
+      snapPoints={[
+        COMPOSER_PEEK_SNAP,
+        COMPOSER_EXPANDED_SNAP,
+        COMPOSER_WRITING_SNAP,
+      ]}
       activeSnapPoint={snap}
       setActiveSnapPoint={handleSnapChange}
     >

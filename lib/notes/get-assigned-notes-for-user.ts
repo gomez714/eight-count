@@ -17,6 +17,20 @@ export async function getAssignedNotesForUser(userId: string) {
               group: true,
             },
           },
+          comments: {
+            select: {
+              authorId: true,
+              deletedAt: true,
+              createdAt: true,
+            },
+          },
+          reactions: {
+            select: { kind: true, userId: true },
+          },
+          threadViews: {
+            where: { userId },
+            select: { lastViewedAt: true },
+          },
           rehearsal: {
             include: {
               project: {

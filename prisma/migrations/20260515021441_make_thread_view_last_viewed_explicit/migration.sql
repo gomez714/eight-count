@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "NoteThreadView" ALTER COLUMN "lastViewedAt" SET DEFAULT CURRENT_TIMESTAMP;

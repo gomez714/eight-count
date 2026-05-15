@@ -9,6 +9,7 @@ import {
   type EditNoteFormValues,
   type EditableNote,
 } from "@/components/edit-note-sheet";
+import { ThreadExpansionProvider } from "@/components/notes/thread-expansion-context";
 import type {
   AssignableMember,
   AvailableGroup,
@@ -137,9 +138,10 @@ function buildTargetsFromSelection(
 
 type NotesByMeListProps = {
   notes: AuthoredNoteRow[];
+  viewerId: string;
 };
 
-export function NotesByMeList({ notes }: Readonly<NotesByMeListProps>) {
+export function NotesByMeList({ notes, viewerId }: Readonly<NotesByMeListProps>) {
   const router = useRouter();
   const [filter, setFilter] = useState<AuthoredNoteFilter>("OUTSTANDING");
   const [sort, setSort] = useState<AuthoredNoteSort>("STALLED_FIRST");
@@ -360,6 +362,7 @@ export function NotesByMeList({ notes }: Readonly<NotesByMeListProps>) {
   }
 
   return (
+    <ThreadExpansionProvider>
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-6 py-6">
       <AuthorSummaryStrip
         totalAssignments={summary.totalAssignments}
@@ -392,6 +395,7 @@ export function NotesByMeList({ notes }: Readonly<NotesByMeListProps>) {
             <AuthoredNoteCard
               key={row.id}
               row={row}
+              viewerId={viewerId}
               onEdit={handleOpenEdit}
               onDelete={handleDelete}
             />
@@ -410,5 +414,6 @@ export function NotesByMeList({ notes }: Readonly<NotesByMeListProps>) {
         onSubmit={handleSubmitEdit}
       />
     </div>
+    </ThreadExpansionProvider>
   );
 }

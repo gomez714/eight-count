@@ -48,10 +48,17 @@ export type AudioAssetItem = {
 };
 
 import type { NoteTag } from "@/lib/notes/tags";
+import type { ThreadReactionSummary } from "@/lib/notes/comments";
 
 export type RepeatingMarker = {
   tag: NoteTag;
   count: number;
+};
+
+export type NoteThreadSummaryItem = {
+  commentCount: number;
+  reactions: ThreadReactionSummary[];
+  hasUnread: boolean;
 };
 
 export type NoteItem = {
@@ -78,4 +85,6 @@ export type NoteItem = {
    */
   repeatingByAssignmentId?: Record<string, RepeatingMarker>;
   targets: NoteTargetItem[];
+  /** Pre-computed thread summary for the current viewer (chip seed). */
+  thread: NoteThreadSummaryItem;
 };

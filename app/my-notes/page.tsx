@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { SectionTabNav } from "@/components/section-tab-nav";
 import { ensureDbUser } from "@/lib/auth/ensure-db-user";
+import { summarizeThread } from "@/lib/notes/comments";
 import { getActiveAssignmentsForProjects } from "@/lib/notes/get-active-assignments-for-project";
 import { getAssignedNotesForUser } from "@/lib/notes/get-assigned-notes-for-user";
 import {
@@ -100,6 +101,12 @@ export default async function MyNotesPage() {
           ? { id: target.group.id, name: target.group.name }
           : null,
       })),
+      thread: summarizeThread({
+        viewerId: dbUser.id,
+        comments: assignment.note.comments,
+        reactions: assignment.note.reactions,
+        lastViewedAt: assignment.note.threadViews[0]?.lastViewedAt ?? null,
+      }),
       rehearsal: {
         id: assignment.note.rehearsal.id,
         title: assignment.note.rehearsal.title,
@@ -133,7 +140,11 @@ export default async function MyNotesPage() {
         </div>
       </div>
 
-      <MyNotesList rows={rows} tipsDismissed={myNotesTipsDismissed} />
+      <MyNotesList
+        rows={rows}
+        tipsDismissed={myNotesTipsDismissed}
+        viewerId={dbUser.id}
+      />
     </main>
   );
 }

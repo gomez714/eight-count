@@ -2,6 +2,7 @@ import { ChevronRight, Inbox, Send } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { UnreadCommentsIndicator } from "@/components/notes/unread-comments-indicator";
 import { cn } from "@/lib/utils";
 
 import type { MyNotesMetrics, NotesByMeMetrics } from "./types";
@@ -11,20 +12,27 @@ type WorkTilesProps = {
   notesByMe: NotesByMeMetrics;
   /** Whether to render the "Notes by me" tile. Hidden for users who can't author notes. */
   showNotesByMe: boolean;
+  /**
+   * Total unread comments across notes the viewer is in (author or assignee).
+   * Surfaced as a small accent line under each tile when > 0.
+   */
+  unreadComments: number;
 };
 
 export function WorkTiles({
   myNotes,
   notesByMe,
   showNotesByMe,
+  unreadComments,
 }: Readonly<WorkTilesProps>) {
   return (
-    <div
-      className={cn(
-        "grid gap-3 sm:gap-4",
-        showNotesByMe ? "grid-cols-2" : "grid-cols-1"
-      )}
-    >
+    <div className="flex flex-col gap-3">
+      <div
+        className={cn(
+          "grid gap-3 sm:gap-4",
+          showNotesByMe ? "grid-cols-2" : "grid-cols-1"
+        )}
+      >
       <Tile
         href="/my-notes"
         icon={<Inbox className="size-4" />}
@@ -61,6 +69,13 @@ export function WorkTiles({
             notesByMe.total === 0 ? "You haven't sent any yet" : null
           }
         />
+      ) : null}
+      </div>
+      {unreadComments > 0 ? (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <UnreadCommentsIndicator count={unreadComments} />
+          <span>across the notes you&apos;re part of</span>
+        </div>
       ) : null}
     </div>
   );

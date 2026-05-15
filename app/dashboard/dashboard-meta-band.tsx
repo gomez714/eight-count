@@ -1,16 +1,18 @@
-import { Inbox, Users } from "lucide-react";
+import { Inbox, MessageCircle, Users } from "lucide-react";
 import type { ReactNode } from "react";
 
 type DashboardMetaBandProps = {
   displayName: string | null;
   teamsCount: number;
   onPlateCount: number;
+  unreadComments: number;
 };
 
 export function DashboardMetaBand({
   displayName,
   teamsCount,
   onPlateCount,
+  unreadComments,
 }: Readonly<DashboardMetaBandProps>) {
   const greeting = displayName ? `Welcome back, ${displayName}` : "Welcome back";
 
@@ -39,6 +41,14 @@ export function DashboardMetaBand({
             value={String(onPlateCount)}
             mobileLabel="on your plate"
           />
+          {unreadComments > 0 ? (
+            <MetaChip
+              icon={<MessageCircle className="size-3.5" />}
+              label="New replies"
+              value={String(unreadComments)}
+              mobileLabel={unreadComments === 1 ? "new reply" : "new replies"}
+            />
+          ) : null}
         </div>
       </div>
     </div>

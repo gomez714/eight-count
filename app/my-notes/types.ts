@@ -1,3 +1,4 @@
+import type { ThreadReactionSummary } from "@/lib/notes/comments";
 import type { NoteStatus } from "@/lib/notes/statuses";
 import type { NoteTag } from "@/lib/notes/tags";
 
@@ -7,6 +8,12 @@ export type { NoteStatus } from "@/lib/notes/statuses";
 export type RepeatingMarker = {
   tag: NoteTag;
   count: number;
+};
+
+export type AssignedNoteThreadSummary = {
+  commentCount: number;
+  reactions: ThreadReactionSummary[];
+  hasUnread: boolean;
 };
 
 export const DEFAULT_EXPANDED_STATUSES: Record<NoteStatus, boolean> = {
@@ -92,6 +99,7 @@ export type AssignedNoteRow = {
       email: string;
     };
     targets: AssignedNoteTarget[];
+    thread: AssignedNoteThreadSummary;
     rehearsal: {
       id: string;
       title: string;

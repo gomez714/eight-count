@@ -7,6 +7,7 @@ import { AudienceChips } from "@/components/audience-chips";
 import { NoteActionsMenu } from "@/components/note-actions-menu";
 import { NoteProgressBar } from "@/components/note-progress-bar";
 import { NoteRehearsalLink } from "@/components/note-rehearsal-link";
+import { NoteThreadAttachment } from "@/components/notes/note-thread-attachment";
 import { NoteTimestampPill } from "@/components/note-timestamp-pill";
 import { TagChip } from "@/components/tag-chip";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ import type { AuthoredNoteRow } from "./types";
 
 type AuthoredNoteCardProps = {
   row: AuthoredNoteRow;
+  viewerId: string;
   onEdit: (row: AuthoredNoteRow) => void;
   onDelete: (row: AuthoredNoteRow) => void | Promise<void>;
 };
@@ -50,6 +52,7 @@ function buildPendingDeleteWarning(
 
 export function AuthoredNoteCard({
   row,
+  viewerId,
   onEdit,
   onDelete,
 }: Readonly<AuthoredNoteCardProps>) {
@@ -215,6 +218,15 @@ export function AuthoredNoteCard({
             <RecipientPipRow assignments={row.assignments} stalled={row.stalled} />
           </div>
         )}
+
+        <NoteThreadAttachment
+          noteId={row.id}
+          viewerId={viewerId}
+          initialCommentCount={row.thread.commentCount}
+          initialReactions={row.thread.reactions}
+          initialHasUnread={row.thread.hasUnread}
+          showStartHint
+        />
       </div>
     </article>
   );

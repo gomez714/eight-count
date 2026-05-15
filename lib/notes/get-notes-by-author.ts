@@ -25,6 +25,20 @@ export async function getNotesByAuthor(authorUserId: string) {
           status: true,
         },
       },
+      comments: {
+        select: {
+          authorId: true,
+          deletedAt: true,
+          createdAt: true,
+        },
+      },
+      reactions: {
+        select: { kind: true, userId: true },
+      },
+      threadViews: {
+        where: { userId: authorUserId },
+        select: { lastViewedAt: true },
+      },
       rehearsal: {
         include: {
           project: {

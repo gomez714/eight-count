@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
+import { ThreadExpansionProvider } from "@/components/notes/thread-expansion-context";
 import { TipSequence, type TipStep } from "@/components/onboarding/tip-sequence";
 import {
   NOTE_STATUSES,
@@ -53,6 +54,7 @@ const STATUS_BORDER: Record<NoteStatus, string> = {
 type MyNotesListProps = {
   rows: AssignedNoteRow[];
   tipsDismissed: boolean;
+  viewerId: string;
 };
 
 const MY_NOTES_TIP_STEPS: TipStep[] = [
@@ -162,6 +164,7 @@ function StatusGroup({
 export function MyNotesList({
   rows,
   tipsDismissed,
+  viewerId,
 }: Readonly<MyNotesListProps>) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -379,7 +382,7 @@ export function MyNotesList({
   );
 
   return (
-    <>
+    <ThreadExpansionProvider>
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-6 py-6">
       <div data-print-hidden className="flex justify-end">
         <ViewToggle viewMode={viewMode} onChange={setViewMode} />
@@ -443,7 +446,7 @@ export function MyNotesList({
                     Oldest unresolved note
                   </span>
                 </div>
-                <AssignedNoteCard row={heroRow} hero />
+                <AssignedNoteCard row={heroRow} viewerId={viewerId} hero />
               </section>
             ) : null}
 
@@ -457,7 +460,7 @@ export function MyNotesList({
                 onToggle={() => toggleStatus(status)}
               >
                 {buckets[status].map((row) => (
-                  <AssignedNoteCard key={row.id} row={row} />
+                  <AssignedNoteCard key={row.id} row={row} viewerId={viewerId} />
                 ))}
               </StatusGroup>
             ))}
@@ -477,7 +480,7 @@ export function MyNotesList({
       // the empty-state card. Also skip when in drill mode (anchors absent).
       enabled={rows.length > 0 && viewMode === "inbox"}
     />
-    </>
+    </ThreadExpansionProvider>
   );
 }
 

@@ -62,6 +62,26 @@ export async function getRehearsalForUser(rehearsalId: string, userId: string) {
               group: true,
             },
           },
+          comments: {
+            // Threads are flat; we only need the metadata to derive the
+            // chip summary (count, hasUnread). The full bodies are
+            // fetched on expand via /api/notes/[noteId]/comments.
+            select: {
+              authorId: true,
+              deletedAt: true,
+              createdAt: true,
+            },
+          },
+          reactions: {
+            select: {
+              kind: true,
+              userId: true,
+            },
+          },
+          threadViews: {
+            where: { userId },
+            select: { lastViewedAt: true },
+          },
         },
         orderBy: {
           startTimestampMs: "asc",

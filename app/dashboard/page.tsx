@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { ensureDbUser } from "@/lib/auth/ensure-db-user";
 import { db } from "@/lib/db";
+import { getUnreadCommentCountForUser } from "@/lib/notes/get-unread-comment-count";
 import { isNoteStalled } from "@/lib/notes/stalled";
 import { isActiveStatus, type NoteStatus } from "@/lib/notes/statuses";
 import {
@@ -47,7 +48,8 @@ export default async function DashboardPage() {
     redirect("/sign-in");
   }
 
-  const [memberships, myAssignments, authoredNotes] = await Promise.all([
+  const [memberships, myAssignments, authoredNotes, unreadComments] =
+    await Promise.all([
     db.teamMember.findMany({
       where: { userId: dbUser.id },
       include: {
@@ -91,6 +93,7 @@ export default async function DashboardPage() {
         },
       },
     }),
+    getUnreadCommentCountForUser(dbUser.id),
   ]);
 
   // Per-team aggregation for the row cards.
@@ -197,6 +200,7 @@ export default async function DashboardPage() {
         displayName={displayName}
         teamsCount={memberships.length}
         onPlateCount={myNotes.onPlate}
+        unreadComments={unreadComments}
       />
 
       <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 sm:p-6 sm:gap-8">
@@ -210,6 +214,7 @@ export default async function DashboardPage() {
           myNotes={myNotes}
           notesByMe={notesByMe}
           showNotesByMe={showNotesByMe}
+          unreadComments={unreadComments}
         />
 
         <TeamsSection teams={teamRows} />

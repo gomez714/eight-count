@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { AudienceChips } from "@/components/audience-chips";
 import { AvatarInitials } from "@/components/avatar-initials";
 import { NoteRehearsalLink } from "@/components/note-rehearsal-link";
+import { NoteThreadAttachment } from "@/components/notes/note-thread-attachment";
 import { NoteTimestampPill } from "@/components/note-timestamp-pill";
 import { RepeatingChip } from "@/components/repeating-chip";
 import { TagChip } from "@/components/tag-chip";
@@ -26,6 +27,7 @@ import {
 
 type AssignedNoteCardProps = {
   row: AssignedNoteRow;
+  viewerId: string;
   hero?: boolean;
 };
 
@@ -44,6 +46,7 @@ function formatRelativeAge(date: Date): string {
 
 export function AssignedNoteCard({
   row,
+  viewerId,
   hero = false,
 }: Readonly<AssignedNoteCardProps>) {
   const [isPending, startTransition] = useTransition();
@@ -196,6 +199,15 @@ export function AssignedNoteCard({
             <ArrowRight aria-hidden className="size-3" />
           </Link>
         </div>
+
+        <NoteThreadAttachment
+          noteId={note.id}
+          viewerId={viewerId}
+          initialCommentCount={note.thread.commentCount}
+          initialReactions={note.thread.reactions}
+          initialHasUnread={note.thread.hasUnread}
+          showStartHint
+        />
       </div>
     </article>
   );

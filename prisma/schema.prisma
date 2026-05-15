@@ -72,6 +72,12 @@ enum TranscriptStatus {
   FAILED
 }
 
+enum ReactionKind {
+  ACKNOWLEDGE
+  QUESTION
+  ENCOURAGE
+}
+
 model User {
   id          String  @id @default(cuid())
   clerkUserId String  @unique
@@ -104,6 +110,9 @@ model User {
   noteTargets              NoteTarget[]            @relation("NoteTargetUser")
   invitationsSent          TeamInvitation[]        @relation("InvitationInviter")
   invitationsAccepted      TeamInvitation[]        @relation("InvitationAcceptor")
+  noteComments             NoteComment[]           @relation("NoteCommentAuthor")
+  noteReactions            NoteReaction[]          @relation("NoteReactionUser")
+  noteThreadViews          NoteThreadView[]        @relation("NoteThreadViewUser")
 }
 
 model Team {
@@ -312,6 +321,9 @@ model Note {
   audioAsset  AudioAsset?      @relation(fields: [audioAssetId], references: [id])
   assignments NoteAssignment[]
   targets     NoteTarget[]
+  comments    NoteComment[]
+  reactions   NoteReaction[]
+  threadViews NoteThreadView[]
 
   @@index([rehearsalId])
   @@index([videoAssetId])
@@ -368,4 +380,58 @@ model NoteTarget {
   @@index([noteId])
   @@index([userId])
   @@index([projectGroupId])
+}
+
+/// A reply on a note's thread. Flat (no nesting). Text-only in v1 —
+/// voice replies are deferred. `deletedAt` is a soft-delete tombstone:
+/// the row remains so thread continuity is preserved and the deleted
+/// author/timestamp can still render as "Comment deleted".
+model NoteComment {
+  id        String    @id @default(cuid())
+  noteId    String
+  authorId  String
+  bodyText  String
+  editedAt  DateTime?
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  note   Note @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  author User @relation("NoteCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([noteId, createdAt])
+  @@index([authorId])
+}
+
+/// One row per (note, user, kind) — the unique constraint enforces
+/// "one reaction per user per kind per note". Click-again-to-remove
+/// is implemented by deleting the row.
+model NoteReaction {
+  id        String       @id @default(cuid())
+  noteId    String
+  userId    String
+  kind      ReactionKind
+  createdAt DateTime     @default(now())
+
+  note Note @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  user User @relation("NoteReactionUser", fields: [userId], references: [id])
+
+  @@unique([noteId, userId, kind])
+  @@index([noteId])
+}
+
+/// Per-(note, user) last-viewed timestamp powering the dashboard
+/// unread-comment count. Upserted on thread expand. Author and all
+/// assignees are tracked uniformly — see "Note threads" in CLAUDE.md.
+model NoteThreadView {
+  noteId       String
+  userId       String
+  lastViewedAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  note Note @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  user User @relation("NoteThreadViewUser", fields: [userId], references: [id])
+
+  @@id([noteId, userId])
+  @@index([userId])
 }

@@ -1,5 +1,7 @@
 import type { ApiResponse } from "./responses"
 import type { NoteTag } from "@/lib/notes/tags"
+import type { ReactionKind } from "@/lib/notes/reactions"
+import type { ThreadComment, ThreadReactionSummary } from "@/lib/notes/comments"
 
 export type NoteTargetInput =
   | { kind: "EVERYONE" }
@@ -164,3 +166,39 @@ export type AudienceData = {
 }
 
 export type AudienceResponse = ApiResponse<AudienceData>
+
+export type ThreadData = {
+  noteId: string
+  comments: ThreadComment[]
+  reactions: ThreadReactionSummary[]
+  commentCount: number
+}
+
+export type ThreadResponse = ApiResponse<ThreadData>
+
+export type CreateCommentRequest = {
+  bodyText: string
+}
+
+export type CreateCommentResponse = ApiResponse<ThreadData>
+
+export type UpdateCommentRequest = {
+  bodyText: string
+}
+
+export type UpdateCommentResponse = ApiResponse<ThreadData>
+
+export type DeleteCommentResponse = ApiResponse<ThreadData>
+
+export type ToggleReactionRequest = {
+  kind: ReactionKind
+}
+
+export type ToggleReactionData = {
+  noteId: string
+  reactions: ThreadReactionSummary[]
+}
+
+export type ToggleReactionResponse = ApiResponse<ToggleReactionData>
+
+export type ThreadViewResponse = ApiResponse<{ noteId: string; viewedAt: string }>

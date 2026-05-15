@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { SectionTabNav } from "@/components/section-tab-nav";
 import { ensureDbUser } from "@/lib/auth/ensure-db-user";
+import { summarizeThread } from "@/lib/notes/comments";
 import { getActiveAssignmentsForProjects } from "@/lib/notes/get-active-assignments-for-project";
 import { getNotesByAuthor } from "@/lib/notes/get-notes-by-author";
 import {
@@ -109,6 +110,12 @@ export default async function NotesByMePage() {
         now: stalledNow,
       }),
       hasRepeating: assignments.some((a) => a.repeating !== null),
+      thread: summarizeThread({
+        viewerId: dbUser.id,
+        comments: note.comments,
+        reactions: note.reactions,
+        lastViewedAt: note.threadViews[0]?.lastViewedAt ?? null,
+      }),
       rehearsal: {
         id: note.rehearsal.id,
         title: note.rehearsal.title,
@@ -144,7 +151,7 @@ export default async function NotesByMePage() {
         </div>
       </div>
 
-      <NotesByMeList notes={rows} />
+      <NotesByMeList notes={rows} viewerId={dbUser.id} />
     </main>
   );
 }

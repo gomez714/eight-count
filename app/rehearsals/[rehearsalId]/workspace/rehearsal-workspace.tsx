@@ -28,6 +28,7 @@ import {
   type EditNoteFormValues,
   type EditableNote,
 } from "@/components/edit-note-sheet"
+import { ThreadExpansionProvider } from "@/components/notes/thread-expansion-context"
 import { TipSequence, type TipStep } from "@/components/onboarding/tip-sequence"
 import type { NoteTag } from "@/lib/notes/tags"
 
@@ -36,7 +37,9 @@ import { useMediaQuery } from "@/lib/hooks/use-media-query"
 import { AddNoteCard } from "./add-note-card"
 import type { ComposerMode } from "./composer-body"
 import {
+  COMPOSER_EXPANDED_SNAP,
   COMPOSER_PEEK_SNAP,
+  COMPOSER_WRITING_SNAP,
   type ComposerSnap,
   MobileComposerSheet,
 } from "./mobile-composer-sheet"
@@ -208,6 +211,65 @@ export function RehearsalWorkspace({
   const [composerSnap, setComposerSnap] =
     useState<ComposerSnap>(COMPOSER_PEEK_SNAP)
   const composerExpanded = composerSnap !== COMPOSER_PEEK_SNAP
+  // Writing mode: the sheet is at the writing snap (auto-activated when
+  // the user focuses the text-mode textarea). Drives two pieces of UX:
+  // (a) the textarea uses a 180px min-height for a comfortable typing
+  // surface, and (b) on mobile the video + timeline hide so they don't
+  // compete with the keyboard for vertical space.
+  const composerWritingMode = composerSnap === COMPOSER_WRITING_SNAP
+
+  const handleTextareaFocusChange = useCallback(
+    (focused: boolean) => {
+      // Only promote to the writing snap on focus. Don't auto-demote on
+      // blur — the user might tap the audience picker or another in-sheet
+      // control between keystrokes, and a snap-shrink would feel jumpy.
+      // The sheet returns to expanded/peek via explicit drag, send (auto-
+      // collapse to peek), or a mode toggle to voice (handled below).
+      if (!focused) return
+      if (composerMode !== "TEXT") return
+      if (composerSnap === COMPOSER_WRITING_SNAP) return
+      setComposerSnap(COMPOSER_WRITING_SNAP)
+    },
+    [composerMode, composerSnap],
+  )
+
+  // Mode-change handler. If the user toggles to voice while the sheet
+  // is at the writing snap, drop back to expanded — voice mode has no
+  // textarea, so the extra height would leave a dead zone above the
+  // recorder. Handling this inside the setter (not a useEffect) keeps
+  // the cascade local to the user action that caused it.
+  const handleComposerModeChange = useCallback(
+    (next: ComposerMode) => {
+      setComposerMode(next)
+      // Mode toggle is an explicit "I want a different composing surface"
+      // signal. If the audience panel was open (mobile inline path), the
+      // body would otherwise keep rendering it after the toggle since
+      // audience overrides mode in the body's render tree — confusing.
+      // Close it so the user sees the new mode's body immediately.
+      setAudienceOpen(false)
+      if (next === "VOICE" && composerSnap === COMPOSER_WRITING_SNAP) {
+        setComposerSnap(COMPOSER_EXPANDED_SNAP)
+      }
+    },
+    [composerSnap],
+  )
+
+  // Audience-open handler. On mobile the picker renders inline in the
+  // sheet body (replacing the textarea/recorder) — that needs room, so
+  // opening the picker promotes the sheet to the writing snap, which
+  // in turn hides the video + timeline on `max-lg:` (same vertical-space
+  // reclamation as the textarea-focus path). On desktop the popover
+  // overlays, no snap promotion needed (and the writing-snap state
+  // doesn't drive any desktop behavior anyway).
+  const handleAudienceOpenChange = useCallback(
+    (open: boolean) => {
+      setAudienceOpen(open)
+      if (open && composerSnap !== COMPOSER_WRITING_SNAP) {
+        setComposerSnap(COMPOSER_WRITING_SNAP)
+      }
+    },
+    [composerSnap],
+  )
 
   // Voice-recording lock state. True during countdown/recording (not while
   // saving). Used by the sheet to disable mode toggles and bounce snap
@@ -546,7 +608,7 @@ export function RehearsalWorkspace({
   }
 
   return (
-    <>
+    <ThreadExpansionProvider>
       {/*
         Mobile: flex column so the video card's containing block extends through
         the whole page (sticky requires that). lg+: original 2-column grid.
@@ -560,6 +622,12 @@ export function RehearsalWorkspace({
         <div className="contents lg:flex lg:flex-col lg:gap-4 lg:sticky lg:top-4 lg:self-start">
           <div
             className={cn(
+              // Writing mode (mobile only): the user is actively typing
+              // with the keyboard open. Hide the video to reclaim
+              // vertical space — the captured timestamp pill in the
+              // composer header is the load-bearing reference, not the
+              // live frame. Untouched on lg+.
+              composerWritingMode && "max-lg:hidden",
               isVideoPinned &&
                 "max-lg:sticky max-lg:top-0 max-lg:z-20 max-lg:shadow-md max-lg:transition-shadow"
             )}
@@ -577,7 +645,10 @@ export function RehearsalWorkspace({
               onPlayingChange={setIsVideoPlaying}
             />
           </div>
-          <div data-onboarding-anchor="workspace-timeline">
+          <div
+            data-onboarding-anchor="workspace-timeline"
+            className={cn(composerWritingMode && "max-lg:hidden")}
+          >
             <RehearsalTimelineCard
               timelineRef={timelineRef}
               currentPlaybackMs={currentPlaybackMs}
@@ -629,7 +700,7 @@ export function RehearsalWorkspace({
                     mode={composerMode}
                     onModeChange={setComposerMode}
                     audienceOpen={audienceOpen}
-                    onAudienceOpenChange={setAudienceOpen}
+                    onAudienceOpenChange={handleAudienceOpenChange}
                     selectedAssigneeUserIds={selectedAssigneeUserIds}
                     assignableMembers={assignableMembers}
                     availableGroups={availableGroups}
@@ -665,9 +736,11 @@ export function RehearsalWorkspace({
                   noteText={noteText}
                   onNoteTextChange={setNoteText}
                   mode={composerMode}
-                  onModeChange={setComposerMode}
+                  onModeChange={handleComposerModeChange}
+                  writingMode={composerWritingMode}
+                  onTextareaFocusChange={handleTextareaFocusChange}
                   audienceOpen={audienceOpen}
-                  onAudienceOpenChange={setAudienceOpen}
+                  onAudienceOpenChange={handleAudienceOpenChange}
                   selectedAssigneeUserIds={selectedAssigneeUserIds}
                   assignableMembers={assignableMembers}
                   availableGroups={availableGroups}
@@ -740,6 +813,6 @@ export function RehearsalWorkspace({
         // notes section). No-op on desktop since the sheet isn't mounted.
         onBeforeAdvance={() => setComposerSnap(COMPOSER_PEEK_SNAP)}
       />
-    </>
+    </ThreadExpansionProvider>
   )
 }

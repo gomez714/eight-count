@@ -3,6 +3,7 @@ import { Film } from "lucide-react"
 import { notFound, redirect } from "next/navigation"
 
 import { ensureDbUser } from "@/lib/auth/ensure-db-user"
+import { summarizeThread } from "@/lib/notes/comments"
 import { getActiveAssignmentsForProjects } from "@/lib/notes/get-active-assignments-for-project"
 import {
   buildRepeatingMarkerByAssignmentId,
@@ -140,6 +141,12 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
                 const marker = repeatingByAssignmentId.get(assignment.id)
                 if (marker) noteRepeating[assignment.id] = marker
               }
+              const threadSummary = summarizeThread({
+                viewerId: dbUser.id,
+                comments: note.comments,
+                reactions: note.reactions,
+                lastViewedAt: note.threadViews[0]?.lastViewedAt ?? null,
+              })
               return ({
               id: note.id,
               noteType: note.noteType,
@@ -179,6 +186,7 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
                   : null,
               })),
               repeatingByAssignmentId: noteRepeating,
+              thread: threadSummary,
               targets: note.targets.map((target) => ({
                 id: target.id,
                 kind: target.kind,

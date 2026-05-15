@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 
 import { AudienceChips } from "@/components/audience-chips";
 import { NoteActionsMenu } from "@/components/note-actions-menu";
+import { NoteThreadAttachment } from "@/components/notes/note-thread-attachment";
 import { RepeatingChip } from "@/components/repeating-chip";
 import { TagChip } from "@/components/tag-chip";
 import { Button } from "@/components/ui/button";
@@ -155,6 +156,7 @@ type NoteRowProps = {
   note: NoteItem;
   canEdit: boolean;
   canRetryTranscript: boolean;
+  currentUserId: string;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   onJumpToTimestamp: (timestampMs: number) => void;
   onEdit: (note: NoteItem) => void;
@@ -166,6 +168,7 @@ function NoteRow({
   note,
   canEdit,
   canRetryTranscript,
+  currentUserId,
   videoRef,
   onJumpToTimestamp,
   onEdit,
@@ -187,7 +190,7 @@ function NoteRow({
   const accent = isVoice ? "var(--note-voice-accent)" : "var(--primary)";
 
   return (
-    <article className="relative grid grid-cols-[84px_1fr] gap-4 rounded-lg border bg-card p-4 pl-3.5">
+    <article className="relative flex flex-col gap-3 rounded-lg border bg-card p-4 pl-3.5 sm:grid sm:grid-cols-[84px_1fr] sm:gap-4">
       <span
         aria-hidden
         className="absolute top-3.5 bottom-3.5 left-0 w-[3px] rounded-r"
@@ -198,7 +201,7 @@ function NoteRow({
         type="button"
         onClick={() => onJumpToTimestamp(note.startTimestampMs)}
         aria-label={`Jump to ${formatTimestamp(note.startTimestampMs)}`}
-        className="flex flex-col items-start gap-1 rounded text-left focus-visible:outline-2 focus-visible:outline-ring"
+        className="flex flex-row items-center gap-2 rounded text-left focus-visible:outline-2 focus-visible:outline-ring sm:flex-col sm:items-start sm:gap-1"
       >
         <span
           className="rounded-md px-2 py-1 font-mono text-sm font-semibold"
@@ -209,7 +212,7 @@ function NoteRow({
         >
           {formatTimestamp(note.startTimestampMs)}
         </span>
-        <span className="inline-flex items-center gap-1 pl-2 text-[10.5px] text-muted-foreground">
+        <span className="inline-flex items-center gap-1 text-[10.5px] text-muted-foreground sm:pl-2">
           {isVoice ? <Mic className="size-2.5" /> : <FileText className="size-2.5" />}
           {isVoice ? "Voice" : "Note"}
         </span>
@@ -292,6 +295,18 @@ function NoteRow({
             Unassigned
           </span>
         ) : null}
+
+        <NoteThreadAttachment
+          noteId={note.id}
+          viewerId={currentUserId}
+          initialCommentCount={note.thread.commentCount}
+          initialReactions={note.thread.reactions}
+          initialHasUnread={note.thread.hasUnread}
+          showStartHint={
+            note.author.id === currentUserId ||
+            note.assignments.some((a) => a.user.id === currentUserId)
+          }
+        />
       </div>
     </article>
   );
@@ -432,6 +447,7 @@ export function NotesListCard({
             note={note}
             canEdit={note.author.id === currentUserId}
             canRetryTranscript={canRetryTranscript}
+            currentUserId={currentUserId}
             videoRef={videoRef}
             onJumpToTimestamp={onJumpToTimestamp}
             onEdit={onEditNote}

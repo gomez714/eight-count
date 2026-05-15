@@ -2,7 +2,7 @@
 
 import { Check, ChevronsUpDown, Plus } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { AvatarInitials } from "@/components/avatar-initials";
@@ -29,18 +29,54 @@ type TeamSwitcherProps = {
   currentTeamId: string | null;
 };
 
+/**
+ * Derive the active team from the current pathname. The root layout (and
+ * therefore `AppHeader`) is not re-rendered during client-side navigation
+ * between sibling routes, so the server-resolved `currentTeamId` goes
+ * stale the moment the user navigates within the SPA. Reading the
+ * pathname client-side keeps the switcher's checked state truthful.
+ *
+ * - `/teams/[teamId]` — teamId is in the URL, use it.
+ * - `/dashboard`, `/my-notes`, `/notes-by-me`, `/` — no active team.
+ * - `/projects/[id]` and `/rehearsals/[id]` — team is opaque from the
+ *   URL; fall back to whatever the server passed. Correct on full-page
+ *   loads; may be stale if the user navigated client-side from one
+ *   team's project to another's, but that's a much rarer flow than
+ *   the switcher → team page path the user actually clicks.
+ */
+function deriveCurrentTeamId(
+  pathname: string,
+  fallback: string | null,
+): string | null {
+  const teamMatch = /^\/teams\/([^/]+)/.exec(pathname);
+  if (teamMatch) return teamMatch[1];
+
+  if (
+    pathname === "/" ||
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/my-notes") ||
+    pathname.startsWith("/notes-by-me")
+  ) {
+    return null;
+  }
+
+  return fallback;
+}
+
 export function TeamSwitcher({
   teams,
   currentTeamId,
 }: Readonly<TeamSwitcherProps>) {
   const router = useRouter();
+  const pathname = usePathname();
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
+  const activeTeamId = deriveCurrentTeamId(pathname, currentTeamId);
   const currentTeam =
-    currentTeamId !== null
-      ? teams.find((team) => team.id === currentTeamId)
-      : null;
+    activeTeamId === null
+      ? null
+      : (teams.find((team) => team.id === activeTeamId) ?? null);
 
   const triggerLabel = currentTeam?.name ?? "Switch team";
 
@@ -107,7 +143,7 @@ export function TeamSwitcher({
           ) : (
             <ul className="max-h-72 overflow-y-auto px-1 pb-1">
               {teams.map((team) => {
-                const isCurrent = team.id === currentTeamId;
+                const isCurrent = team.id === activeTeamId;
                 return (
                   <li key={team.id}>
                     <Link

@@ -4,6 +4,7 @@ import { ChevronDown, Clock, FileText, Mic, Send, Users } from "lucide-react";
 import { useMemo } from "react";
 
 import type { NoteTargetInput } from "@/lib/api/contracts";
+import { useMediaQuery } from "@/lib/hooks/use-media-query";
 import type { NoteTag } from "@/lib/notes/tags";
 import { Button } from "@/components/ui/button";
 import {
@@ -144,6 +145,19 @@ export type ComposerBodyProps = {
   // during countdown/recording. Desktop AddNoteCard doesn't pass it (no
   // sheet to lock), so the callback chain stays inert there.
   onRecordingStateChange?: (isRecording: boolean) => void;
+  /**
+   * Mobile only: when true, the text-mode textarea uses a larger
+   * min-height (180px vs 64px default) so the sheet's writing snap has
+   * a comfortable typing surface. Driven by the workspace based on
+   * `composerSnap === COMPOSER_WRITING_SNAP`.
+   */
+  writingMode?: boolean;
+  /**
+   * Mobile only: fires on the textarea's focus/blur so the workspace
+   * can promote the sheet to the writing snap (and hide the video +
+   * timeline) once the user actually starts typing.
+   */
+  onTextareaFocusChange?: (focused: boolean) => void;
 };
 
 export function ComposerBody({
@@ -174,7 +188,16 @@ export function ComposerBody({
   onSubmit,
   onVoiceNoteSaved,
   onRecordingStateChange,
+  writingMode = false,
+  onTextareaFocusChange,
 }: ComposerBodyProps) {
+  // Treat null (SSR / pre-hydration) as not-desktop. The audience popover
+  // would render off-screen on a mobile viewport, while the inline panel
+  // is benign during the brief unresolved window since `audienceOpen`
+  // is always false until the user taps the trigger post-hydration.
+  const isDesktop = useMediaQuery("(min-width: 1024px)") === true;
+  const useInlineAudience = !isDesktop;
+
   const fullCastCount = assignableMembers.length;
 
   const recipientCount = useMemo(
@@ -218,6 +241,78 @@ export function ComposerBody({
       })),
     ];
   };
+
+  // Body content — extracted as a variable (vs. nested ternaries inline)
+  // to keep the JSX flat and the function's cognitive complexity in check.
+  let body: React.ReactNode;
+  if (useInlineAudience && audienceOpen) {
+    // Mobile inline audience panel: replaces textarea/recorder while
+    // picking recipients. Sub-bar above stays so the user keeps
+    // timestamp + mode + tag context. "Done" closes the panel and
+    // returns to whichever mode they were in.
+    body = (
+      <InlineAudiencePanel
+        assignableMembers={assignableMembers}
+        availableGroups={availableGroups}
+        selectedGroupIds={selectedGroupIds}
+        selectedAssigneeUserIds={selectedAssigneeUserIds}
+        isFullCast={isFullCast}
+        disabled={isPending}
+        onToggleFullCast={onToggleFullCast}
+        onToggleGroup={onToggleGroup}
+        onToggleMember={onToggleAssignee}
+        onDone={() => onAudienceOpenChange(false)}
+      />
+    );
+  } else if (mode === "TEXT") {
+    body = (
+      <div className="flex flex-col gap-2">
+        <div className="flex items-end gap-2">
+          <Textarea
+            id="noteText"
+            value={noteText}
+            onChange={(event) => onNoteTextChange(event.target.value)}
+            onFocus={() => onTextareaFocusChange?.(true)}
+            onBlur={() => onTextareaFocusChange?.(false)}
+            placeholder={`Note at ${formatTimestamp(selectedTimestampMs)}…`}
+            disabled={isPending}
+            rows={writingMode ? 6 : 2}
+            className={cn(
+              "flex-1 resize-none",
+              writingMode ? "min-h-[180px]" : "min-h-[64px]"
+            )}
+          />
+          <Button
+            type="button"
+            onClick={onSubmit}
+            disabled={disabled}
+            size="sm"
+            className="shrink-0"
+          >
+            <Send className="size-3.5" />
+            {isPending ? "Posting…" : "Post"}
+          </Button>
+        </div>
+        {noteError ? (
+          <p className="text-xs text-destructive" role="alert">
+            {noteError}
+          </p>
+        ) : null}
+      </div>
+    );
+  } else {
+    body = (
+      <VoiceNoteRecorder
+        rehearsalId={rehearsalId}
+        videoRef={videoRef}
+        buildTargets={buildTargets}
+        getTag={getSelectedTag}
+        onSaved={onVoiceNoteSaved}
+        disabled={disabled}
+        onRecordingStateChange={onRecordingStateChange}
+      />
+    );
+  }
 
   return (
     <>
@@ -266,32 +361,55 @@ export function ComposerBody({
           To
         </span>
 
-        <Popover open={audienceOpen} onOpenChange={onAudienceOpenChange}>
-          <PopoverTrigger asChild>
-            <button
-              type="button"
-              disabled={isPending}
-              className="inline-flex h-7 items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs font-medium hover:bg-accent disabled:opacity-50"
-            >
-              {audienceSummary.icon}
-              <span>{audienceSummary.label}</span>
-              <ChevronDown className="size-3 opacity-60" />
-            </button>
-          </PopoverTrigger>
-          <PopoverContent className="w-[360px] p-0" align="start">
-            <AudiencePicker
-              assignableMembers={assignableMembers}
-              availableGroups={availableGroups}
-              selectedGroupIds={selectedGroupIds}
-              selectedAssigneeUserIds={selectedAssigneeUserIds}
-              isFullCast={isFullCast}
-              disabled={isPending}
-              onToggleFullCast={onToggleFullCast}
-              onToggleGroup={onToggleGroup}
-              onToggleMember={onToggleAssignee}
+        {useInlineAudience ? (
+          // Mobile: plain toggle button. The picker UI renders inline in
+          // the body area below (replacing textarea/recorder) when open,
+          // avoiding the popover-over-sheet-over-keyboard stacking
+          // problem on small viewports.
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => onAudienceOpenChange(!audienceOpen)}
+            aria-expanded={audienceOpen}
+            className="inline-flex h-7 items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs font-medium hover:bg-accent disabled:opacity-50"
+          >
+            {audienceSummary.icon}
+            <span>{audienceSummary.label}</span>
+            <ChevronDown
+              className={cn(
+                "size-3 opacity-60 transition-transform",
+                audienceOpen && "rotate-180",
+              )}
             />
-          </PopoverContent>
-        </Popover>
+          </button>
+        ) : (
+          <Popover open={audienceOpen} onOpenChange={onAudienceOpenChange}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                disabled={isPending}
+                className="inline-flex h-7 items-center gap-1.5 rounded-full border bg-card px-2.5 text-xs font-medium hover:bg-accent disabled:opacity-50"
+              >
+                {audienceSummary.icon}
+                <span>{audienceSummary.label}</span>
+                <ChevronDown className="size-3 opacity-60" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[360px] p-0" align="start">
+              <AudiencePicker
+                assignableMembers={assignableMembers}
+                availableGroups={availableGroups}
+                selectedGroupIds={selectedGroupIds}
+                selectedAssigneeUserIds={selectedAssigneeUserIds}
+                isFullCast={isFullCast}
+                disabled={isPending}
+                onToggleFullCast={onToggleFullCast}
+                onToggleGroup={onToggleGroup}
+                onToggleMember={onToggleAssignee}
+              />
+            </PopoverContent>
+          </Popover>
+        )}
 
         <span aria-hidden className="h-4 w-px bg-border" />
 
@@ -319,48 +437,64 @@ export function ComposerBody({
       </div>
 
       {/* Body */}
-      <div className="p-3">
-        {mode === "TEXT" ? (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-end gap-2">
-              <Textarea
-                id="noteText"
-                value={noteText}
-                onChange={(event) => onNoteTextChange(event.target.value)}
-                placeholder={`Note at ${formatTimestamp(selectedTimestampMs)}…`}
-                disabled={isPending}
-                rows={2}
-                className="min-h-[64px] flex-1 resize-none"
-              />
-              <Button
-                type="button"
-                onClick={onSubmit}
-                disabled={disabled}
-                size="sm"
-                className="shrink-0"
-              >
-                <Send className="size-3.5" />
-                {isPending ? "Posting…" : "Post"}
-              </Button>
-            </div>
-            {noteError ? (
-              <p className="text-xs text-destructive" role="alert">
-                {noteError}
-              </p>
-            ) : null}
-          </div>
-        ) : (
-          <VoiceNoteRecorder
-            rehearsalId={rehearsalId}
-            videoRef={videoRef}
-            buildTargets={buildTargets}
-            getTag={getSelectedTag}
-            onSaved={onVoiceNoteSaved}
-            disabled={disabled}
-            onRecordingStateChange={onRecordingStateChange}
-          />
-        )}
-      </div>
+      <div className="p-3">{body}</div>
     </>
+  );
+}
+
+type InlineAudiencePanelProps = {
+  assignableMembers: AssignableMember[];
+  availableGroups: AvailableGroup[];
+  selectedGroupIds: string[];
+  selectedAssigneeUserIds: string[];
+  isFullCast: boolean;
+  disabled: boolean;
+  onToggleFullCast: (next: boolean) => void;
+  onToggleGroup: (groupId: string) => void;
+  onToggleMember: (userId: string) => void;
+  onDone: () => void;
+};
+
+/**
+ * Mobile-only audience picker rendered inline in the composer sheet body.
+ * Replaces the popover when the sheet is open on small viewports — the
+ * keyboard-aware writing-mode snap gives the picker enough room to
+ * breathe, and there's no popover-over-sheet-over-keyboard stacking to
+ * collision-detect around. The "Done" button is the explicit close
+ * affordance; selection state mutates immediately via the same toggle
+ * callbacks the popover used.
+ */
+function InlineAudiencePanel({
+  assignableMembers,
+  availableGroups,
+  selectedGroupIds,
+  selectedAssigneeUserIds,
+  isFullCast,
+  disabled,
+  onToggleFullCast,
+  onToggleGroup,
+  onToggleMember,
+  onDone,
+}: Readonly<InlineAudiencePanelProps>) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between border-b pb-2">
+        <span className="text-sm font-semibold">Pick audience</span>
+        <Button type="button" size="sm" onClick={onDone}>
+          Done
+        </Button>
+      </div>
+      <AudiencePicker
+        assignableMembers={assignableMembers}
+        availableGroups={availableGroups}
+        selectedGroupIds={selectedGroupIds}
+        selectedAssigneeUserIds={selectedAssigneeUserIds}
+        isFullCast={isFullCast}
+        disabled={disabled}
+        onToggleFullCast={onToggleFullCast}
+        onToggleGroup={onToggleGroup}
+        onToggleMember={onToggleMember}
+      />
+    </div>
   );
 }
