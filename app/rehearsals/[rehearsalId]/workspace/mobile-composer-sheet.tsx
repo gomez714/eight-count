@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef } from "react"
 import { Drawer as DrawerPrimitive } from "vaul"
 
 import { cn } from "@/lib/utils"
@@ -101,13 +101,16 @@ export function MobileComposerSheet(props: MobileComposerSheetProps) {
 
   // Auto-collapse to peek after a successful text submit. Detects the
   // pending: true → false transition combined with empty text (errors keep
-  // the text in place, success clears it in the parent). Uses the React
-  // "deriving state from props" pattern instead of a setState-in-effect.
-  // See https://react.dev/reference/react/useState#storing-information-from-previous-renders
-  const [prevPending, setPrevPending] = useState(isPending)
-  if (prevPending !== isPending) {
-    setPrevPending(isPending)
-    const justFinished = prevPending && !isPending
+  // the text in place, success clears it in the parent). Tracked through a
+  // ref + effect rather than a derived-state-in-render block — calling the
+  // parent's `onSnapChange` setter during render triggers React's
+  // "Cannot update a component while rendering a different component"
+  // warning. The effect runs after commit, which is the right phase for
+  // dispatching parent-state updates.
+  const wasPendingRef = useRef(isPending)
+  useEffect(() => {
+    const justFinished = wasPendingRef.current && !isPending
+    wasPendingRef.current = isPending
     if (
       justFinished &&
       noteText.trim().length === 0 &&
@@ -115,7 +118,7 @@ export function MobileComposerSheet(props: MobileComposerSheetProps) {
     ) {
       onSnapChange(COMPOSER_PEEK_SNAP)
     }
-  }
+  }, [isPending, noteText, snap, onSnapChange])
 
   // Wrap the parent's onModeChange to suppress mode toggles while recording
   // (toggling would unmount the recorder mid-take). Mode no longer affects
@@ -166,29 +169,46 @@ export function MobileComposerSheet(props: MobileComposerSheetProps) {
   // and focus-outside handlers — it does NOT propagate to the underlying
   // Radix `DialogPrimitive.Root`, which always renders in modal mode
   // (engaging Radix's FocusScope). FocusScope traps focus inside the
-  // drawer by listening for `focusin` events on the document and
-  // refocusing the last drawer element when focus moves outside. That
-  // makes interactive elements on the page (e.g. comment composer
-  // textareas) impossible to click into while the sheet is open.
+  // drawer by registering `focusin` AND `focusout` listeners on the
+  // document. The actual snap-back happens in the `focusout` handler:
+  // when focus leaves the drawer, Radix synchronously refocuses the
+  // last drawer element. That makes interactive elements on the page
+  // (e.g. comment composer textareas) impossible to click into while
+  // the sheet is open.
   //
-  // Escape it with a capture-phase `focusin` listener that runs before
-  // Radix's bubble-phase listener and stops propagation when focus is
-  // moving to an element outside the drawer. `stopImmediatePropagation`
-  // in capture also stops bubble-phase handlers, so Radix's refocus
-  // never fires.
+  // Escape it by adding capture-phase listeners for BOTH events that
+  // run before Radix's bubble-phase listeners and `stopImmediatePropagation`
+  // when focus is moving to an element outside the drawer:
+  //   - `focusin`  — check `e.target` (where focus is landing now)
+  //   - `focusout` — check `e.relatedTarget` (where focus is going next)
+  // `focusout` is the load-bearing one — Radix's `focusin` handler only
+  // tracks `lastFocusedElementRef` and doesn't perform the refocus —
+  // but we silence both for symmetry and to keep `lastFocusedElementRef`
+  // from racing with the user's tap target.
   useEffect(() => {
-    const handler = (e: FocusEvent) => {
-      const target = e.target as Element | null
-      if (!target) return
+    const isOutsideDrawer = (target: Element | null): boolean => {
+      if (!target) return false
       // Vaul tags its content element with `data-vaul-drawer`. Anything
       // outside that subtree is fair game for focus.
-      const drawerContent = document.querySelector("[data-vaul-drawer]")
-      if (drawerContent && !drawerContent.contains(target)) {
+      const drawer = document.querySelector("[data-vaul-drawer]")
+      return drawer !== null && !drawer.contains(target)
+    }
+    const handleFocusIn = (e: FocusEvent) => {
+      if (isOutsideDrawer(e.target as Element | null)) {
         e.stopImmediatePropagation()
       }
     }
-    document.addEventListener("focusin", handler, true)
-    return () => document.removeEventListener("focusin", handler, true)
+    const handleFocusOut = (e: FocusEvent) => {
+      if (isOutsideDrawer(e.relatedTarget as Element | null)) {
+        e.stopImmediatePropagation()
+      }
+    }
+    document.addEventListener("focusin", handleFocusIn, true)
+    document.addEventListener("focusout", handleFocusOut, true)
+    return () => {
+      document.removeEventListener("focusin", handleFocusIn, true)
+      document.removeEventListener("focusout", handleFocusOut, true)
+    }
   }, [])
 
   return (
