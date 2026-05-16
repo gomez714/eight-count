@@ -4,7 +4,7 @@ import type { ThreadViewResponse } from "@/lib/api/contracts"
 import { apiError } from "@/lib/api/responses"
 import { ensureDbUser } from "@/lib/auth/ensure-db-user"
 import { db } from "@/lib/db"
-import { canViewNoteThread } from "@/lib/notes/thread-access"
+import { canViewThread } from "@/lib/threads/thread-access"
 
 export async function POST(
   _request: NextRequest,
@@ -14,7 +14,7 @@ export async function POST(
   if (!dbUser) return apiError(401, "UNAUTHORIZED", "Unauthorized")
 
   const { noteId } = await context.params
-  const access = await canViewNoteThread(noteId, dbUser.id)
+  const access = await canViewThread({ type: "note", id: noteId }, dbUser.id)
   if (!access) return apiError(404, "NOTE_NOT_FOUND", "Note not found")
 
   const now = new Date()

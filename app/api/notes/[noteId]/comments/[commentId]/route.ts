@@ -8,8 +8,8 @@ import type {
 import { apiError } from "@/lib/api/responses"
 import { ensureDbUser } from "@/lib/auth/ensure-db-user"
 import { db } from "@/lib/db"
-import { COMMENT_MAX_LENGTH } from "@/lib/notes/comments"
-import { canViewNoteThread, loadThread } from "@/lib/notes/thread-access"
+import { COMMENT_MAX_LENGTH } from "@/lib/threads/comments"
+import { canViewThread, loadThread } from "@/lib/threads/thread-access"
 
 export async function PATCH(
   request: NextRequest,
@@ -19,7 +19,7 @@ export async function PATCH(
   if (!dbUser) return apiError(401, "UNAUTHORIZED", "Unauthorized")
 
   const { noteId, commentId } = await context.params
-  const access = await canViewNoteThread(noteId, dbUser.id)
+  const access = await canViewThread({ type: "note", id: noteId }, dbUser.id)
   if (!access) return apiError(404, "NOTE_NOT_FOUND", "Note not found")
 
   const comment = await db.noteComment.findUnique({
@@ -64,7 +64,7 @@ export async function PATCH(
     data: { bodyText: trimmed, editedAt: new Date() },
   })
 
-  const thread = await loadThread(noteId, dbUser.id)
+  const thread = await loadThread({ type: "note", id: noteId }, dbUser.id)
   return NextResponse.json<UpdateCommentResponse>({
     ok: true,
     data: { noteId, ...thread },
@@ -79,7 +79,7 @@ export async function DELETE(
   if (!dbUser) return apiError(401, "UNAUTHORIZED", "Unauthorized")
 
   const { noteId, commentId } = await context.params
-  const access = await canViewNoteThread(noteId, dbUser.id)
+  const access = await canViewThread({ type: "note", id: noteId }, dbUser.id)
   if (!access) return apiError(404, "NOTE_NOT_FOUND", "Note not found")
 
   const comment = await db.noteComment.findUnique({
@@ -94,7 +94,7 @@ export async function DELETE(
   }
   if (comment.deletedAt !== null) {
     // Already a tombstone — return current state idempotently.
-    const thread = await loadThread(noteId, dbUser.id)
+    const thread = await loadThread({ type: "note", id: noteId }, dbUser.id)
     return NextResponse.json<DeleteCommentResponse>({
       ok: true,
       data: { noteId, ...thread },
@@ -106,7 +106,7 @@ export async function DELETE(
     data: { deletedAt: new Date() },
   })
 
-  const thread = await loadThread(noteId, dbUser.id)
+  const thread = await loadThread({ type: "note", id: noteId }, dbUser.id)
   return NextResponse.json<DeleteCommentResponse>({
     ok: true,
     data: { noteId, ...thread },

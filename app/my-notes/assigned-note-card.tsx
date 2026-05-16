@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { AudienceChips } from "@/components/audience-chips";
 import { AvatarInitials } from "@/components/avatar-initials";
 import { NoteRehearsalLink } from "@/components/note-rehearsal-link";
-import { NoteThreadAttachment } from "@/components/notes/note-thread-attachment";
+import { ThreadAttachment } from "@/components/threads/thread-attachment";
 import { NoteTimestampPill } from "@/components/note-timestamp-pill";
 import { RepeatingChip } from "@/components/repeating-chip";
 import { TagChip } from "@/components/tag-chip";
@@ -200,8 +200,8 @@ export function AssignedNoteCard({
           </Link>
         </div>
 
-        <NoteThreadAttachment
-          noteId={note.id}
+        <ThreadAttachment
+          target={{ type: "note", id: note.id }}
           viewerId={viewerId}
           initialCommentCount={note.thread.commentCount}
           initialReactions={note.thread.reactions}

@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 
 import { AudienceChips } from "@/components/audience-chips";
 import { NoteActionsMenu } from "@/components/note-actions-menu";
-import { NoteThreadAttachment } from "@/components/notes/note-thread-attachment";
+import { ThreadAttachment } from "@/components/threads/thread-attachment";
 import { RepeatingChip } from "@/components/repeating-chip";
 import { TagChip } from "@/components/tag-chip";
 import { Button } from "@/components/ui/button";
@@ -296,8 +296,8 @@ function NoteRow({
           </span>
         ) : null}
 
-        <NoteThreadAttachment
-          noteId={note.id}
+        <ThreadAttachment
+          target={{ type: "note", id: note.id }}
           viewerId={currentUserId}
           initialCommentCount={note.thread.commentCount}
           initialReactions={note.thread.reactions}

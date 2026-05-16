@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { SectionTabNav } from "@/components/section-tab-nav";
 import { ensureDbUser } from "@/lib/auth/ensure-db-user";
-import { summarizeThread } from "@/lib/notes/comments";
+import { summarizeThread } from "@/lib/threads/comments";
 import { getActiveAssignmentsForProjects } from "@/lib/notes/get-active-assignments-for-project";
 import { getAssignedNotesForUser } from "@/lib/notes/get-assigned-notes-for-user";
 import {

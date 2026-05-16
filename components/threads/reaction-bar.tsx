@@ -4,24 +4,25 @@ import { useTransition } from "react"
 import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
+import { threadApiPaths, type ThreadTarget } from "@/lib/threads/api-paths"
 import {
   REACTION_DESCRIPTIONS,
   REACTION_EMOJI,
   REACTION_KINDS,
   REACTION_LABELS,
   type ReactionKind,
-} from "@/lib/notes/reactions"
+} from "@/lib/threads/reactions"
 import type { ToggleReactionResponse } from "@/lib/api/contracts"
-import type { ThreadReactionSummary } from "@/lib/notes/comments"
+import type { ThreadReactionSummary } from "@/lib/threads/comments"
 
 type ReactionBarProps = {
-  noteId: string
+  target: ThreadTarget
   reactions: ThreadReactionSummary[]
   onReactionsChange: (next: ThreadReactionSummary[]) => void
 }
 
 export function ReactionBar({
-  noteId,
+  target,
   reactions,
   onReactionsChange,
 }: Readonly<ReactionBarProps>) {
@@ -35,7 +36,7 @@ export function ReactionBar({
 
     startTransition(async () => {
       try {
-        const res = await fetch(`/api/notes/${noteId}/reactions`, {
+        const res = await fetch(threadApiPaths(target).reactions, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ kind }),

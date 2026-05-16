@@ -1,10 +1,11 @@
 import { REACTION_KINDS, type ReactionKind } from "./reactions"
 
 /**
- * Client-safe module: constants, types, and pure helpers for note threads.
- * Server-only helpers that touch Prisma (`canViewNoteThread`, `loadThread`)
- * live in `./thread-access.ts` — importing those from a client component
- * pulls the Postgres client into the browser bundle.
+ * Client-safe module: constants, types, and pure helpers for thread
+ * surfaces (notes today, discussions next). Server-only helpers that
+ * touch Prisma (`canViewThread`, `loadThread`) live in `./thread-access.ts`
+ * — importing those from a client component pulls the Postgres client
+ * into the browser bundle.
  */
 
 export const COMMENT_MAX_LENGTH = 2000
@@ -41,11 +42,11 @@ export type ThreadSummary = {
 }
 
 /**
- * Pure helper: given a note's raw comment + reaction rows (already
+ * Pure helper: given a thread's raw comment + reaction rows (already
  * fetched server-side) and the viewer's last-view timestamp, produce
- * the seed values for `NoteThreadAttachment`. Used by every surface
- * that renders a thread chip so the initial paint is correct without
- * a client round-trip.
+ * the seed values for `ThreadAttachment`. Used by every surface that
+ * renders a thread chip so the initial paint is correct without a
+ * client round-trip.
  */
 export function summarizeThread(input: {
   viewerId: string

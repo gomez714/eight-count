@@ -2,6 +2,7 @@ import "server-only"
 
 import { db } from "@/lib/db"
 
+import type { ThreadTarget } from "./api-paths"
 import type {
   ThreadComment,
   ThreadPayload,
@@ -14,42 +15,65 @@ import type { ReactionKind } from "./reactions"
  * `./comments.ts` so client components can import the client-safe
  * constants/types/`summarizeThread` without pulling the Postgres
  * client into the browser bundle.
+ *
+ * Parameterized over `ThreadTarget` so the same access + serialization
+ * shape covers both notes and discussions. Discussion branches throw
+ * `THREAD_TARGET_NOT_IMPLEMENTED` until the discussion schema lands.
  */
 
+const NOT_IMPLEMENTED = "THREAD_TARGET_NOT_IMPLEMENTED: discussion"
+
 /**
- * Verify that a user can see a note's thread. Mirrors note visibility:
- * any active team member of the owning team can read and post.
+ * Verify that a user can see a thread. For notes, mirrors note visibility:
+ * any active team member of the owning team can read and post. For
+ * discussions, mirrors discussion visibility (any team member of the
+ * owning project's team) — implemented in PR 2.
  */
-export async function canViewNoteThread(
-  noteId: string,
+export async function canViewThread(
+  target: ThreadTarget,
   userId: string
-): Promise<{ noteId: string; teamId: string } | null> {
-  const row = await db.note.findFirst({
-    where: {
-      id: noteId,
-      rehearsal: {
-        project: {
-          team: {
-            members: { some: { userId } },
+): Promise<{ target: ThreadTarget; teamId: string } | null> {
+  if (target.type === "note") {
+    const row = await db.note.findFirst({
+      where: {
+        id: target.id,
+        rehearsal: {
+          project: {
+            team: {
+              members: { some: { userId } },
+            },
           },
         },
       },
-    },
-    select: {
-      id: true,
-      rehearsal: { select: { project: { select: { teamId: true } } } },
-    },
-  })
-  if (!row) return null
-  return { noteId: row.id, teamId: row.rehearsal.project.teamId }
+      select: {
+        id: true,
+        rehearsal: { select: { project: { select: { teamId: true } } } },
+      },
+    })
+    if (!row) return null
+    return { target, teamId: row.rehearsal.project.teamId }
+  }
+  // TODO(pr-2): implement discussion branch when the Discussion model lands.
+  throw new Error(NOT_IMPLEMENTED)
 }
 
 /**
- * Serialize the thread for a viewer: comments (with soft-delete tombstones
+ * Serialize a thread for a viewer: comments (with soft-delete tombstones
  * preserving authorship + timestamp), aggregated reaction counts with the
  * viewer's own reaction state, and a non-deleted comment count.
  */
 export async function loadThread(
+  target: ThreadTarget,
+  viewerId: string
+): Promise<ThreadPayload> {
+  if (target.type === "note") {
+    return loadNoteThread(target.id, viewerId)
+  }
+  // TODO(pr-2): implement discussion branch when the Discussion model lands.
+  throw new Error(NOT_IMPLEMENTED)
+}
+
+async function loadNoteThread(
   noteId: string,
   viewerId: string
 ): Promise<ThreadPayload> {
@@ -72,7 +96,7 @@ export async function loadThread(
       where: { noteId },
       select: { kind: true, userId: true },
     }),
-    loadCommentAuthorRoles(noteId),
+    loadNoteCommentAuthorRoles(noteId),
   ])
 
   const reactionMap = new Map<ReactionKind, ThreadReactionSummary>()
@@ -115,7 +139,7 @@ export async function loadThread(
  * comment row can render a role pill. Authors who have since left
  * the team return `null` (their comment still renders, no pill).
  */
-async function loadCommentAuthorRoles(
+async function loadNoteCommentAuthorRoles(
   noteId: string
 ): Promise<Map<string, "ADMIN" | "INSTRUCTOR" | "ASSISTANT" | "DANCER">> {
   const note = await db.note.findUnique({

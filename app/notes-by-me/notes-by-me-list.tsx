@@ -9,7 +9,7 @@ import {
   type EditNoteFormValues,
   type EditableNote,
 } from "@/components/edit-note-sheet";
-import { ThreadExpansionProvider } from "@/components/notes/thread-expansion-context";
+import { ThreadExpansionProvider } from "@/components/threads/thread-expansion-context";
 import type {
   AssignableMember,
   AvailableGroup,

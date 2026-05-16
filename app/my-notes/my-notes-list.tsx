@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
-import { ThreadExpansionProvider } from "@/components/notes/thread-expansion-context";
+import { ThreadExpansionProvider } from "@/components/threads/thread-expansion-context";
 import { TipSequence, type TipStep } from "@/components/onboarding/tip-sequence";
 import {
   NOTE_STATUSES,

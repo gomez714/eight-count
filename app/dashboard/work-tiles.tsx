@@ -2,7 +2,7 @@ import { ChevronRight, Inbox, Send } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-import { UnreadCommentsIndicator } from "@/components/notes/unread-comments-indicator";
+import { UnreadCommentsIndicator } from "@/components/threads/unread-comments-indicator";
 import { cn } from "@/lib/utils";
 
 import type { MyNotesMetrics, NotesByMeMetrics } from "./types";

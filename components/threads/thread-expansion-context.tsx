@@ -10,23 +10,30 @@ import {
 } from "react"
 
 import { useMediaQuery } from "@/lib/hooks/use-media-query"
+import type { ThreadTarget } from "@/lib/threads/api-paths"
 
 /**
- * Coordinates which note threads are expanded inside a single list
- * surface (the rehearsal workspace, /my-notes, /notes-by-me). On
- * desktop (≥ lg), multiple threads may be open simultaneously —
- * comparing replies across notes is a power-user move. On mobile, the
- * set collapses to at most one open thread at a time: opening any
- * thread closes whichever one was previously open. Per-thread comment
- * drafts persist in `NoteThreadAttachment`'s local state, so the
- * auto-collapse doesn't cost the user any in-progress text.
+ * Coordinates which threads are expanded inside a single list surface
+ * (the rehearsal workspace, /my-notes, /notes-by-me, the project page's
+ * discussion section). On desktop (≥ lg), multiple threads may be open
+ * simultaneously — comparing replies across notes/discussions is a
+ * power-user move. On mobile, the set collapses to at most one open
+ * thread at a time: opening any thread closes whichever one was
+ * previously open. Per-thread comment drafts persist in
+ * `ThreadAttachment`'s local state, so the auto-collapse doesn't cost
+ * the user any in-progress text.
+ *
+ * Keys are `${target.type}:${target.id}` so a note ID and a discussion
+ * ID never collide even though both are cuids — and so the mobile
+ * single-open rule applies across the union (opening a discussion
+ * thread auto-collapses an open note thread on the same surface).
  *
  * The provider is mounted at the list level (one per surface), so each
  * page coordinates its own threads independently.
  */
 type ThreadExpansionValue = {
-  isExpanded: (noteId: string) => boolean
-  setExpanded: (noteId: string, next: boolean) => void
+  isExpanded: (target: ThreadTarget) => boolean
+  setExpanded: (target: ThreadTarget, next: boolean) => void
 }
 
 const ThreadExpansionContext = createContext<ThreadExpansionValue | null>(null)
@@ -35,22 +42,27 @@ type ThreadExpansionProviderProps = {
   children: ReactNode
 }
 
+function targetKey(target: ThreadTarget): string {
+  return `${target.type}:${target.id}`
+}
+
 export function ThreadExpansionProvider({
   children,
 }: Readonly<ThreadExpansionProviderProps>) {
   const isDesktop = useMediaQuery("(min-width: 1024px)")
-  const [expandedIds, setExpandedIds] = useState<ReadonlySet<string>>(
+  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(
     () => new Set(),
   )
 
   const isExpanded = useCallback(
-    (noteId: string) => expandedIds.has(noteId),
-    [expandedIds],
+    (target: ThreadTarget) => expandedKeys.has(targetKey(target)),
+    [expandedKeys],
   )
 
   const setExpanded = useCallback(
-    (noteId: string, next: boolean) => {
-      setExpandedIds((prev) => {
+    (target: ThreadTarget, next: boolean) => {
+      const key = targetKey(target)
+      setExpandedKeys((prev) => {
         const out = new Set(prev)
         if (next) {
           // On mobile (or during SSR / pre-hydration when isDesktop is
@@ -58,9 +70,9 @@ export function ThreadExpansionProvider({
           // clear before adding so only one thread is open. On desktop,
           // simply add to the existing set.
           if (isDesktop !== true) out.clear()
-          out.add(noteId)
+          out.add(key)
         } else {
-          out.delete(noteId)
+          out.delete(key)
         }
         return out
       })

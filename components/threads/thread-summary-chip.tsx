@@ -7,7 +7,7 @@ import {
   REACTION_EMOJI,
   REACTION_KINDS,
   type ReactionKind,
-} from "@/lib/notes/reactions"
+} from "@/lib/threads/reactions"
 
 type ReactionCount = { kind: ReactionKind; count: number }
 

@@ -2,13 +2,14 @@
 
 import { useCallback, useState } from "react"
 
-import { NoteThread } from "./note-thread"
+import { Thread } from "./thread"
 import { ThreadSummaryChip } from "./thread-summary-chip"
 import { useThreadExpansion } from "./thread-expansion-context"
-import type { ThreadReactionSummary } from "@/lib/notes/comments"
+import type { ThreadTarget } from "@/lib/threads/api-paths"
+import type { ThreadReactionSummary } from "@/lib/threads/comments"
 
-type NoteThreadAttachmentProps = {
-  noteId: string
+type ThreadAttachmentProps = {
+  target: ThreadTarget
   viewerId: string
   initialCommentCount: number
   initialReactions: ThreadReactionSummary[]
@@ -23,36 +24,34 @@ type NoteThreadAttachmentProps = {
 }
 
 /**
- * Single entry point for surfacing a note's thread on a card or row.
- * Coordinates with `ThreadExpansionProvider` (when mounted above) so
- * mobile shows at most one open thread per surface; falls back to local
- * `useState` when no provider is present.
+ * Single entry point for surfacing a thread on a card or row. Coordinates
+ * with `ThreadExpansionProvider` (when mounted above) so mobile shows at
+ * most one open thread per surface; falls back to local `useState` when
+ * no provider is present.
  *
  * Persists the comment composer draft locally so the user doesn't lose
  * in-progress text when the thread auto-collapses due to another being
  * opened (mobile rule). Drafts are scoped to this component instance —
  * a full page navigation drops them.
  */
-export function NoteThreadAttachment({
-  noteId,
+export function ThreadAttachment({
+  target,
   viewerId,
   initialCommentCount,
   initialReactions,
   initialHasUnread,
   showStartHint = false,
-}: Readonly<NoteThreadAttachmentProps>) {
+}: Readonly<ThreadAttachmentProps>) {
   const expansion = useThreadExpansion()
   const [localExpanded, setLocalExpanded] = useState(false)
-  const expanded = expansion
-    ? expansion.isExpanded(noteId)
-    : localExpanded
+  const expanded = expansion ? expansion.isExpanded(target) : localExpanded
   const toggleExpanded = useCallback(() => {
     if (expansion) {
-      expansion.setExpanded(noteId, !expansion.isExpanded(noteId))
+      expansion.setExpanded(target, !expansion.isExpanded(target))
     } else {
       setLocalExpanded((v) => !v)
     }
-  }, [expansion, noteId])
+  }, [expansion, target])
 
   const [commentCount, setCommentCount] = useState(initialCommentCount)
   const [reactions, setReactions] =
@@ -62,9 +61,9 @@ export function NoteThreadAttachment({
   const [hasUnread, setHasUnread] = useState(initialHasUnread)
 
   // Comment-composer draft lives here so it survives the thread itself
-  // unmounting on collapse (which it does — `NoteThread` is conditionally
-  // rendered). Per-noteId scope is implicit since this component is
-  // mounted once per note row.
+  // unmounting on collapse (which it does — `Thread` is conditionally
+  // rendered). Per-target scope is implicit since this component is
+  // mounted once per row.
   const [commentDraft, setCommentDraft] = useState("")
 
   const onSummaryChange = useCallback(
@@ -91,8 +90,8 @@ export function NoteThreadAttachment({
         onToggle={toggleExpanded}
       />
       {expanded ? (
-        <NoteThread
-          noteId={noteId}
+        <Thread
+          target={target}
           viewerId={viewerId}
           commentDraft={commentDraft}
           onCommentDraftChange={setCommentDraft}

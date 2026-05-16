@@ -8,8 +8,8 @@ import type {
 import { apiError } from "@/lib/api/responses"
 import { ensureDbUser } from "@/lib/auth/ensure-db-user"
 import { db } from "@/lib/db"
-import { COMMENT_MAX_LENGTH } from "@/lib/notes/comments"
-import { canViewNoteThread, loadThread } from "@/lib/notes/thread-access"
+import { COMMENT_MAX_LENGTH } from "@/lib/threads/comments"
+import { canViewThread, loadThread } from "@/lib/threads/thread-access"
 
 export async function GET(
   _request: NextRequest,
@@ -19,10 +19,10 @@ export async function GET(
   if (!dbUser) return apiError(401, "UNAUTHORIZED", "Unauthorized")
 
   const { noteId } = await context.params
-  const access = await canViewNoteThread(noteId, dbUser.id)
+  const access = await canViewThread({ type: "note", id: noteId }, dbUser.id)
   if (!access) return apiError(404, "NOTE_NOT_FOUND", "Note not found")
 
-  const thread = await loadThread(noteId, dbUser.id)
+  const thread = await loadThread({ type: "note", id: noteId }, dbUser.id)
   return NextResponse.json<ThreadResponse>({
     ok: true,
     data: { noteId, ...thread },
@@ -37,7 +37,7 @@ export async function POST(
   if (!dbUser) return apiError(401, "UNAUTHORIZED", "Unauthorized")
 
   const { noteId } = await context.params
-  const access = await canViewNoteThread(noteId, dbUser.id)
+  const access = await canViewThread({ type: "note", id: noteId }, dbUser.id)
   if (!access) return apiError(404, "NOTE_NOT_FOUND", "Note not found")
 
   let body: CreateCommentRequest
@@ -73,7 +73,7 @@ export async function POST(
     update: { lastViewedAt: now },
   })
 
-  const thread = await loadThread(noteId, dbUser.id)
+  const thread = await loadThread({ type: "note", id: noteId }, dbUser.id)
   return NextResponse.json<CreateCommentResponse>({
     ok: true,
     data: { noteId, ...thread },

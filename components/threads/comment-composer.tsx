@@ -7,19 +7,20 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import type { CreateCommentResponse } from "@/lib/api/contracts"
+import { threadApiPaths, type ThreadTarget } from "@/lib/threads/api-paths"
 import {
   COMMENT_MAX_LENGTH,
   type ThreadComment,
   type ThreadReactionSummary,
-} from "@/lib/notes/comments"
+} from "@/lib/threads/comments"
 import { cn } from "@/lib/utils"
 
 type CommentComposerProps = {
-  noteId: string
+  target: ThreadTarget
   /**
-   * Controlled draft value, lifted to `NoteThreadAttachment` so the
-   * draft survives auto-collapse of the thread (mobile single-thread
-   * rule). The composer reads from / writes back to this value.
+   * Controlled draft value, lifted to `ThreadAttachment` so the draft
+   * survives auto-collapse of the thread (mobile single-thread rule).
+   * The composer reads from / writes back to this value.
    */
   draft: string
   onDraftChange: (next: string) => void
@@ -33,7 +34,7 @@ type CommentComposerProps = {
 const SOFT_LIMIT = 1800
 
 export function CommentComposer({
-  noteId,
+  target,
   draft,
   onDraftChange,
   onThreadChange,
@@ -48,7 +49,7 @@ export function CommentComposer({
     if (!canSend || isPending) return
     startTransition(async () => {
       try {
-        const res = await fetch(`/api/notes/${noteId}/comments`, {
+        const res = await fetch(threadApiPaths(target).comments, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ bodyText: trimmed }),

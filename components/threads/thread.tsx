@@ -6,10 +6,14 @@ import { CommentComposer } from "./comment-composer"
 import { CommentRow } from "./comment-row"
 import { ReactionBar } from "./reaction-bar"
 import type { ThreadResponse } from "@/lib/api/contracts"
-import type { ThreadComment, ThreadReactionSummary } from "@/lib/notes/comments"
+import { threadApiPaths, type ThreadTarget } from "@/lib/threads/api-paths"
+import type {
+  ThreadComment,
+  ThreadReactionSummary,
+} from "@/lib/threads/comments"
 
-type NoteThreadProps = {
-  noteId: string
+type ThreadProps = {
+  target: ThreadTarget
   viewerId: string
   /**
    * Controlled comment-composer draft. Lifted up to the attachment so
@@ -34,15 +38,15 @@ type NoteThreadProps = {
   }) => void
 }
 
-export function NoteThread({
-  noteId,
+export function Thread({
+  target,
   viewerId,
   commentDraft,
   onCommentDraftChange,
   initialComments = [],
   initialReactions = [],
   onSummaryChange,
-}: Readonly<NoteThreadProps>) {
+}: Readonly<ThreadProps>) {
   const [comments, setComments] = useState<ThreadComment[]>(initialComments)
   const [reactions, setReactions] =
     useState<ThreadReactionSummary[]>(initialReactions)
@@ -52,11 +56,13 @@ export function NoteThread({
   // through props.
   const lastSummaryRef = useRef<string>("")
 
+  const paths = threadApiPaths(target)
+
   useEffect(() => {
     const controller = new AbortController()
     ;(async () => {
       try {
-        const res = await fetch(`/api/notes/${noteId}/comments`, {
+        const res = await fetch(paths.comments, {
           signal: controller.signal,
         })
         const data = (await res.json()) as ThreadResponse
@@ -74,12 +80,14 @@ export function NoteThread({
 
     // Fire-and-forget: mark thread viewed. Failure is silent — worst
     // case the unread dot lingers until the next visit.
-    void fetch(`/api/notes/${noteId}/thread/view`, { method: "POST" }).catch(
-      () => {}
-    )
+    void fetch(paths.view, { method: "POST" }).catch(() => {})
 
     return () => controller.abort()
-  }, [noteId])
+    // `paths.comments` / `paths.view` are derived from `target`, but
+    // we depend on the stable target identity (type+id) instead so the
+    // effect doesn't refire on prop-object identity churn.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target.type, target.id])
 
   // Notify the parent on every local change so the collapsed chip
   // stays in sync (count, reactions) and the unread dot clears.
@@ -98,7 +106,7 @@ export function NoteThread({
   return (
     <div className="space-y-3 rounded-md border border-border bg-card/40 p-3">
       <ReactionBar
-        noteId={noteId}
+        target={target}
         reactions={reactions}
         onReactionsChange={setReactions}
       />
@@ -108,7 +116,7 @@ export function NoteThread({
           {comments.map((c) => (
             <CommentRow
               key={c.id}
-              noteId={noteId}
+              target={target}
               comment={c}
               viewerId={viewerId}
               onUpdate={setComments}
@@ -127,7 +135,7 @@ export function NoteThread({
       )}
 
       <CommentComposer
-        noteId={noteId}
+        target={target}
         draft={commentDraft}
         onDraftChange={onCommentDraftChange}
         onThreadChange={(next) => {

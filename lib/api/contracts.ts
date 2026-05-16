@@ -1,7 +1,10 @@
 import type { ApiResponse } from "./responses"
 import type { NoteTag } from "@/lib/notes/tags"
-import type { ReactionKind } from "@/lib/notes/reactions"
-import type { ThreadComment, ThreadReactionSummary } from "@/lib/notes/comments"
+import type { ReactionKind } from "@/lib/threads/reactions"
+import type {
+  ThreadComment,
+  ThreadReactionSummary,
+} from "@/lib/threads/comments"
 
 export type NoteTargetInput =
   | { kind: "EVERYONE" }

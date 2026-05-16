@@ -17,12 +17,13 @@ import type {
   DeleteCommentResponse,
   UpdateCommentResponse,
 } from "@/lib/api/contracts"
-import { COMMENT_MAX_LENGTH, type ThreadComment } from "@/lib/notes/comments"
+import { threadApiPaths, type ThreadTarget } from "@/lib/threads/api-paths"
+import { COMMENT_MAX_LENGTH, type ThreadComment } from "@/lib/threads/comments"
 import { ROLE_LABEL, type TeamRole } from "@/app/teams/[teamId]/role-chip"
 import { cn } from "@/lib/utils"
 
 type CommentRowProps = {
-  noteId: string
+  target: ThreadTarget
   comment: ThreadComment
   viewerId: string
   onCommentChanged: (next: { commentCount: number }) => void
@@ -44,7 +45,7 @@ function formatRelative(iso: string): string {
 }
 
 export function CommentRow({
-  noteId,
+  target,
   comment,
   viewerId,
   onCommentChanged,
@@ -53,6 +54,7 @@ export function CommentRow({
   const [isEditing, setIsEditing] = useState(false)
   const [draft, setDraft] = useState(comment.bodyText ?? "")
   const [isPending, startTransition] = useTransition()
+  const commentUrl = threadApiPaths(target).commentById(comment.id)
 
   const isOwn = comment.authorId === viewerId
   const displayName = comment.authorName ?? comment.authorEmail
@@ -93,7 +95,7 @@ export function CommentRow({
     }
     startTransition(async () => {
       try {
-        const res = await fetch(`/api/notes/${noteId}/comments/${comment.id}`, {
+        const res = await fetch(commentUrl, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ bodyText: trimmed }),
@@ -116,7 +118,7 @@ export function CommentRow({
     if (!window.confirm("Delete this comment?")) return
     startTransition(async () => {
       try {
-        const res = await fetch(`/api/notes/${noteId}/comments/${comment.id}`, {
+        const res = await fetch(commentUrl, {
           method: "DELETE",
         })
         const data = (await res.json()) as DeleteCommentResponse

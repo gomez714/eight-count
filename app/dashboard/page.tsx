@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { ensureDbUser } from "@/lib/auth/ensure-db-user";
 import { db } from "@/lib/db";
-import { getUnreadCommentCountForUser } from "@/lib/notes/get-unread-comment-count";
+import { getUnreadCommentCountForUser } from "@/lib/threads/get-unread-comment-count";
 import { isNoteStalled } from "@/lib/notes/stalled";
 import { isActiveStatus, type NoteStatus } from "@/lib/notes/statuses";
 import {

@@ -28,7 +28,7 @@ import {
   type EditNoteFormValues,
   type EditableNote,
 } from "@/components/edit-note-sheet"
-import { ThreadExpansionProvider } from "@/components/notes/thread-expansion-context"
+import { ThreadExpansionProvider } from "@/components/threads/thread-expansion-context"
 import { TipSequence, type TipStep } from "@/components/onboarding/tip-sequence"
 import type { NoteTag } from "@/lib/notes/tags"
 

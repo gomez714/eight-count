@@ -3,7 +3,7 @@ import { Film } from "lucide-react"
 import { notFound, redirect } from "next/navigation"
 
 import { ensureDbUser } from "@/lib/auth/ensure-db-user"
-import { summarizeThread } from "@/lib/notes/comments"
+import { summarizeThread } from "@/lib/threads/comments"
 import { getActiveAssignmentsForProjects } from "@/lib/notes/get-active-assignments-for-project"
 import {
   buildRepeatingMarkerByAssignmentId,

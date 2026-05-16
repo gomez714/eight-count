@@ -596,11 +596,11 @@ export function VoiceNoteRecorder({
 
       {isPreview && previewUrl ? (
         <div className="flex flex-col gap-2">
-          <p className="text-xs text-muted-foreground">
+          {/* <p className="text-xs text-muted-foreground">
             Preview your recording. The video is paused at the moment you
             stopped — listen to confirm it lines up. Save to attach the note,
             or re-record to replace it.
-          </p>
+          </p> */}
           <PreviewPlayer
             audioRef={previewAudioRef}
             src={previewUrl}

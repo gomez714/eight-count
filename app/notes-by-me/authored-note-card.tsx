@@ -7,7 +7,7 @@ import { AudienceChips } from "@/components/audience-chips";
 import { NoteActionsMenu } from "@/components/note-actions-menu";
 import { NoteProgressBar } from "@/components/note-progress-bar";
 import { NoteRehearsalLink } from "@/components/note-rehearsal-link";
-import { NoteThreadAttachment } from "@/components/notes/note-thread-attachment";
+import { ThreadAttachment } from "@/components/threads/thread-attachment";
 import { NoteTimestampPill } from "@/components/note-timestamp-pill";
 import { TagChip } from "@/components/tag-chip";
 import { Button } from "@/components/ui/button";
@@ -219,8 +219,8 @@ export function AuthoredNoteCard({
           </div>
         )}
 
-        <NoteThreadAttachment
-          noteId={row.id}
+        <ThreadAttachment
+          target={{ type: "note", id: row.id }}
           viewerId={viewerId}
           initialCommentCount={row.thread.commentCount}
           initialReactions={row.thread.reactions}

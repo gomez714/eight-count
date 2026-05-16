@@ -48,7 +48,7 @@ export type AudioAssetItem = {
 };
 
 import type { NoteTag } from "@/lib/notes/tags";
-import type { ThreadReactionSummary } from "@/lib/notes/comments";
+import type { ThreadReactionSummary } from "@/lib/threads/comments";
 
 export type RepeatingMarker = {
   tag: NoteTag;
