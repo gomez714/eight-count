@@ -3,7 +3,10 @@
 import { ChevronDown, Clock, FileText, Mic, Send, Users } from "lucide-react";
 import { useMemo } from "react";
 
-import type { NoteTargetInput } from "@/lib/api/contracts";
+import type {
+  CreateNoteResponse,
+  NoteTargetInput,
+} from "@/lib/api/contracts";
 import { useMediaQuery } from "@/lib/hooks/use-media-query";
 import type { NoteTag } from "@/lib/notes/tags";
 import { Button } from "@/components/ui/button";
@@ -305,11 +308,32 @@ export function ComposerBody({
       <VoiceNoteRecorder
         rehearsalId={rehearsalId}
         videoRef={videoRef}
-        buildTargets={buildTargets}
-        getTag={getSelectedTag}
-        onSaved={onVoiceNoteSaved}
         disabled={disabled}
         onRecordingStateChange={onRecordingStateChange}
+        onAudioReady={async ({
+          audioAssetId,
+          startTimestampMs,
+          endTimestampMs,
+        }) => {
+          // Step 4 of the voice flow — entity-specific. The recorder
+          // handed off the AudioAsset; here we attach it to a Note with
+          // the audience + tag the user picked in the sub-bar.
+          const resp = await fetch(`/api/rehearsals/${rehearsalId}/notes`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              noteType: "VOICE",
+              audioAssetId,
+              startTimestampMs,
+              endTimestampMs,
+              tag: getSelectedTag(),
+              targets: buildTargets(),
+            }),
+          });
+          const data = (await resp.json()) as CreateNoteResponse;
+          if (!data.ok) throw new Error(data.error.message);
+          onVoiceNoteSaved();
+        }}
       />
     );
   }

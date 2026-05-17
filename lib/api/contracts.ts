@@ -170,8 +170,12 @@ export type AudienceData = {
 
 export type AudienceResponse = ApiResponse<AudienceData>
 
+/**
+ * Shared thread response shape. Same payload for note and discussion
+ * threads — the client already knows which target it called via the URL,
+ * so the response doesn't need to echo an entity id back.
+ */
 export type ThreadData = {
-  noteId: string
   comments: ThreadComment[]
   reactions: ThreadReactionSummary[]
   commentCount: number
@@ -198,10 +202,87 @@ export type ToggleReactionRequest = {
 }
 
 export type ToggleReactionData = {
-  noteId: string
   reactions: ThreadReactionSummary[]
 }
 
 export type ToggleReactionResponse = ApiResponse<ToggleReactionData>
 
-export type ThreadViewResponse = ApiResponse<{ noteId: string; viewedAt: string }>
+export type ThreadViewResponse = ApiResponse<{ viewedAt: string }>
+
+// --- Discussion routes ---------------------------------------------------
+
+/**
+ * Create a discussion. Discriminated by `noteType` (reuses `NoteType`
+ * — see schema comment on `Discussion.noteType`).
+ *
+ * Validation enforced server-side (not at the schema layer):
+ *   - `rehearsalId`, when set, must belong to `projectId`
+ *   - `videoAssetId`, when set, must reference the rehearsal's video AND
+ *     `rehearsalId` must be set
+ *   - timestamps may only be non-null when `videoAssetId` is set
+ *   - voice (`noteType: "VOICE"`) requires `rehearsalId`, `videoAssetId`,
+ *     `audioAssetId`, and both timestamps (project-level voice is
+ *     deliberately not supported in v1)
+ */
+export type CreateTextDiscussionRequest = {
+  noteType?: "TEXT"
+  bodyText: string
+  rehearsalId?: string | null
+  videoAssetId?: string | null
+  startTimestampMs?: number | null
+  endTimestampMs?: number | null
+}
+
+export type CreateVoiceDiscussionRequest = {
+  noteType: "VOICE"
+  rehearsalId: string
+  videoAssetId: string
+  audioAssetId: string
+  startTimestampMs: number
+  endTimestampMs: number
+  bodyText?: never
+}
+
+export type CreateDiscussionRequest =
+  | CreateTextDiscussionRequest
+  | CreateVoiceDiscussionRequest
+
+export type CreateDiscussionData = {
+  discussion: unknown
+}
+
+export type CreateDiscussionResponse = ApiResponse<CreateDiscussionData>
+
+/**
+ * Edit a discussion. Author-only. TEXT edits update body + timestamps;
+ * VOICE edits update timestamps only (same restriction as Note voice).
+ * Tag is deferred to v1.5; not in the request shape yet.
+ */
+export type UpdateTextDiscussionRequest = {
+  noteType?: "TEXT"
+  bodyText: string
+  startTimestampMs?: number | null
+  endTimestampMs?: number | null
+}
+
+export type UpdateVoiceDiscussionRequest = {
+  noteType: "VOICE"
+  startTimestampMs: number
+  endTimestampMs: number
+}
+
+export type UpdateDiscussionRequest =
+  | UpdateTextDiscussionRequest
+  | UpdateVoiceDiscussionRequest
+
+export type UpdateDiscussionData = {
+  discussion: unknown
+}
+
+export type UpdateDiscussionResponse = ApiResponse<UpdateDiscussionData>
+
+export type DeleteDiscussionData = {
+  discussionId: string
+}
+
+export type DeleteDiscussionResponse = ApiResponse<DeleteDiscussionData>

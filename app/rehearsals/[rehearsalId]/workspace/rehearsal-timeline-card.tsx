@@ -6,17 +6,65 @@ import { useMemo } from "react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-import type { NoteItem } from "./types";
 import { clamp, formatTimestamp } from "./utils";
 
 const DENSITY_BUCKETS = 48;
 const TICK_COUNT = 5;
 
+/**
+ * Generic timeline marker — minimal shape so notes and discussions can
+ * both feed the timeline. The accent palette switches based on
+ * `accentTone`: notes use teal/coral (text/voice); discussions use the
+ * `--discussion-accent` family.
+ */
+export type TimelineMarker = {
+  id: string;
+  startTimestampMs: number;
+  /** "TEXT" or "VOICE" — drives marker color within the active palette. */
+  mediaType: "TEXT" | "VOICE";
+  /** Tooltip body — already-formatted preview of the marker's content. */
+  summary: string;
+};
+
+export type TimelineAccentTone = "notes" | "discussions";
+
+type AccentColors = {
+  text: string;
+  voice: string;
+  density: string;
+  textLabel: string;
+  voiceLabel: string;
+};
+
+const ACCENT_COLORS: Record<TimelineAccentTone, AccentColors> = {
+  notes: {
+    text: "var(--primary)",
+    voice: "var(--note-voice-accent)",
+    density: "color-mix(in oklch, var(--primary) 28%, var(--muted))",
+    textLabel: "Text",
+    voiceLabel: "Voice",
+  },
+  discussions: {
+    text: "var(--discussion-accent)",
+    voice: "var(--note-voice-accent)",
+    density: "color-mix(in oklch, var(--discussion-accent) 28%, var(--muted))",
+    textLabel: "Text",
+    voiceLabel: "Voice",
+  },
+};
+
 type RehearsalTimelineCardProps = {
   timelineRef: RefObject<HTMLDivElement | null>;
   currentPlaybackMs: number;
   videoDurationMs: number;
-  notes: NoteItem[];
+  markers: TimelineMarker[];
+  /** Accent palette + label noun. Defaults to the note palette. */
+  accentTone?: TimelineAccentTone;
+  /**
+   * Singular / plural noun shown in the count line ("3 notes across 1:23").
+   * Defaults to ["note", "notes"]. Discussions pass ["discussion", "discussions"].
+   */
+  countNoun?: [string, string];
   onJumpToTimestamp: (timestampMs: number) => void;
   onTimelinePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   onTimelinePointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -27,31 +75,36 @@ export function RehearsalTimelineCard({
   timelineRef,
   currentPlaybackMs,
   videoDurationMs,
-  notes,
+  markers,
+  accentTone = "notes",
+  countNoun = ["note", "notes"],
   onJumpToTimestamp,
   onTimelinePointerDown,
   onTimelinePointerMove,
   onTimelinePointerEnd,
-}: RehearsalTimelineCardProps) {
+}: Readonly<RehearsalTimelineCardProps>) {
+  const accent = ACCENT_COLORS[accentTone];
+  const [singular, plural] = countNoun;
+
   const playheadPercent =
     videoDurationMs > 0
       ? clamp((currentPlaybackMs / videoDurationMs) * 100, 0, 100)
       : 0;
 
-  // Density strip — count notes per bucket and normalize.
+  // Density strip — count markers per bucket and normalize.
   const densityHeights = useMemo(() => {
     const counts = Array.from({ length: DENSITY_BUCKETS }, () => 0);
     if (videoDurationMs <= 0) return counts;
-    for (const note of notes) {
+    for (const marker of markers) {
       const idx = Math.min(
         DENSITY_BUCKETS - 1,
-        Math.floor((note.startTimestampMs / videoDurationMs) * DENSITY_BUCKETS)
+        Math.floor((marker.startTimestampMs / videoDurationMs) * DENSITY_BUCKETS)
       );
       counts[idx] += 1;
     }
     const max = Math.max(1, ...counts);
     return counts.map((c) => c / max);
-  }, [notes, videoDurationMs]);
+  }, [markers, videoDurationMs]);
 
   // Evenly-spaced tick labels.
   const tickLabels = useMemo(() => {
@@ -74,7 +127,7 @@ export function RehearsalTimelineCard({
             Timeline
           </span>
           <span className="text-xs text-muted-foreground">
-            {notes.length} {notes.length === 1 ? "note" : "notes"}
+            {markers.length} {markers.length === 1 ? singular : plural}
             {isReady ? (
               <>
                 {" "}across{" "}
@@ -90,17 +143,17 @@ export function RehearsalTimelineCard({
             <span
               aria-hidden
               className="size-2 rounded-[2px]"
-              style={{ backgroundColor: "var(--primary)" }}
+              style={{ backgroundColor: accent.text }}
             />
-            Text
+            {accent.textLabel}
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span
               aria-hidden
               className="size-2 rounded-[2px]"
-              style={{ backgroundColor: "var(--note-voice-accent)" }}
+              style={{ backgroundColor: accent.voice }}
             />
-            Voice
+            {accent.voiceLabel}
           </span>
         </div>
       </div>
@@ -123,10 +176,7 @@ export function RehearsalTimelineCard({
                   left: `${left}%`,
                   width: `calc(${width}% - 1.5px)`,
                   height: `${Math.max(8, value * 100)}%`,
-                  backgroundColor:
-                    value > 0
-                      ? "color-mix(in oklch, var(--primary) 28%, var(--muted))"
-                      : "var(--muted)",
+                  backgroundColor: value > 0 ? accent.density : "var(--muted)",
                 }}
               />
             )
@@ -156,35 +206,30 @@ export function RehearsalTimelineCard({
             />
           </div>
 
-          {notes.map((note) => {
+          {markers.map((marker) => {
             if (!isReady) return null;
             const left = clamp(
-              (note.startTimestampMs / videoDurationMs) * 100,
+              (marker.startTimestampMs / videoDurationMs) * 100,
               0,
               100
             );
-            const isVoice = note.noteType === "VOICE";
-            const summary = isVoice
-              ? `Voice note (${note.audioAsset?.durationMs ? formatTimestamp(note.audioAsset.durationMs) : "—"})`
-              : (note.bodyText ?? "");
+            const isVoice = marker.mediaType === "VOICE";
 
             return (
               <button
-                key={note.id}
+                key={marker.id}
                 type="button"
-                title={`${formatTimestamp(note.startTimestampMs)} — ${summary}`}
-                aria-label={`Jump to note at ${formatTimestamp(note.startTimestampMs)}`}
+                title={`${formatTimestamp(marker.startTimestampMs)} — ${marker.summary}`}
+                aria-label={`Jump to ${singular} at ${formatTimestamp(marker.startTimestampMs)}`}
                 className="absolute top-1/2 size-[13px] -translate-x-1/2 -translate-y-1/2 rounded-[3px] border-2 shadow-sm transition-transform hover:scale-110"
                 style={{
                   left: `${left}%`,
-                  backgroundColor: isVoice
-                    ? "var(--note-voice-accent)"
-                    : "var(--primary)",
+                  backgroundColor: isVoice ? accent.voice : accent.text,
                   borderColor: "var(--card)",
                 }}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onJumpToTimestamp(note.startTimestampMs);
+                  onJumpToTimestamp(marker.startTimestampMs);
                 }}
               />
             );

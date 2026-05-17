@@ -112,6 +112,16 @@
     --repeating-bg: oklch(0.94 0.04 285);
     --repeating-fg: oklch(0.42 0.12 290);
     --repeating-border: oklch(0.84 0.06 285);
+
+    /* Discussion accent — soft indigo (hue 268). Sits between the status
+       palette (180–240) and the repeating plum (285) so the visual
+       language stays "thoughtful / contemplative" without colliding with
+       the teal primary, coral voice, or plum repeating signals. Mirrors
+       the note-voice token shape so existing patterns (color-mix tints,
+       bordered chips) port over without code changes. */
+    --discussion-accent: oklch(0.55 0.13 268);
+    --discussion-bg: oklch(0.965 0.025 268);
+    --discussion-border: oklch(0.86 0.06 268);
 }
 
 .dark {
@@ -178,6 +188,10 @@
     --repeating-bg: oklch(0.3 0.04 285);
     --repeating-fg: oklch(0.8 0.09 285);
     --repeating-border: oklch(0.4 0.07 285);
+
+    --discussion-accent: oklch(0.7 0.12 268);
+    --discussion-bg: oklch(0.27 0.04 268);
+    --discussion-border: oklch(0.4 0.07 268);
 }
 
 @layer base {

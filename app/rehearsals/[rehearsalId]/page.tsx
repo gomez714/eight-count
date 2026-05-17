@@ -3,6 +3,7 @@ import { Film } from "lucide-react"
 import { notFound, redirect } from "next/navigation"
 
 import { ensureDbUser } from "@/lib/auth/ensure-db-user"
+import { getDiscussionsForRehearsal } from "@/lib/discussions/get-discussions-for-rehearsal"
 import { summarizeThread } from "@/lib/threads/comments"
 import { getActiveAssignmentsForProjects } from "@/lib/notes/get-active-assignments-for-project"
 import {
@@ -83,6 +84,43 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
     repeatingClusters
   )
 
+  // Discussions live alongside notes in the workspace right column behind
+  // a tab switcher. Fetched in parallel with notes (already in `rehearsal`).
+  const discussionRows = await getDiscussionsForRehearsal(
+    rehearsal.id,
+    dbUser.id
+  )
+  const discussions = discussionRows.map((d) => ({
+    id: d.id,
+    noteType: d.noteType,
+    bodyText: d.bodyText,
+    startTimestampMs: d.startTimestampMs,
+    endTimestampMs: d.endTimestampMs,
+    audioAsset: d.audioAsset
+      ? {
+          id: d.audioAsset.id,
+          mimeType: d.audioAsset.mimeType,
+          durationMs: d.audioAsset.durationMs,
+          status: d.audioAsset.status,
+          transcript: d.audioAsset.transcript,
+          transcriptStatus: d.audioAsset.transcriptStatus,
+        }
+      : null,
+    createdAt: d.createdAt,
+    updatedAt: d.updatedAt,
+    author: {
+      id: d.author.id,
+      name: d.author.name,
+      email: d.author.email,
+    },
+    thread: summarizeThread({
+      viewerId: dbUser.id,
+      comments: d.comments,
+      reactions: d.reactions,
+      lastViewedAt: d.threadViews[0]?.lastViewedAt ?? null,
+    }),
+  }))
+
   return (
     <>
       <RehearsalContextBar
@@ -116,10 +154,13 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
         {hasVideo && rehearsal.videoAsset ? (
           <RehearsalWorkspace
             rehearsalId={rehearsal.id}
+            projectId={rehearsal.project.id}
+            videoAssetId={rehearsal.videoAsset.id}
             fileName={rehearsal.videoAsset.originalFileName}
             canAuthorNotes={canAuthorNotes}
             currentUserId={dbUser.id}
             workspaceTipsDismissed={workspaceTipsDismissed}
+            discussions={discussions}
             assignableMembers={rehearsal.project.team.members.map(
               (member) => ({
                 id: member.user.id,

@@ -6,28 +6,47 @@ import { cn } from "@/lib/utils";
 
 type NoteType = "TEXT" | "VOICE";
 
+/**
+ * Tone selects the accent palette family. `"note"` (default) keeps the
+ * existing behavior (teal for TEXT, coral for VOICE). `"discussion"`
+ * swaps the TEXT accent to the discussion indigo while keeping VOICE
+ * coral (voice is voice — same accent regardless of host entity).
+ */
+export type TimestampPillTone = "note" | "discussion";
+
 type NoteTimestampPillProps = {
   timestampMs: number;
   noteType?: NoteType;
+  tone?: TimestampPillTone;
   /** When set, the pill becomes a button. */
   onClick?: () => void;
   className?: string;
   ariaLabel?: string;
 };
 
-const ACCENT_BY_TYPE: Record<NoteType, string> = {
-  TEXT: "var(--primary)",
-  VOICE: "var(--note-voice-accent)",
+const ACCENT_BY_TONE_AND_TYPE: Record<
+  TimestampPillTone,
+  Record<NoteType, string>
+> = {
+  note: {
+    TEXT: "var(--primary)",
+    VOICE: "var(--note-voice-accent)",
+  },
+  discussion: {
+    TEXT: "var(--discussion-accent)",
+    VOICE: "var(--note-voice-accent)",
+  },
 };
 
 export function NoteTimestampPill({
   timestampMs,
   noteType = "TEXT",
+  tone = "note",
   onClick,
   className,
   ariaLabel,
 }: Readonly<NoteTimestampPillProps>) {
-  const accent = ACCENT_BY_TYPE[noteType];
+  const accent = ACCENT_BY_TONE_AND_TYPE[tone][noteType];
   const style: CSSProperties = {
     color: accent,
     backgroundColor: `color-mix(in oklch, ${accent} 10%, transparent)`,

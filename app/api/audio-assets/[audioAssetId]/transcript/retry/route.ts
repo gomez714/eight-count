@@ -31,9 +31,11 @@ export async function POST(
 
     const { audioAssetId } = await context.params;
 
-    // Staff-gated: the caller must be ADMIN / INSTRUCTOR / ASSISTANT on
-    // the team that owns this audio asset. Dancers see "Transcript
-    // unavailable" with no retry button and ping their instructor.
+    // Author-or-staff gate: the caller must be either the user who
+    // recorded the audio (dancers can retry their own voice-discussion
+    // transcripts) OR a staff member on the team that owns it. Dancers
+    // who didn't record this asset see "Transcript unavailable" with no
+    // retry button and ping their instructor.
     const audioAsset = await db.audioAsset.findFirst({
       where: {
         id: audioAssetId,
@@ -43,14 +45,13 @@ export async function POST(
               members: {
                 some: {
                   userId: dbUser.id,
-                  role: { in: [...STAFF_ROLES] },
                 },
               },
             },
           },
         },
       },
-      select: { id: true, status: true },
+      select: { id: true, status: true, uploadedByUserId: true, rehearsal: { select: { project: { select: { team: { select: { members: { where: { userId: dbUser.id }, select: { role: true } } } } } } } } },
     });
 
     if (!audioAsset) {
@@ -58,6 +59,18 @@ export async function POST(
         404,
         "AUDIO_ASSET_NOT_FOUND",
         "Audio asset not found or you don't have permission to retry"
+      );
+    }
+
+    const callerRole = audioAsset.rehearsal.project.team.members[0]?.role;
+    const isAuthor = audioAsset.uploadedByUserId === dbUser.id;
+    const isStaff =
+      callerRole !== undefined && (STAFF_ROLES as readonly string[]).includes(callerRole);
+    if (!isAuthor && !isStaff) {
+      return apiError(
+        403,
+        "FORBIDDEN",
+        "Only the original uploader or staff can retry transcription"
       );
     }
 

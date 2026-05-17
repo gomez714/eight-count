@@ -88,3 +88,30 @@ export type NoteItem = {
   /** Pre-computed thread summary for the current viewer (chip seed). */
   thread: NoteThreadSummaryItem;
 };
+
+/**
+ * Workspace-scoped shape for a Discussion. Mirrors NoteItem where it
+ * shares semantics, omits what doesn't apply (no targets, no assignments,
+ * no tag in v1), and makes the timestamp fields nullable since
+ * discussions can be unanchored. The thread summary uses the same
+ * `NoteThreadSummaryItem` shape — the chip is target-agnostic.
+ */
+export type DiscussionItem = {
+  id: string;
+  noteType: "TEXT" | "VOICE";
+  bodyText: string | null;
+  /** null = unanchored. */
+  startTimestampMs: number | null;
+  /** null = single timestamp (or unanchored). */
+  endTimestampMs: number | null;
+  audioAsset: AudioAssetItem | null;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+  author: {
+    id: string;
+    name: string | null;
+    email: string;
+  };
+  /** Pre-computed thread summary for the current viewer (chip seed). */
+  thread: NoteThreadSummaryItem;
+};

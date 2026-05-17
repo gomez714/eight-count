@@ -1,5 +1,6 @@
 import "server-only"
 
+import type { TeamRole } from "@/generated/prisma/client"
 import { db } from "@/lib/db"
 
 import type { ThreadTarget } from "./api-paths"
@@ -21,13 +22,12 @@ import type { ReactionKind } from "./reactions"
  * `THREAD_TARGET_NOT_IMPLEMENTED` until the discussion schema lands.
  */
 
-const NOT_IMPLEMENTED = "THREAD_TARGET_NOT_IMPLEMENTED: discussion"
-
 /**
- * Verify that a user can see a thread. For notes, mirrors note visibility:
- * any active team member of the owning team can read and post. For
- * discussions, mirrors discussion visibility (any team member of the
- * owning project's team) — implemented in PR 2.
+ * Verify that a user can see a thread. For notes, walks
+ * note → rehearsal → project → team → members. For discussions, walks
+ * discussion → project → team → members (one less hop — discussions
+ * don't require a rehearsal). Either branch returns null when the user
+ * is not a team member of the owning team.
  */
 export async function canViewThread(
   target: ThreadTarget,
@@ -53,8 +53,22 @@ export async function canViewThread(
     if (!row) return null
     return { target, teamId: row.rehearsal.project.teamId }
   }
-  // TODO(pr-2): implement discussion branch when the Discussion model lands.
-  throw new Error(NOT_IMPLEMENTED)
+  const row = await db.discussion.findFirst({
+    where: {
+      id: target.id,
+      project: {
+        team: {
+          members: { some: { userId } },
+        },
+      },
+    },
+    select: {
+      id: true,
+      project: { select: { teamId: true } },
+    },
+  })
+  if (!row) return null
+  return { target, teamId: row.project.teamId }
 }
 
 /**
@@ -69,8 +83,7 @@ export async function loadThread(
   if (target.type === "note") {
     return loadNoteThread(target.id, viewerId)
   }
-  // TODO(pr-2): implement discussion branch when the Discussion model lands.
-  throw new Error(NOT_IMPLEMENTED)
+  return loadDiscussionThread(target.id, viewerId)
 }
 
 async function loadNoteThread(
@@ -141,7 +154,7 @@ async function loadNoteThread(
  */
 async function loadNoteCommentAuthorRoles(
   noteId: string
-): Promise<Map<string, "ADMIN" | "INSTRUCTOR" | "ASSISTANT" | "DANCER">> {
+): Promise<Map<string, TeamRole>> {
   const note = await db.note.findUnique({
     where: { id: noteId },
     select: {
@@ -150,8 +163,87 @@ async function loadNoteCommentAuthorRoles(
   })
   if (!note) return new Map()
 
+  return loadTeamRoleMap(note.rehearsal.project.teamId)
+}
+
+async function loadDiscussionThread(
+  discussionId: string,
+  viewerId: string
+): Promise<ThreadPayload> {
+  const [comments, reactions, teamRoleByUser] = await Promise.all([
+    db.discussionComment.findMany({
+      where: { discussionId },
+      orderBy: { createdAt: "asc" },
+      include: {
+        author: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            imageUrl: true,
+          },
+        },
+      },
+    }),
+    db.discussionReaction.findMany({
+      where: { discussionId },
+      select: { kind: true, userId: true },
+    }),
+    loadDiscussionCommentAuthorRoles(discussionId),
+  ])
+
+  const reactionMap = new Map<ReactionKind, ThreadReactionSummary>()
+  for (const r of reactions) {
+    const existing = reactionMap.get(r.kind) ?? {
+      kind: r.kind,
+      count: 0,
+      viewerReacted: false,
+    }
+    existing.count += 1
+    if (r.userId === viewerId) existing.viewerReacted = true
+    reactionMap.set(r.kind, existing)
+  }
+
+  const serializedComments: ThreadComment[] = comments.map((c) => {
+    const deleted = c.deletedAt !== null
+    return {
+      id: c.id,
+      authorId: c.author.id,
+      authorName: c.author.name,
+      authorEmail: c.author.email,
+      authorImageUrl: c.author.imageUrl,
+      authorRole: teamRoleByUser.get(c.author.id) ?? null,
+      bodyText: deleted ? null : c.bodyText,
+      editedAt: c.editedAt ? c.editedAt.toISOString() : null,
+      deleted,
+      createdAt: c.createdAt.toISOString(),
+    }
+  })
+
+  return {
+    comments: serializedComments,
+    reactions: Array.from(reactionMap.values()),
+    commentCount: comments.filter((c) => c.deletedAt === null).length,
+  }
+}
+
+async function loadDiscussionCommentAuthorRoles(
+  discussionId: string
+): Promise<Map<string, TeamRole>> {
+  const discussion = await db.discussion.findUnique({
+    where: { id: discussionId },
+    select: { project: { select: { teamId: true } } },
+  })
+  if (!discussion) return new Map()
+
+  return loadTeamRoleMap(discussion.project.teamId)
+}
+
+async function loadTeamRoleMap(
+  teamId: string
+): Promise<Map<string, TeamRole>> {
   const members = await db.teamMember.findMany({
-    where: { teamId: note.rehearsal.project.teamId },
+    where: { teamId },
     select: { userId: true, role: true },
   })
   return new Map(members.map((m) => [m.userId, m.role]))

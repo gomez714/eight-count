@@ -13,20 +13,24 @@ import { canViewThread, loadThread } from "@/lib/threads/thread-access"
 
 export async function PATCH(
   request: NextRequest,
-  context: { params: Promise<{ noteId: string; commentId: string }> }
+  context: { params: Promise<{ discussionId: string; commentId: string }> }
 ): Promise<NextResponse<UpdateCommentResponse>> {
   const dbUser = await ensureDbUser()
   if (!dbUser) return apiError(401, "UNAUTHORIZED", "Unauthorized")
 
-  const { noteId, commentId } = await context.params
-  const access = await canViewThread({ type: "note", id: noteId }, dbUser.id)
-  if (!access) return apiError(404, "NOTE_NOT_FOUND", "Note not found")
+  const { discussionId, commentId } = await context.params
+  const access = await canViewThread(
+    { type: "discussion", id: discussionId },
+    dbUser.id
+  )
+  if (!access)
+    return apiError(404, "DISCUSSION_NOT_FOUND", "Discussion not found")
 
-  const comment = await db.noteComment.findUnique({
+  const comment = await db.discussionComment.findUnique({
     where: { id: commentId },
-    select: { id: true, noteId: true, authorId: true, deletedAt: true },
+    select: { id: true, discussionId: true, authorId: true, deletedAt: true },
   })
-  if (!comment || comment.noteId !== noteId) {
+  if (!comment || comment.discussionId !== discussionId) {
     return apiError(404, "COMMENT_NOT_FOUND", "Comment not found")
   }
   if (comment.authorId !== dbUser.id) {
@@ -59,34 +63,38 @@ export async function PATCH(
     )
   }
 
-  await db.noteComment.update({
+  await db.discussionComment.update({
     where: { id: commentId },
     data: { bodyText: trimmed, editedAt: new Date() },
   })
 
-  const thread = await loadThread({ type: "note", id: noteId }, dbUser.id)
-  return NextResponse.json<UpdateCommentResponse>({
-    ok: true,
-    data: thread,
-  })
+  const thread = await loadThread(
+    { type: "discussion", id: discussionId },
+    dbUser.id
+  )
+  return NextResponse.json<UpdateCommentResponse>({ ok: true, data: thread })
 }
 
 export async function DELETE(
   _request: NextRequest,
-  context: { params: Promise<{ noteId: string; commentId: string }> }
+  context: { params: Promise<{ discussionId: string; commentId: string }> }
 ): Promise<NextResponse<DeleteCommentResponse>> {
   const dbUser = await ensureDbUser()
   if (!dbUser) return apiError(401, "UNAUTHORIZED", "Unauthorized")
 
-  const { noteId, commentId } = await context.params
-  const access = await canViewThread({ type: "note", id: noteId }, dbUser.id)
-  if (!access) return apiError(404, "NOTE_NOT_FOUND", "Note not found")
+  const { discussionId, commentId } = await context.params
+  const access = await canViewThread(
+    { type: "discussion", id: discussionId },
+    dbUser.id
+  )
+  if (!access)
+    return apiError(404, "DISCUSSION_NOT_FOUND", "Discussion not found")
 
-  const comment = await db.noteComment.findUnique({
+  const comment = await db.discussionComment.findUnique({
     where: { id: commentId },
-    select: { id: true, noteId: true, authorId: true, deletedAt: true },
+    select: { id: true, discussionId: true, authorId: true, deletedAt: true },
   })
-  if (!comment || comment.noteId !== noteId) {
+  if (!comment || comment.discussionId !== discussionId) {
     return apiError(404, "COMMENT_NOT_FOUND", "Comment not found")
   }
   if (comment.authorId !== dbUser.id) {
@@ -94,21 +102,21 @@ export async function DELETE(
   }
   if (comment.deletedAt !== null) {
     // Already a tombstone — return current state idempotently.
-    const thread = await loadThread({ type: "note", id: noteId }, dbUser.id)
-    return NextResponse.json<DeleteCommentResponse>({
-      ok: true,
-      data: thread,
-    })
+    const thread = await loadThread(
+      { type: "discussion", id: discussionId },
+      dbUser.id
+    )
+    return NextResponse.json<DeleteCommentResponse>({ ok: true, data: thread })
   }
 
-  await db.noteComment.update({
+  await db.discussionComment.update({
     where: { id: commentId },
     data: { deletedAt: new Date() },
   })
 
-  const thread = await loadThread({ type: "note", id: noteId }, dbUser.id)
-  return NextResponse.json<DeleteCommentResponse>({
-    ok: true,
-    data: thread,
-  })
+  const thread = await loadThread(
+    { type: "discussion", id: discussionId },
+    dbUser.id
+  )
+  return NextResponse.json<DeleteCommentResponse>({ ok: true, data: thread })
 }

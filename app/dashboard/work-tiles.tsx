@@ -74,7 +74,7 @@ export function WorkTiles({
       {unreadComments > 0 ? (
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <UnreadCommentsIndicator count={unreadComments} />
-          <span>across the notes you&apos;re part of</span>
+          <span>across your notes and discussions</span>
         </div>
       ) : null}
     </div>

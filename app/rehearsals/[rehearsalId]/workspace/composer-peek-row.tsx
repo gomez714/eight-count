@@ -11,10 +11,18 @@ type ComposerPeekRowProps = {
   mode: ComposerMode;
   onModeChange: (next: ComposerMode) => void;
   selectedTimestampMs: number;
-  audienceSummary: AudienceSummary;
+  /**
+   * Audience chip is note-specific. Discussions don't target individuals
+   * (everyone in the team sees them), so the discussion peek row passes
+   * `null` and we omit the chip entirely.
+   */
+  audienceSummary: AudienceSummary | null;
+  /** Only meaningful when `audienceSummary` is non-null. */
+  onTapAudience?: () => void;
   onCaptureTimestamp: () => void;
-  onTapAudience: () => void;
   onExpand: () => void;
+  /** Override the right-side hint. Defaults to `Tap to write/record…`. */
+  expandLabelOverride?: (mode: ComposerMode) => string;
   disabled: boolean;
 };
 
@@ -29,8 +37,12 @@ export function ComposerPeekRow({
   onCaptureTimestamp,
   onTapAudience,
   onExpand,
+  expandLabelOverride,
   disabled,
-}: ComposerPeekRowProps) {
+}: Readonly<ComposerPeekRowProps>) {
+  const expandLabel =
+    expandLabelOverride?.(mode) ??
+    `Tap to ${mode === "VOICE" ? "record" : "write"}…`;
   return (
     <div className="flex items-center gap-2 px-3 pb-3">
       <div
@@ -84,24 +96,24 @@ export function ComposerPeekRow({
         </span>
       </button>
 
-      <button
-        type="button"
-        onClick={onTapAudience}
-        aria-label={`Audience: ${audienceSummary.label}. Tap to change.`}
-        className="inline-flex h-9 min-w-0 shrink items-center gap-1 rounded-full border bg-card px-2.5 text-xs font-medium hover:bg-accent"
-      >
-        {audienceSummary.icon}
-        <span className="min-w-0 truncate">{audienceSummary.label}</span>
-      </button>
+      {audienceSummary ? (
+        <button
+          type="button"
+          onClick={onTapAudience}
+          aria-label={`Audience: ${audienceSummary.label}. Tap to change.`}
+          className="inline-flex h-9 min-w-0 shrink items-center gap-1 rounded-full border bg-card px-2.5 text-xs font-medium hover:bg-accent"
+        >
+          {audienceSummary.icon}
+          <span className="min-w-0 truncate">{audienceSummary.label}</span>
+        </button>
+      ) : null}
 
       <button
         type="button"
         onClick={onExpand}
         className="ml-auto inline-flex h-9 min-w-0 flex-1 items-center justify-end gap-1 truncate rounded-md text-xs text-muted-foreground hover:text-foreground"
       >
-        <span className="truncate">
-          Tap to {mode === "VOICE" ? "record" : "write"}…
-        </span>
+        <span className="truncate">{expandLabel}</span>
         <ChevronUp className="size-4 shrink-0 opacity-60" />
       </button>
     </div>

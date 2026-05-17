@@ -6,10 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import type {
   AudioCompleteUploadResponse,
   AudioUploadUrlResponse,
-  CreateNoteResponse,
-  NoteTargetInput,
 } from "@/lib/api/contracts";
-import type { NoteTag } from "@/lib/notes/tags";
 import { Button } from "@/components/ui/button";
 
 import { formatTimestamp } from "./utils";
@@ -59,9 +56,29 @@ type RecorderState =
 type VoiceNoteRecorderProps = {
   rehearsalId: string;
   videoRef: React.RefObject<HTMLVideoElement | null>;
-  buildTargets: () => NoteTargetInput[];
-  getTag: () => NoteTag | null;
-  onSaved: () => void;
+  /**
+   * Called after the audio upload completes (steps 1-3 of the 4-step
+   * voice flow: upload-url → PUT to GCS → complete). The parent is
+   * responsible for the entity-creation request — POST to `/notes` for
+   * voice notes, POST to `/discussions` for voice discussions. Throw
+   * to keep the recorder in preview state with the blob retained so
+   * the user can retry.
+   */
+  onAudioReady: (data: {
+    audioAssetId: string;
+    durationMs: number;
+    startTimestampMs: number;
+    endTimestampMs: number;
+  }) => Promise<void>;
+  /**
+   * Threaded through to the upload-url query param. `"note"` (default)
+   * gates on staff roles; `"discussion"` opens the route to any team
+   * member so dancers can record voice discussions. See "Voice Note
+   * Recording Flow" in CLAUDE.md.
+   */
+  uploadPurpose?: "note" | "discussion";
+  /** Save button label. Defaults to "Save voice note". */
+  saveButtonLabel?: string;
   disabled?: boolean;
   // Fires `true` when the countdown begins, `false` on cancel/stop/error/
   // unmount. Used by the mobile composer sheet to lock dismissal during
@@ -73,9 +90,9 @@ type VoiceNoteRecorderProps = {
 export function VoiceNoteRecorder({
   rehearsalId,
   videoRef,
-  buildTargets,
-  getTag,
-  onSaved,
+  onAudioReady,
+  uploadPurpose = "note",
+  saveButtonLabel = "Save voice note",
   disabled = false,
   onRecordingStateChange,
 }: VoiceNoteRecorderProps) {
@@ -451,19 +468,22 @@ export function VoiceNoteRecorder({
     const fileName = `voice-note.${extensionForMime(mime)}`;
 
     try {
-      // 1. upload-url
-      const uploadUrlResp = await fetch(
-        `/api/rehearsals/${rehearsalId}/audio/upload-url`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            fileName,
-            contentType: mime,
-            fileSizeBytes: blob.size,
-          }),
-        }
-      );
+      // 1. upload-url. The query param threads the caller's intent so
+      //    the route can apply the right role gate (voice notes are
+      //    staff-only; voice discussions are open to any team member).
+      const uploadUrlPath =
+        uploadPurpose === "discussion"
+          ? `/api/rehearsals/${rehearsalId}/audio/upload-url?purpose=discussion`
+          : `/api/rehearsals/${rehearsalId}/audio/upload-url`;
+      const uploadUrlResp = await fetch(uploadUrlPath, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fileName,
+          contentType: mime,
+          fileSizeBytes: blob.size,
+        }),
+      });
       const uploadUrlData =
         (await uploadUrlResp.json()) as AudioUploadUrlResponse;
       if (!uploadUrlData.ok) throw new Error(uploadUrlData.error.message);
@@ -489,26 +509,17 @@ export function VoiceNoteRecorder({
         (await completeResp.json()) as AudioCompleteUploadResponse;
       if (!completeData.ok) throw new Error(completeData.error.message);
 
-      // 4. create note
-      const createResp = await fetch(
-        `/api/rehearsals/${rehearsalId}/notes`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            noteType: "VOICE",
-            audioAssetId: uploadUrlData.data.audioAssetId,
-            startTimestampMs: startMs,
-            endTimestampMs: endMs,
-            tag: getTag(),
-            targets: buildTargets(),
-          }),
-        }
-      );
-      const createData = (await createResp.json()) as CreateNoteResponse;
-      if (!createData.ok) throw new Error(createData.error.message);
+      // 4. Hand off to the parent so it can post the entity-creation
+      //    request (note or discussion). Throwing keeps us in preview
+      //    state with the blob retained for retry.
+      await onAudioReady({
+        audioAssetId: uploadUrlData.data.audioAssetId,
+        durationMs,
+        startTimestampMs: startMs,
+        endTimestampMs: endMs,
+      });
 
-      // success — clear preview and notify parent
+      // success — clear preview, parent already handled router refresh / toast
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
       blobRef.current = null;
@@ -516,7 +527,6 @@ export function VoiceNoteRecorder({
       mimeTypeRef.current = null;
       setElapsedMs(0);
       setState("idle");
-      onSaved();
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to save voice note.";
@@ -634,7 +644,7 @@ export function VoiceNoteRecorder({
               onClick={handleSave}
               disabled={isUploading || disabled}
             >
-              Save voice note
+              {saveButtonLabel}
             </Button>
           </div>
         </div>

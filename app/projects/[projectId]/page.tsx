@@ -3,17 +3,21 @@ import { notFound, redirect } from "next/navigation";
 
 import { ensureDbUser } from "@/lib/auth/ensure-db-user";
 import { db } from "@/lib/db";
+import { getDiscussionsForProject } from "@/lib/discussions/get-discussions-for-project";
 import { getProjectGroups } from "@/lib/groups/get-project-groups";
 import { getActiveAssignmentsForProjects } from "@/lib/notes/get-active-assignments-for-project";
 import { detectRepeatingClusters } from "@/lib/notes/repeating";
 import { isNoteStalled } from "@/lib/notes/stalled";
 import { getProjectForUser } from "@/lib/projects/get-project-for-user";
+import { summarizeThread } from "@/lib/threads/comments";
 import type { NoteProgressCounts } from "@/components/note-progress-bar";
 import type { NoteStatus } from "@/lib/notes/statuses";
 
+import { DiscussionsSection } from "./discussions-section";
 import { NewRehearsalButton } from "./new-rehearsal-button";
 import { ProjectDrillSection, type DrillBoardRecipient } from "./project-drill-section";
 import { ProjectMetaBand } from "./project-meta-band";
+import type { ProjectDiscussionItem } from "./project-discussion-row";
 import {
   ProjectGroupsSection,
   type TeamMemberOption,
@@ -64,44 +68,46 @@ export default async function ProjectPage({ params }: Readonly<ProjectPageProps>
     notFound();
   }
 
-  const [rehearsals, groups, allTeamMembers] = await Promise.all([
-    db.rehearsal.findMany({
-      where: { projectId: project.id },
-      orderBy: { rehearsalDate: "desc" },
-      include: {
-        videoAsset: {
-          select: { durationMs: true },
-        },
-        notes: {
-          select: {
-            id: true,
-            noteType: true,
-            createdAt: true,
-            author: { select: { id: true, name: true, email: true } },
-            assignments: {
-              select: {
-                id: true,
-                status: { select: { status: true } },
+  const [rehearsals, groups, allTeamMembers, discussionRows] =
+    await Promise.all([
+      db.rehearsal.findMany({
+        where: { projectId: project.id },
+        orderBy: { rehearsalDate: "desc" },
+        include: {
+          videoAsset: {
+            select: { durationMs: true },
+          },
+          notes: {
+            select: {
+              id: true,
+              noteType: true,
+              createdAt: true,
+              author: { select: { id: true, name: true, email: true } },
+              assignments: {
+                select: {
+                  id: true,
+                  status: { select: { status: true } },
+                },
               },
             },
           },
         },
-      },
-    }),
-    getProjectGroups(project.id),
-    db.teamMember.findMany({
-      where: {
-        teamId: project.team.id,
-        // Active members only — soft-deleted users disappear from
-        // the cast-management surfaces. Historical attribution on
-        // existing notes/assignments stays intact (those queries
-        // don't filter by deletedAt).
-        user: { deletedAt: null },
-      },
-      include: { user: true },
-      orderBy: { createdAt: "asc" },
-    }),
-  ]);
+      }),
+      getProjectGroups(project.id),
+      db.teamMember.findMany({
+        where: {
+          teamId: project.team.id,
+          // Active members only — soft-deleted users disappear from
+          // the cast-management surfaces. Historical attribution on
+          // existing notes/assignments stays intact (those queries
+          // don't filter by deletedAt).
+          user: { deletedAt: null },
+        },
+        include: { user: true },
+        orderBy: { createdAt: "asc" },
+      }),
+      getDiscussionsForProject(project.id, dbUser.id),
+    ]);
 
   const membership = project.team.members[0];
   const role = membership?.role ?? null;
@@ -301,6 +307,40 @@ export default async function ProjectPage({ params }: Readonly<ProjectPageProps>
     ? dbUser.id
     : (drillRecipients[0]?.userId ?? null);
 
+  const discussions: ProjectDiscussionItem[] = discussionRows.map((d) => ({
+    id: d.id,
+    noteType: d.noteType,
+    bodyText: d.bodyText,
+    startTimestampMs: d.startTimestampMs,
+    endTimestampMs: d.endTimestampMs,
+    audioAsset: d.audioAsset
+      ? {
+          id: d.audioAsset.id,
+          mimeType: d.audioAsset.mimeType,
+          durationMs: d.audioAsset.durationMs,
+          status: d.audioAsset.status,
+          transcript: d.audioAsset.transcript,
+          transcriptStatus: d.audioAsset.transcriptStatus,
+        }
+      : null,
+    createdAt: d.createdAt,
+    updatedAt: d.updatedAt,
+    author: {
+      id: d.author.id,
+      name: d.author.name,
+      email: d.author.email,
+    },
+    rehearsal: d.rehearsal
+      ? { id: d.rehearsal.id, title: d.rehearsal.title }
+      : null,
+    thread: summarizeThread({
+      viewerId: dbUser.id,
+      comments: d.comments,
+      reactions: d.reactions,
+      lastViewedAt: d.threadViews[0]?.lastViewedAt ?? null,
+    }),
+  }));
+
   // Aggregate distinct contributors across the project for the meta band.
   const projectContributorMap = new Map<
     string,
@@ -359,6 +399,13 @@ export default async function ProjectPage({ params }: Readonly<ProjectPageProps>
             initialExpandedUserId={initialExpandedUserId}
           />
         ) : null}
+
+        <DiscussionsSection
+          projectId={project.id}
+          discussions={discussions}
+          currentUserId={dbUser.id}
+          canRetryTranscript={isStaff}
+        />
 
         <ProjectMobileTabs
           rehearsalCount={rehearsalRows.length}

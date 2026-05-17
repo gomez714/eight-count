@@ -99,20 +99,24 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  teamMembers              TeamMember[]
-  createdProjects          Project[]               @relation("ProjectCreatedBy")
-  createdRehearsals        Rehearsal[]             @relation("RehearsalCreatedBy")
-  uploadedVideoAssets      VideoAsset[]
-  uploadedAudioAssets      AudioAsset[]
-  notes                    Note[]                  @relation("NoteAuthor")
-  noteAssignments          NoteAssignment[]        @relation("AssignedNoteUser")
-  noteStatusUpdates        NoteAssignmentStatus[]  @relation("NoteStatusUpdatedBy")
-  noteTargets              NoteTarget[]            @relation("NoteTargetUser")
-  invitationsSent          TeamInvitation[]        @relation("InvitationInviter")
-  invitationsAccepted      TeamInvitation[]        @relation("InvitationAcceptor")
-  noteComments             NoteComment[]           @relation("NoteCommentAuthor")
-  noteReactions            NoteReaction[]          @relation("NoteReactionUser")
-  noteThreadViews          NoteThreadView[]        @relation("NoteThreadViewUser")
+  teamMembers           TeamMember[]
+  createdProjects       Project[]              @relation("ProjectCreatedBy")
+  createdRehearsals     Rehearsal[]            @relation("RehearsalCreatedBy")
+  uploadedVideoAssets   VideoAsset[]
+  uploadedAudioAssets   AudioAsset[]
+  notes                 Note[]                 @relation("NoteAuthor")
+  noteAssignments       NoteAssignment[]       @relation("AssignedNoteUser")
+  noteStatusUpdates     NoteAssignmentStatus[] @relation("NoteStatusUpdatedBy")
+  noteTargets           NoteTarget[]           @relation("NoteTargetUser")
+  invitationsSent       TeamInvitation[]       @relation("InvitationInviter")
+  invitationsAccepted   TeamInvitation[]       @relation("InvitationAcceptor")
+  noteComments          NoteComment[]          @relation("NoteCommentAuthor")
+  noteReactions         NoteReaction[]         @relation("NoteReactionUser")
+  noteThreadViews       NoteThreadView[]       @relation("NoteThreadViewUser")
+  discussions           Discussion[]           @relation("DiscussionAuthor")
+  discussionComments    DiscussionComment[]    @relation("DiscussionCommentAuthor")
+  discussionReactions   DiscussionReaction[]   @relation("DiscussionReactionUser")
+  discussionThreadViews DiscussionThreadView[] @relation("DiscussionThreadViewUser")
 }
 
 model Team {
@@ -160,8 +164,8 @@ model TeamMember {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  team             Team                 @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team              Team                 @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   projectGroupships ProjectGroupMember[]
 
   @@unique([teamId, userId])
@@ -180,10 +184,11 @@ model Project {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  team       Team        @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  createdBy  User        @relation("ProjectCreatedBy", fields: [createdByUserId], references: [id])
-  rehearsals Rehearsal[]
-  groups     ProjectGroup[]
+  team        Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdBy   User           @relation("ProjectCreatedBy", fields: [createdByUserId], references: [id])
+  rehearsals  Rehearsal[]
+  groups      ProjectGroup[]
+  discussions Discussion[]
 
   @@index([teamId])
   @@index([createdByUserId])
@@ -237,6 +242,7 @@ model Rehearsal {
   videoAsset  VideoAsset?
   audioAssets AudioAsset[]
   notes       Note[]
+  discussions Discussion[]
 
   @@index([projectId])
   @@index([createdByUserId])
@@ -258,9 +264,10 @@ model VideoAsset {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  rehearsal  Rehearsal @relation(fields: [rehearsalId], references: [id], onDelete: Cascade)
-  uploadedBy User      @relation(fields: [uploadedByUserId], references: [id])
-  notes      Note[]
+  rehearsal   Rehearsal    @relation(fields: [rehearsalId], references: [id], onDelete: Cascade)
+  uploadedBy  User         @relation(fields: [uploadedByUserId], references: [id])
+  notes       Note[]
+  discussions Discussion[]
 
   @@index([uploadedByUserId])
   @@index([status])
@@ -290,9 +297,10 @@ model AudioAsset {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  rehearsal  Rehearsal @relation(fields: [rehearsalId], references: [id], onDelete: Cascade)
-  uploadedBy User      @relation(fields: [uploadedByUserId], references: [id])
+  rehearsal  Rehearsal   @relation(fields: [rehearsalId], references: [id], onDelete: Cascade)
+  uploadedBy User        @relation(fields: [uploadedByUserId], references: [id])
   note       Note?
+  discussion Discussion?
 
   @@index([rehearsalId])
   @@index([uploadedByUserId])
@@ -333,16 +341,16 @@ model Note {
 }
 
 model NoteAssignment {
-  id        String @id @default(cuid())
-  noteId     String
-  userId     String
+  id     String @id @default(cuid())
+  noteId String
+  userId String
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  note      Note                   @relation(fields: [noteId], references: [id], onDelete: Cascade)
-  user      User                   @relation("AssignedNoteUser", fields: [userId], references: [id])
-  status    NoteAssignmentStatus?
+  note   Note                  @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  user   User                  @relation("AssignedNoteUser", fields: [userId], references: [id])
+  status NoteAssignmentStatus?
 
   @@unique([noteId, userId])
   @@index([noteId])
@@ -433,5 +441,106 @@ model NoteThreadView {
   user User @relation("NoteThreadViewUser", fields: [userId], references: [id])
 
   @@id([noteId, userId])
+  @@index([userId])
+}
+
+/// A creative/process discussion — broader than an actionable Note.
+/// Author + thread, no assignment, no status, no follow-through. Lives
+/// at the project level always; optionally anchored to a rehearsal,
+/// and optionally to a moment (or range) on that rehearsal's video.
+/// See "Discussions" in CLAUDE.md for scope, anchoring rules, and the
+/// shared thread architecture (parameterized over `ThreadTarget`).
+///
+/// Schema permits more combinations than the API allows. Validation
+/// rules enforced in the create/update routes:
+///   - rehearsalId, when set, must belong to projectId
+///   - videoAssetId, when set, must reference the rehearsal's video AND rehearsalId must be set
+///   - timestamps may only be non-null when videoAssetId is set
+///   - voice (noteType=VOICE) requires rehearsalId, videoAssetId, and both timestamps
+///     (project-level voice is deliberately not supported in v1 — AudioAsset.rehearsalId is required)
+model Discussion {
+  id               String   @id @default(cuid())
+  projectId        String
+  rehearsalId      String?
+  videoAssetId     String?
+  authorUserId     String
+  /// Reuses the NoteType enum — TEXT or VOICE. The literal values apply
+  /// equally to both objects today; if notes ever add a third type that
+  /// doesn't fit discussions, fork the enum then.
+  noteType         NoteType @default(TEXT)
+  bodyText         String?
+  /// Independently nullable from `endTimestampMs` so unanchored,
+  /// single-timestamp, and range modes are all expressible. v1 UI ships
+  /// unanchored + single-timestamp only; range support is deferred to v1.5.
+  startTimestampMs Int?
+  endTimestampMs   Int?
+  audioAssetId     String?  @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project     Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rehearsal   Rehearsal?             @relation(fields: [rehearsalId], references: [id], onDelete: Cascade)
+  videoAsset  VideoAsset?            @relation(fields: [videoAssetId], references: [id], onDelete: Cascade)
+  author      User                   @relation("DiscussionAuthor", fields: [authorUserId], references: [id])
+  audioAsset  AudioAsset?            @relation(fields: [audioAssetId], references: [id])
+  comments    DiscussionComment[]
+  reactions   DiscussionReaction[]
+  threadViews DiscussionThreadView[]
+
+  @@index([projectId])
+  @@index([rehearsalId])
+  @@index([authorUserId])
+  @@index([startTimestampMs])
+}
+
+/// A reply on a discussion's thread. Mirrors NoteComment exactly —
+/// flat (no nesting), text-only in v1, soft-delete via `deletedAt`,
+/// edited indicator via `editedAt`.
+model DiscussionComment {
+  id           String    @id @default(cuid())
+  discussionId String
+  authorId     String
+  bodyText     String
+  editedAt     DateTime?
+  deletedAt    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  discussion Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+  author     User       @relation("DiscussionCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([discussionId, createdAt])
+  @@index([authorId])
+}
+
+/// One row per (discussion, user, kind). Same toggle semantics as
+/// NoteReaction — click-again-to-remove deletes the row.
+model DiscussionReaction {
+  id           String       @id @default(cuid())
+  discussionId String
+  userId       String
+  kind         ReactionKind
+  createdAt    DateTime     @default(now())
+
+  discussion Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+  user       User       @relation("DiscussionReactionUser", fields: [userId], references: [id])
+
+  @@unique([discussionId, userId, kind])
+  @@index([discussionId])
+}
+
+/// Per-(discussion, user) last-viewed timestamp. Same shape as
+/// NoteThreadView — composite PK, upserted on thread expand.
+model DiscussionThreadView {
+  discussionId String
+  userId       String
+  lastViewedAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  discussion Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+  user       User       @relation("DiscussionThreadViewUser", fields: [userId], references: [id])
+
+  @@id([discussionId, userId])
   @@index([userId])
 }

@@ -12,14 +12,18 @@ import { canViewThread, loadThread } from "@/lib/threads/thread-access"
 
 export async function POST(
   request: NextRequest,
-  context: { params: Promise<{ noteId: string }> }
+  context: { params: Promise<{ discussionId: string }> }
 ): Promise<NextResponse<ToggleReactionResponse>> {
   const dbUser = await ensureDbUser()
   if (!dbUser) return apiError(401, "UNAUTHORIZED", "Unauthorized")
 
-  const { noteId } = await context.params
-  const access = await canViewThread({ type: "note", id: noteId }, dbUser.id)
-  if (!access) return apiError(404, "NOTE_NOT_FOUND", "Note not found")
+  const { discussionId } = await context.params
+  const access = await canViewThread(
+    { type: "discussion", id: discussionId },
+    dbUser.id
+  )
+  if (!access)
+    return apiError(404, "DISCUSSION_NOT_FOUND", "Discussion not found")
 
   let body: ToggleReactionRequest
   try {
@@ -32,10 +36,10 @@ export async function POST(
     return apiError(400, "INVALID_REACTION", "Unknown reaction kind.")
   }
 
-  const existing = await db.noteReaction.findUnique({
+  const existing = await db.discussionReaction.findUnique({
     where: {
-      noteId_userId_kind: {
-        noteId,
+      discussionId_userId_kind: {
+        discussionId,
         userId: dbUser.id,
         kind: body.kind,
       },
@@ -43,14 +47,17 @@ export async function POST(
   })
 
   if (existing) {
-    await db.noteReaction.delete({ where: { id: existing.id } })
+    await db.discussionReaction.delete({ where: { id: existing.id } })
   } else {
-    await db.noteReaction.create({
-      data: { noteId, userId: dbUser.id, kind: body.kind },
+    await db.discussionReaction.create({
+      data: { discussionId, userId: dbUser.id, kind: body.kind },
     })
   }
 
-  const thread = await loadThread({ type: "note", id: noteId }, dbUser.id)
+  const thread = await loadThread(
+    { type: "discussion", id: discussionId },
+    dbUser.id
+  )
   return NextResponse.json<ToggleReactionResponse>({
     ok: true,
     data: { reactions: thread.reactions },

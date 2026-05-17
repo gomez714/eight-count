@@ -8,19 +8,23 @@ import { canViewThread } from "@/lib/threads/thread-access"
 
 export async function POST(
   _request: NextRequest,
-  context: { params: Promise<{ noteId: string }> }
+  context: { params: Promise<{ discussionId: string }> }
 ): Promise<NextResponse<ThreadViewResponse>> {
   const dbUser = await ensureDbUser()
   if (!dbUser) return apiError(401, "UNAUTHORIZED", "Unauthorized")
 
-  const { noteId } = await context.params
-  const access = await canViewThread({ type: "note", id: noteId }, dbUser.id)
-  if (!access) return apiError(404, "NOTE_NOT_FOUND", "Note not found")
+  const { discussionId } = await context.params
+  const access = await canViewThread(
+    { type: "discussion", id: discussionId },
+    dbUser.id
+  )
+  if (!access)
+    return apiError(404, "DISCUSSION_NOT_FOUND", "Discussion not found")
 
   const now = new Date()
-  await db.noteThreadView.upsert({
-    where: { noteId_userId: { noteId, userId: dbUser.id } },
-    create: { noteId, userId: dbUser.id, lastViewedAt: now },
+  await db.discussionThreadView.upsert({
+    where: { discussionId_userId: { discussionId, userId: dbUser.id } },
+    create: { discussionId, userId: dbUser.id, lastViewedAt: now },
     update: { lastViewedAt: now },
   })
 

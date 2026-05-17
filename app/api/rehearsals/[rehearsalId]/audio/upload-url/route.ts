@@ -55,10 +55,25 @@ export async function POST(
       );
     }
 
+    // Role gate depends on intent. Voice *notes* are staff-only (matches
+    // the note authoring rule); voice *discussions* are open to all team
+    // members (matches the discussion authoring rule). The caller signals
+    // intent via `?purpose=discussion`; absence or any other value falls
+    // back to the note rule.
+    const purpose = request.nextUrl.searchParams.get("purpose");
+    const isDiscussionPurpose = purpose === "discussion";
+
     const callerMembership = rehearsal.project.team.members.find(
       (member) => member.userId === dbUser.id
     );
-    if (!callerMembership || !AUTHOR_ROLES.has(callerMembership.role)) {
+    if (!callerMembership) {
+      return apiError(
+        403,
+        "FORBIDDEN",
+        "You are not a member of this team."
+      );
+    }
+    if (!isDiscussionPurpose && !AUTHOR_ROLES.has(callerMembership.role)) {
       return apiError(
         403,
         "FORBIDDEN",
