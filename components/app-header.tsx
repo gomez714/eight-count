@@ -13,6 +13,17 @@ import {
 import { resolveCurrentTeamId } from "@/lib/teams/resolve-current-team-id";
 
 export async function AppHeader() {
+  // Landing page (`/`) renders its own marketing nav (`<LandingNav />`)
+  // with anchor links + sign-in/up CTAs, so the global header is hidden
+  // there. Every other route — signed-in or out — gets this header.
+  // Signed-in users hitting `/` get redirected to `/dashboard` upstream
+  // in app/page.tsx, so this only affects the public landing.
+  const headersList = await headers();
+  const pathname = headersList.get("x-pathname") ?? "/";
+  if (pathname === "/") {
+    return null;
+  }
+
   const { userId } = await auth();
 
   let teams: TeamSwitcherTeam[] = [];
@@ -23,8 +34,6 @@ export async function AppHeader() {
     const dbUser = await getCurrentDbUser();
     if (dbUser) {
       isSignedIn = true;
-      const headersList = await headers();
-      const pathname = headersList.get("x-pathname") ?? "/";
 
       [teams, currentTeamId] = await Promise.all([
         getTeamsForUser(dbUser.id),

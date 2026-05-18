@@ -7,6 +7,7 @@
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: var(--font-sans);
+    --font-serif: var(--font-serif);
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -122,6 +123,24 @@
     --discussion-accent: oklch(0.55 0.13 268);
     --discussion-bg: oklch(0.965 0.025 268);
     --discussion-border: oklch(0.86 0.06 268);
+
+    /* Landing-page tokens. Pre-auth marketing surface forces light mode
+       (see app/page.tsx), so dark variants are intentionally not authored
+       in `.dark` below. TODO: author dark-mode variants if/when the
+       landing page ever needs to render against the dark theme. */
+    --surface-canvas: oklch(0.985 0.003 60);
+    --surface-sunken: oklch(0.965 0.003 60);
+    --surface-deep: oklch(0.945 0.003 60);
+
+    --cream: oklch(0.965 0.018 80);
+    --cream-deep: oklch(0.94 0.025 80);
+    --ink: oklch(0.18 0.012 70);
+
+    --cinema-bg: oklch(0.13 0.008 240);
+    --cinema-card: oklch(0.18 0.012 240);
+    --cinema-border: oklch(0.3 0.012 240);
+    --cinema-fg: oklch(0.96 0.005 60);
+    --cinema-muted: oklch(0.65 0.012 240);
 }
 
 .dark {
@@ -207,6 +226,105 @@
   html {
     @apply font-sans;
     }
+}
+
+/*
+ * Forces light-mode rendering for a subtree, regardless of whether `.dark`
+ * is applied to <html>. Used on the landing page (pre-auth marketing
+ * surface) where the warm cream + dark-cinema CTA composition is light-
+ * mode only. Re-declares every token `.dark` overrides so child elements
+ * resolve them against the light palette via the custom-property cascade.
+ * Also sets `color-scheme: light` so native form controls / scrollbars
+ * render light too.
+ *
+ * TODO: author dark-mode variants for the landing redesign and remove
+ * this escape hatch.
+ */
+.force-light {
+  color-scheme: light;
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.141 0.005 285.823);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.141 0.005 285.823);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.141 0.005 285.823);
+  --primary: oklch(0.52 0.105 223.128);
+  --primary-foreground: oklch(0.984 0.019 200.873);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.552 0.016 285.938);
+  --accent: oklch(0.967 0.001 286.375);
+  --accent-foreground: oklch(0.21 0.006 285.885);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.92 0.004 286.32);
+  --ring: oklch(0.705 0.015 286.067);
+
+  --status-open-bg: oklch(0.965 0.004 240);
+  --status-open-fg: oklch(0.46 0.02 240);
+  --status-open-border: oklch(0.88 0.008 240);
+  --status-progress-bg: oklch(0.945 0.04 223);
+  --status-progress-fg: oklch(0.45 0.105 223);
+  --status-progress-border: oklch(0.86 0.05 223);
+  --status-addressed-bg: oklch(0.945 0.045 180);
+  --status-addressed-fg: oklch(0.45 0.09 180);
+  --status-addressed-border: oklch(0.86 0.06 180);
+  --status-resolved-bg: oklch(0.935 0.05 150);
+  --status-resolved-fg: oklch(0.42 0.1 150);
+  --status-resolved-border: oklch(0.85 0.07 150);
+
+  --note-voice-accent: oklch(0.6 0.15 30);
+  --note-voice-bg: oklch(0.965 0.025 30);
+  --note-voice-border: oklch(0.86 0.06 30);
+
+  --avatar-tone-neutral-bg: oklch(0.92 0.005 280);
+  --avatar-tone-neutral-fg: oklch(0.32 0.01 280);
+  --avatar-tone-teal-bg: oklch(0.93 0.04 220);
+  --avatar-tone-teal-fg: oklch(0.4 0.105 223);
+  --avatar-tone-coral-bg: oklch(0.93 0.04 30);
+  --avatar-tone-coral-fg: oklch(0.45 0.12 30);
+  --avatar-tone-olive-bg: oklch(0.93 0.04 130);
+  --avatar-tone-olive-fg: oklch(0.4 0.09 145);
+  --avatar-tone-plum-bg: oklch(0.93 0.04 320);
+  --avatar-tone-plum-fg: oklch(0.4 0.09 320);
+
+  --repeating-bg: oklch(0.94 0.04 285);
+  --repeating-fg: oklch(0.42 0.12 290);
+  --repeating-border: oklch(0.84 0.06 285);
+
+  --discussion-accent: oklch(0.55 0.13 268);
+  --discussion-bg: oklch(0.965 0.025 268);
+  --discussion-border: oklch(0.86 0.06 268);
+}
+
+/*
+ * Smooth anchor-scroll is scoped to the landing page only (the only surface
+ * with in-page anchor links — `#how-it-works`, `#for-instructors`, etc.).
+ * The `:has(.force-light)` selector matches the html element when its
+ * descendant `<main class="force-light">` mounts, so the smooth behavior
+ * never leaks into in-app surfaces (workspace, dashboard) where instant
+ * scroll is the expected behavior. `:has()` is widely supported in modern
+ * browsers (Chrome 105+, Safari 15.4+, Firefox 121+).
+ *
+ * Reduced-motion users get instant anchor scroll *and* the rotated cards
+ * in the hero collages flatten — the !important is required because the
+ * rotations are set via inline `style` props and inline styles beat
+ * unflagged selectors. The selector keys off `[style*="rotate"]` rather
+ * than a class so we don't have to thread a className through every
+ * collage child just to flag it as motion.
+ */
+html:has(.force-light) {
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  html:has(.force-light) {
+    scroll-behavior: auto;
+  }
+  .force-light [style*="rotate"] {
+    transform: none !important;
+  }
 }
 
 /*
