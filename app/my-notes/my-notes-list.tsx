@@ -12,6 +12,7 @@ import {
   NOTE_STATUS_LABELS,
   type NoteStatus,
 } from "@/lib/notes/statuses";
+import type { RepeatingClusterDetail } from "@/lib/notes/repeating";
 import { cn } from "@/lib/utils";
 
 import { AssignedNoteCard } from "./assigned-note-card";
@@ -55,6 +56,21 @@ type MyNotesListProps = {
   rows: AssignedNoteRow[];
   tipsDismissed: boolean;
   viewerId: string;
+  /**
+   * When set, the filter initializes with `rehearsalId` applied and the
+   * project auto-default is skipped — the user explicitly asked for a
+   * single rehearsal via `?rehearsal=<id>` (typically by clicking the
+   * "Drill from this rehearsal" button on the workspace).
+   */
+  initialRehearsalId: string | null;
+  /**
+   * One entry per repeating cluster this viewer has across their active
+   * notes. Threaded into the drill view so the "Recurring drills" chips
+   * and the per-tag section headers can render as
+   * `<ExpandableRepeatingChip>` with the underlying timestamps + latest
+   * body. Built server-side in `app/my-notes/page.tsx`.
+   */
+  repeatingClusterDetails: RepeatingClusterDetail[];
 };
 
 const MY_NOTES_TIP_STEPS: TipStep[] = [
@@ -73,6 +89,9 @@ const MY_NOTES_TIP_STEPS: TipStep[] = [
 function rowMatchesFilter(row: AssignedNoteRow, filter: MyNotesFilter): boolean {
   if (filter.authorId && row.note.author.id !== filter.authorId) return false;
   if (filter.projectId && row.note.rehearsal.project.id !== filter.projectId) {
+    return false;
+  }
+  if (filter.rehearsalId && row.note.rehearsal.id !== filter.rehearsalId) {
     return false;
   }
   if (filter.noteType && row.note.noteType !== filter.noteType) return false;
@@ -165,6 +184,8 @@ export function MyNotesList({
   rows,
   tipsDismissed,
   viewerId,
+  initialRehearsalId,
+  repeatingClusterDetails,
 }: Readonly<MyNotesListProps>) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -194,7 +215,13 @@ export function MyNotesList({
 
   // Lazy-init the filter so a deep-link to ?view=drill on a user with
   // notes in 2+ projects lands on the busiest project automatically.
+  // When `?rehearsal=<id>` is present (initialRehearsalId set), defer to
+  // the user's explicit intent and skip the project auto-default —
+  // rehearsal is the narrower filter and would supersede anyway.
   const [filter, setFilter] = useState<MyNotesFilter>(() => {
+    if (initialRehearsalId) {
+      return { ...EMPTY_FILTER, rehearsalId: initialRehearsalId };
+    }
     if (viewMode === "drill" && activeProjects.length >= 2) {
       return { ...EMPTY_FILTER, projectId: activeProjects[0].id };
     }
@@ -228,12 +255,13 @@ export function MyNotesList({
     const params = new URLSearchParams(searchParams.toString());
     if (next === "drill") {
       params.set("view", "drill");
-      // Click-to-drill auto-default fires only once per session. After
-      // the user clears the filter via "See all projects" (or the rail),
-      // re-entering drill keeps their explicit choice.
+      // Click-to-drill auto-default fires only once per session and only
+      // when there's no explicit rehearsal scope — the rehearsal filter
+      // is the narrower, more-specific intent.
       if (
         !hasAutoDefaultedRef.current &&
         filter.projectId === null &&
+        filter.rehearsalId === null &&
         activeProjects.length >= 2
       ) {
         hasAutoDefaultedRef.current = true;
@@ -366,6 +394,30 @@ export function MyNotesList({
     };
   }, [filter.projectId, activeProjects]);
 
+  // When `?rehearsal=<id>` is active, surface a header so the user knows
+  // they're seeing a subset and can expand. Title is derived from any
+  // matching row — when zero rows match (the user has no notes in this
+  // rehearsal), the header shows generic "this rehearsal" copy without
+  // naming it (avoids a separate Prisma lookup + access check).
+  // Clearing both updates local state and drops `?rehearsal` from the URL
+  // so the back/forward stack stays sane.
+  const drillSingleRehearsalHeader = useMemo(() => {
+    if (!filter.rehearsalId) return null;
+    const matchingRow = rows.find(
+      (r) => r.note.rehearsal.id === filter.rehearsalId,
+    );
+    return {
+      rehearsalTitle: matchingRow?.note.rehearsal.title ?? null,
+      onClearRehearsalFilter: () => {
+        setFilter((prev) => ({ ...prev, rehearsalId: null }));
+        const next = new URLSearchParams(searchParams.toString());
+        next.delete("rehearsal");
+        const query = next.toString();
+        router.replace(query ? `/my-notes?${query}` : "/my-notes");
+      },
+    };
+  }, [filter.rehearsalId, rows, router, searchParams]);
+
   // Each drill row shows its project name only when the user has open
   // notes spread across 2+ projects — avoids redundant labels when
   // there's no ambiguity.
@@ -393,7 +445,9 @@ export function MyNotesList({
           rows={filteredRows}
           showProjectInRows={showProjectInDrillRows}
           singleProjectHeader={drillSingleProjectHeader}
+          singleRehearsalHeader={drillSingleRehearsalHeader}
           totalActiveRowsUnfiltered={totalActiveRowsUnfiltered}
+          repeatingClusterDetails={repeatingClusterDetails}
         />
       ) : (
     <div className="grid gap-8 lg:grid-cols-[240px_minmax(0,1fr)]">

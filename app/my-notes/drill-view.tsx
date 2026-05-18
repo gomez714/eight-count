@@ -1,12 +1,16 @@
 "use client";
 
 import { Printer, Repeat } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 
 import { DrillRow, type DrillRowItem } from "@/components/drill/drill-row";
 import { DrillTagSection } from "@/components/drill/drill-tag-section";
+import { ExpandableRepeatingChip } from "@/components/expandable-repeating-chip";
 import { RepeatingChip } from "@/components/repeating-chip";
+import { RepeatingClusterExpansionProvider } from "@/components/repeating-cluster-expansion-context";
 import { Button } from "@/components/ui/button";
+import { sortByDrillPriority } from "@/lib/notes/drill-sort";
+import type { RepeatingClusterDetail } from "@/lib/notes/repeating";
 import { NOTE_TAGS, type NoteTag } from "@/lib/notes/tags";
 
 import type { AssignedNoteRow, RepeatingMarker } from "./types";
@@ -28,11 +32,28 @@ type DrillViewProps = {
     onClearProjectFilter: () => void;
   } | null;
   /**
+   * Set when `?rehearsal=<id>` is active. `rehearsalTitle` is null when
+   * the user has zero notes in that rehearsal (we don't do a separate
+   * lookup just to name it — empty state is honest about the scope
+   * without naming the rehearsal).
+   */
+  singleRehearsalHeader: {
+    rehearsalTitle: string | null;
+    onClearRehearsalFilter: () => void;
+  } | null;
+  /**
    * Total active rows the user has across ALL projects (ignoring the
    * current filter). Lets the empty state distinguish "globally caught
    * up" from "filtered into a project with nothing to drill."
    */
   totalActiveRowsUnfiltered: number;
+  /**
+   * Per-cluster detail records keyed by tag (since /my-notes has only
+   * one viewer). When a `bucket.tag` matches a detail entry, the tag
+   * section header renders the expandable chip; the "Recurring drills"
+   * header chips render expandable too.
+   */
+  repeatingClusterDetails: RepeatingClusterDetail[];
 };
 
 type TagBucket = {
@@ -110,7 +131,9 @@ export function DrillView({
   rows,
   showProjectInRows,
   singleProjectHeader,
+  singleRehearsalHeader,
   totalActiveRowsUnfiltered,
+  repeatingClusterDetails,
 }: Readonly<DrillViewProps>) {
   // Mark the body so the @media print rules in globals.css fire while drill
   // mode is mounted. Cleans up on unmount so other pages aren't affected.
@@ -124,45 +147,29 @@ export function DrillView({
   const buckets = bucketRows(rows);
   const totalActive = buckets.reduce((acc, b) => acc + b.rows.length, 0);
   const recurringClusters = uniqueRepeatingClusters(rows);
+  // Tag → detail lookup so each "Recurring drills" header chip and each
+  // per-bucket DrillTagSection can find its cluster panel by tag in O(1).
+  // Memoized so the Map identity is stable across renders that don't
+  // touch the cluster details — matches the pattern in
+  // `project-drill-section.tsx`.
+  const detailByTag = useMemo(
+    () =>
+      new Map(repeatingClusterDetails.map((d) => [d.tag, d] as const)),
+    [repeatingClusterDetails],
+  );
 
   if (totalActive === 0) {
-    // Differentiate: filtered to a project that has nothing active vs.
-    // genuinely caught up across the whole inbox.
-    const isFilteredEmpty =
-      singleProjectHeader !== null && totalActiveRowsUnfiltered > 0;
     return (
-      <div className="flex flex-col gap-3">
-        {singleProjectHeader ? (
-          <SingleProjectHeader header={singleProjectHeader} count={0} />
-        ) : null}
-        <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
-          {isFilteredEmpty ? (
-            <>
-              No drills in this project — but you have{" "}
-              <span className="font-semibold text-foreground tabular-nums">
-                {totalActiveRowsUnfiltered}
-              </span>{" "}
-              active{" "}
-              {totalActiveRowsUnfiltered === 1 ? "note" : "notes"} in other
-              projects.{" "}
-              <button
-                type="button"
-                onClick={singleProjectHeader.onClearProjectFilter}
-                className="text-foreground underline outline-none hover:no-underline focus-visible:ring-2 focus-visible:ring-ring rounded"
-              >
-                See all projects
-              </button>
-              {"."}
-            </>
-          ) : (
-            "Nothing to drill — every note assigned to you is addressed or resolved."
-          )}
-        </div>
-      </div>
+      <DrillEmptyState
+        singleProjectHeader={singleProjectHeader}
+        singleRehearsalHeader={singleRehearsalHeader}
+        totalActiveRowsUnfiltered={totalActiveRowsUnfiltered}
+      />
     );
   }
 
   return (
+    <RepeatingClusterExpansionProvider>
     <div className="flex flex-col gap-4">
       <div
         data-print-hidden
@@ -193,7 +200,13 @@ export function DrillView({
         </p>
       </div>
 
-      {singleProjectHeader ? (
+      {singleRehearsalHeader ? (
+        <SingleRehearsalHeader
+          header={singleRehearsalHeader}
+          count={totalActive}
+        />
+      ) : null}
+      {singleProjectHeader && !singleRehearsalHeader ? (
         <SingleProjectHeader header={singleProjectHeader} count={totalActive} />
       ) : null}
 
@@ -213,14 +226,26 @@ export function DrillView({
             Recurring drills
           </h3>
           <div className="flex flex-wrap gap-2">
-            {recurringClusters.map((cluster) => (
-              <RepeatingChip
-                key={cluster.tag}
-                tag={cluster.tag}
-                count={cluster.count}
-                size="sm"
-              />
-            ))}
+            {recurringClusters.map((cluster) => {
+              const detail = detailByTag.get(cluster.tag);
+              if (detail) {
+                return (
+                  <ExpandableRepeatingChip
+                    key={cluster.tag}
+                    detail={detail}
+                    size="sm"
+                  />
+                );
+              }
+              return (
+                <RepeatingChip
+                  key={cluster.tag}
+                  tag={cluster.tag}
+                  count={cluster.count}
+                  size="sm"
+                />
+              );
+            })}
           </div>
           <p className="text-xs text-muted-foreground">
             You&apos;ve gotten the same kind of note three or more times. Prioritize these.
@@ -228,26 +253,45 @@ export function DrillView({
         </section>
       ) : null}
 
-      {buckets.map((bucket) => (
-        <DrillTagSection
-          key={bucket.tag ?? "OTHER"}
-          tag={bucket.tag}
-          itemCount={bucket.rows.length}
-          repeatingCount={bucket.isRepeating ? bucket.repeatingCount : undefined}
-          variant="card"
-        >
-          {bucket.rows.map((row) => (
-            <DrillRow
-              key={row.id}
-              item={toDrillItem(row)}
-              projectName={
-                showProjectInRows ? row.note.rehearsal.project.title : undefined
-              }
-            />
-          ))}
-        </DrillTagSection>
-      ))}
+      {buckets.map((bucket) => {
+        // Repeating first → oldest unresolved → newest rehearsal → id.
+        // See `lib/notes/drill-sort.ts` for the rationale.
+        const sortedRows = sortByDrillPriority(bucket.rows, (row) => ({
+          isRepeating: row.repeating !== null,
+          createdAtMs: new Date(row.note.createdAt).getTime(),
+          rehearsalDateMs: new Date(row.note.rehearsal.rehearsalDate).getTime(),
+          tiebreaker: row.id,
+        }));
+        const repeatingDetail = bucket.tag
+          ? detailByTag.get(bucket.tag)
+          : undefined;
+        return (
+          <DrillTagSection
+            key={bucket.tag ?? "OTHER"}
+            tag={bucket.tag}
+            itemCount={bucket.rows.length}
+            repeatingCount={
+              bucket.isRepeating ? bucket.repeatingCount : undefined
+            }
+            repeatingDetail={repeatingDetail}
+            variant="card"
+          >
+            {sortedRows.map((row) => (
+              <DrillRow
+                key={row.id}
+                item={toDrillItem(row)}
+                projectName={
+                  showProjectInRows
+                    ? row.note.rehearsal.project.title
+                    : undefined
+                }
+              />
+            ))}
+          </DrillTagSection>
+        );
+      })}
     </div>
+    </RepeatingClusterExpansionProvider>
   );
 }
 
@@ -282,5 +326,148 @@ function SingleProjectHeader({
         See all projects
       </button>
     </div>
+  );
+}
+
+function SingleRehearsalHeader({
+  header,
+  count,
+}: Readonly<{
+  header: NonNullable<DrillViewProps["singleRehearsalHeader"]>;
+  count: number;
+}>) {
+  return (
+    <div
+      data-print-hidden
+      className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+    >
+      <span>
+        Showing{" "}
+        <span className="font-semibold text-foreground tabular-nums">
+          {count}
+        </span>{" "}
+        {count === 1 ? "note" : "notes"} from{" "}
+        {header.rehearsalTitle ? (
+          <span className="font-semibold text-foreground">
+            {header.rehearsalTitle}
+          </span>
+        ) : (
+          <span className="font-semibold text-foreground">this rehearsal</span>
+        )}
+        {"."}
+      </span>
+      <button
+        type="button"
+        onClick={header.onClearRehearsalFilter}
+        className="font-semibold text-foreground underline outline-none hover:no-underline focus-visible:ring-2 focus-visible:ring-ring rounded"
+      >
+        See all rehearsals
+      </button>
+    </div>
+  );
+}
+
+// Empty-state component for the drill view. Extracted from `DrillView` to
+// keep that function's cognitive complexity within bounds while the
+// three branches (rehearsal-scoped, project-scoped, globally caught up)
+// stay co-located here.
+function DrillEmptyState({
+  singleProjectHeader,
+  singleRehearsalHeader,
+  totalActiveRowsUnfiltered,
+}: Readonly<{
+  singleProjectHeader: DrillViewProps["singleProjectHeader"];
+  singleRehearsalHeader: DrillViewProps["singleRehearsalHeader"];
+  totalActiveRowsUnfiltered: number;
+}>) {
+  const hasNotesElsewhere = totalActiveRowsUnfiltered > 0;
+  const isRehearsalScoped = singleRehearsalHeader !== null;
+  const isProjectScoped = singleProjectHeader !== null;
+  return (
+    <div className="flex flex-col gap-3">
+      {singleRehearsalHeader ? (
+        <SingleRehearsalHeader header={singleRehearsalHeader} count={0} />
+      ) : null}
+      {singleProjectHeader && !singleRehearsalHeader ? (
+        <SingleProjectHeader header={singleProjectHeader} count={0} />
+      ) : null}
+      <div className="rounded-lg border bg-card p-8 text-center text-sm text-muted-foreground">
+        <EmptyStateMessage
+          isRehearsalScoped={isRehearsalScoped}
+          isProjectScoped={isProjectScoped}
+          hasNotesElsewhere={hasNotesElsewhere}
+          totalActiveRowsUnfiltered={totalActiveRowsUnfiltered}
+          singleRehearsalHeader={singleRehearsalHeader}
+          singleProjectHeader={singleProjectHeader}
+        />
+      </div>
+    </div>
+  );
+}
+
+function EmptyStateMessage({
+  isRehearsalScoped,
+  isProjectScoped,
+  hasNotesElsewhere,
+  totalActiveRowsUnfiltered,
+  singleRehearsalHeader,
+  singleProjectHeader,
+}: Readonly<{
+  isRehearsalScoped: boolean;
+  isProjectScoped: boolean;
+  hasNotesElsewhere: boolean;
+  totalActiveRowsUnfiltered: number;
+  singleRehearsalHeader: DrillViewProps["singleRehearsalHeader"];
+  singleProjectHeader: DrillViewProps["singleProjectHeader"];
+}>) {
+  if (isRehearsalScoped && hasNotesElsewhere && singleRehearsalHeader) {
+    return (
+      <>
+        No drills from this rehearsal — but you have{" "}
+        <span className="font-semibold text-foreground tabular-nums">
+          {totalActiveRowsUnfiltered}
+        </span>{" "}
+        active{" "}
+        {totalActiveRowsUnfiltered === 1 ? "note" : "notes"} in other
+        rehearsals.{" "}
+        <button
+          type="button"
+          onClick={singleRehearsalHeader.onClearRehearsalFilter}
+          className="text-foreground underline outline-none hover:no-underline focus-visible:ring-2 focus-visible:ring-ring rounded"
+        >
+          See all rehearsals
+        </button>
+        {"."}
+      </>
+    );
+  }
+  if (
+    !isRehearsalScoped &&
+    isProjectScoped &&
+    hasNotesElsewhere &&
+    singleProjectHeader
+  ) {
+    return (
+      <>
+        No drills in this project — but you have{" "}
+        <span className="font-semibold text-foreground tabular-nums">
+          {totalActiveRowsUnfiltered}
+        </span>{" "}
+        active{" "}
+        {totalActiveRowsUnfiltered === 1 ? "note" : "notes"} in other
+        projects.{" "}
+        <button
+          type="button"
+          onClick={singleProjectHeader.onClearProjectFilter}
+          className="text-foreground underline outline-none hover:no-underline focus-visible:ring-2 focus-visible:ring-ring rounded"
+        >
+          See all projects
+        </button>
+        {"."}
+      </>
+    );
+  }
+  return (
+    <>Nothing to drill — every note assigned to you is addressed or resolved.</>
   );
 }

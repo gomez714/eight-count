@@ -9,6 +9,8 @@ import { getAssignedNotesForUser } from "@/lib/notes/get-assigned-notes-for-user
 import {
   buildRepeatingMarkerByAssignmentId,
   detectRepeatingClusters,
+  type RepeatingClusterDetail,
+  type RepeatingClusterDetailItem,
 } from "@/lib/notes/repeating";
 import {
   isTipGroupDismissed,
@@ -18,7 +20,13 @@ import {
 import { MyNotesList } from "./my-notes-list";
 import type { AssignedNoteRow } from "./types";
 
-export default async function MyNotesPage() {
+type MyNotesPageProps = {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+};
+
+export default async function MyNotesPage({
+  searchParams,
+}: Readonly<MyNotesPageProps>) {
   const { userId } = await auth();
 
   if (!userId) {
@@ -32,6 +40,16 @@ export default async function MyNotesPage() {
   }
 
   const assignments = await getAssignedNotesForUser(dbUser.id);
+
+  // ?rehearsal=<id> — set by the "Drill from this rehearsal" button on the
+  // workspace. Initial filter only — the client owns the filter state after
+  // mount and updates the URL when the user clears it.
+  const params = await searchParams;
+  const rehearsalParam = params.rehearsal;
+  const initialRehearsalId =
+    typeof rehearsalParam === "string" && rehearsalParam.length > 0
+      ? rehearsalParam
+      : null;
 
   const myNotesTipsDismissed = isTipGroupDismissed(
     parseOnboardingState(dbUser.onboardingState),
@@ -58,6 +76,42 @@ export default async function MyNotesPage() {
   );
   const repeatingByAssignmentId = buildRepeatingMarkerByAssignmentId(
     myProjectClusters,
+  );
+
+  // Build the expandable cluster details for the chips in the drill view.
+  // For `/my-notes` the cluster key is the tag alone — one viewer, so
+  // tag is unique within the surface.
+  const projectActiveById = new Map(projectActive.map((a) => [a.id, a]));
+  const repeatingClusterDetails: RepeatingClusterDetail[] = myProjectClusters.map(
+    (cluster) => {
+      const items: RepeatingClusterDetailItem[] = [];
+      for (const id of cluster.assignmentIds) {
+        const a = projectActiveById.get(id);
+        if (!a) continue;
+        items.push({
+          assignmentId: a.id,
+          noteId: a.noteId,
+          rehearsalId: a.note.rehearsal.id,
+          rehearsalTitle: a.note.rehearsal.title,
+          startTimestampMs: a.note.startTimestampMs,
+          noteType: a.note.noteType,
+          bodyText: a.note.bodyText,
+          voiceTranscript:
+            a.note.audioAsset?.transcriptStatus === "READY"
+              ? (a.note.audioAsset.transcript ?? null)
+              : null,
+          audioDurationMs: a.note.audioAsset?.durationMs ?? null,
+          createdAtMs: a.note.createdAt.getTime(),
+        });
+      }
+      items.sort((x, y) => y.createdAtMs - x.createdAtMs);
+      return {
+        key: cluster.tag,
+        tag: cluster.tag,
+        count: cluster.count,
+        items,
+      };
+    },
   );
 
   const rows: AssignedNoteRow[] = assignments.map((assignment) => ({
@@ -144,6 +198,8 @@ export default async function MyNotesPage() {
         rows={rows}
         tipsDismissed={myNotesTipsDismissed}
         viewerId={dbUser.id}
+        initialRehearsalId={initialRehearsalId}
+        repeatingClusterDetails={repeatingClusterDetails}
       />
     </main>
   );

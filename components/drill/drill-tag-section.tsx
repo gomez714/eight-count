@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 
+import { ExpandableRepeatingChip } from "@/components/expandable-repeating-chip";
 import { RepeatingChip } from "@/components/repeating-chip";
 import { TagChip } from "@/components/tag-chip";
+import type { RepeatingClusterDetail } from "@/lib/notes/repeating";
 import { NOTE_TAG_LABELS, type NoteTag } from "@/lib/notes/tags";
 import { cn } from "@/lib/utils";
 
@@ -10,6 +12,18 @@ type DrillTagSectionProps = {
   itemCount: number;
   /** When set, renders a `RepeatingChip` next to the tag header. */
   repeatingCount?: number;
+  /**
+   * When set, the header chip becomes an `<ExpandableRepeatingChip>`
+   * that opens an inline detail panel below — timestamps + most-recent
+   * body + source link. Requires a parent
+   * `<RepeatingClusterExpansionProvider>` for the mobile single-open /
+   * desktop multi-open coordination to apply; falls back to local state
+   * otherwise.
+   *
+   * When `repeatingDetail` is set, `repeatingCount` is ignored (the
+   * count comes from `repeatingDetail.count`).
+   */
+  repeatingDetail?: RepeatingClusterDetail;
   /**
    * Visual variant. `card` adds bg-card and a stronger border (used on
    * the my-notes drill view, where each tag is its own card). `inline`
@@ -23,6 +37,7 @@ export function DrillTagSection({
   tag,
   itemCount,
   repeatingCount,
+  repeatingDetail,
   variant = "card",
   children,
 }: Readonly<DrillTagSectionProps>) {
@@ -49,9 +64,7 @@ export function DrillTagSection({
             Other (untagged)
           </h3>
         )}
-        {repeatingCount && tag ? (
-          <RepeatingChip tag={tag} count={repeatingCount} compact />
-        ) : null}
+        {renderHeaderChip(tag, repeatingDetail, repeatingCount)}
         <span className="ml-auto text-xs text-muted-foreground">
           {itemCount} {itemCount === 1 ? "note" : "notes"}
         </span>
@@ -59,4 +72,15 @@ export function DrillTagSection({
       <ul className="flex flex-col gap-1.5">{children}</ul>
     </section>
   );
+}
+
+function renderHeaderChip(
+  tag: NoteTag | null,
+  detail: RepeatingClusterDetail | undefined,
+  count: number | undefined,
+): ReactNode {
+  if (!tag) return null;
+  if (detail) return <ExpandableRepeatingChip detail={detail} compact />;
+  if (count) return <RepeatingChip tag={tag} count={count} compact />;
+  return null;
 }

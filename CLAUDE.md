@@ -278,7 +278,7 @@ A "repeating cluster" exists when the **same dancer** has **≥3 active assignme
 - **Project-scoped** — cross-project clustering would surface stale signals from past shows. Same-tag notes from different projects don't combine.
 - **Helpers**: `buildRepeatingMarkerByAssignmentId(clusters)` produces a `Map<assignmentId, { tag, count }>` for O(1) lookup when rendering rows; `indexClustersByUserAndTag(clusters)` powers the drill board's per-dancer per-tag grouping.
 - **Server-side query**: [lib/notes/get-active-assignments-for-project.ts](lib/notes/get-active-assignments-for-project.ts) returns assignments with status absent OR `OPEN` OR `IN_PROGRESS` for the given projects, with the `note.tag` and user info needed for cluster detection. Called once per request from `/my-notes`, `/notes-by-me`, the project page, and the rehearsal workspace page.
-- **Display**: [components/repeating-chip.tsx](components/repeating-chip.tsx) — token-tinted (`--repeating-{bg,fg,border}`, plum/violet hue ~285) chip with the `Repeat` icon. `compact` mode shows only `Repeating × 3` (used inline next to a `StatusChip`); full mode shows `Repeating · Timing × 3`.
+- **Display**: [components/repeating-chip.tsx](components/repeating-chip.tsx) — token-tinted (`--repeating-{bg,fg,border}`, plum/violet hue ~285) chip with the `Repeat` icon. `compact` mode shows only `Repeating × 3` (used inline next to a `StatusChip`); full mode shows `Repeating · Timing × 3`. The presentational chip stays pure — interactive expansion is a separate wrapper, see "Expandable cluster details" below.
 
 **Surfacing rules**:
 - Workspace `NoteRow` — per-recipient chip in compact mode next to the `StatusChip` (a single note can be repeating for one recipient, not for another).
@@ -286,6 +286,22 @@ A "repeating cluster" exists when the **same dancer** has **≥3 active assignme
 - `/notes-by-me` `RecipientPipRow` — small `Repeat` icon decoration next to the per-pip status dot. (`/notes-by-me` is staff-only by virtue of being the author dashboard.)
 - `/notes-by-me` `AuthorSummaryStrip` — fourth metric tile "Repeating: N dancers" only renders when N > 0; the strip's grid switches from 3-col to 4-col when shown.
 - Project page `RepeatingClustersCard` — **staff-only** (Admin / Instructor / Assistant). Surfaces every dancer's cluster by name, which concentrates per-dancer struggle data in a way meant for instructors, not peers. Dancers don't see this card on the project page; their personal repeating-cluster signals still surface on `/my-notes` cards via the `RepeatingChip` and on the drill view's "Recurring drills" header.
+
+#### Expandable cluster details
+
+In drill surfaces (both `/my-notes?view=drill` and the project page) the `RepeatingChip` becomes interactive — clicking it expands an inline panel that shows the cluster's underlying timestamps, the most-recent note's body (text or voice transcript), and a "View latest note" link. Turns the flag from decorative into actionable.
+
+| File | Responsibility |
+|---|---|
+| [components/expandable-repeating-chip.tsx](components/expandable-repeating-chip.tsx) | `<ExpandableRepeatingChip detail compact? size?>` — `<button>`-wrapped variant of `RepeatingChip` that toggles an inline `RepeatingClusterDetails` panel. Consumes `RepeatingClusterExpansionProvider` when mounted; falls back to local `useState` standalone. Adds a `ChevronDown` indicator that rotates with state. |
+| [components/repeating-cluster-details.tsx](components/repeating-cluster-details.tsx) | The inline panel. Quoted "Latest instance" body (Mic icon for voice / FileText for text; transcript-aware), N clickable timestamp pills capped at 8 + "+M more" suffix for very large clusters, "View latest note in {rehearsalTitle}" link. Carries `data-print-hidden` so expanded panels disappear from the printed drill sheet. |
+| [components/repeating-cluster-expansion-context.tsx](components/repeating-cluster-expansion-context.tsx) | `RepeatingClusterExpansionProvider` + `useRepeatingClusterExpansion()` hook. Same shape as `ThreadExpansionProvider`: tracks expanded keys as a `Set<string>`, one panel on mobile (single-open rule for clarity), many on desktop (≥ `lg`, for side-by-side cluster comparison). Pre-hydration `useMediaQuery` returns `null` and is treated as mobile to avoid multi-expansion flash. Each surface mounts its own provider — independent coordination scopes. |
+
+**New types in [lib/notes/repeating.ts](lib/notes/repeating.ts)**: `RepeatingClusterDetailItem` (per-assignment row carrying `noteType`, `bodyText`, `voiceTranscript`, `audioDurationMs`, `rehearsalId`/`rehearsalTitle`, `startTimestampMs`, `createdAtMs`) and `RepeatingClusterDetail` (`{ key, tag, count, items }` where items are pre-sorted newest-first server-side, and `key` is the expansion-coordinator key — `${tag}` on `/my-notes` since the viewer is implicit, `${userId}-${tag}` on project surfaces).
+
+**Built server-side**: each page entry (`/my-notes/page.tsx`, `/projects/[id]/page.tsx`) walks its `projectActiveAssignments` set, filters to cluster members, sorts each cluster's items by `createdAt` desc, and threads the `RepeatingClusterDetail[]` down to the drill view. Voice transcripts are only included when `transcriptStatus === "READY"` — the panel falls back to a `"Voice note · 0:32"` placeholder otherwise (matches the row-level behavior).
+
+**Where the chip is interactive vs. plain**: `DrillTagSection` takes an optional `repeatingDetail` prop. When set, it renders `<ExpandableRepeatingChip>` in the header; when unset (or no cluster on the tag), the plain `<RepeatingChip>`. The `RepeatingClustersCard` rows do the same — when a matching `RepeatingClusterDetail` is in the lookup map, the row becomes expandable with a chevron; otherwise the "N unresolved" text renders static.
 
 ### Note Targeting System
 
@@ -634,7 +650,8 @@ The rehearsal page renders a context bar above the workspace and a sticky two-co
 
 | File | Responsibility |
 |---|---|
-| [rehearsal-context-bar.tsx](app/rehearsals/[rehearsalId]/rehearsal-context-bar.tsx) | Page header: breadcrumb (team → project → rehearsal), title, role pill, meta row. Edge-to-edge background with `mx-auto max-w-7xl` content wrapper to align with the workspace below. Accepts an optional `actions` slot rendered on the right side of the title row — used for rehearsal-level actions like Replace video. |
+| [rehearsal-context-bar.tsx](app/rehearsals/[rehearsalId]/rehearsal-context-bar.tsx) | Page header: breadcrumb (team → project → rehearsal), title, role pill, meta row. Edge-to-edge background with `mx-auto max-w-7xl` content wrapper to align with the workspace below. Accepts an optional `actions` slot rendered on the right side of the title row — currently used by the "Drill from this rehearsal" button + the staff-only `RehearsalActionsMenu`. Both render side-by-side when both apply. |
+| [drill-from-rehearsal-button.tsx](app/rehearsals/[rehearsalId]/drill-from-rehearsal-button.tsx) | Pill-shaped `<Link>` deep-linking to `/my-notes?view=drill&rehearsal=<id>`. Rendered in the context bar's `actions` slot **only when the viewer has ≥1 active assignment in this rehearsal** (count computed server-side from `projectActiveAssignments`). Avoids surfacing a button that lands on an empty state. Visible to both dancers and staff — anyone who has work to drill from the rehearsal sees it. |
 | [rehearsal-actions-menu.tsx](app/rehearsals/[rehearsalId]/rehearsal-actions-menu.tsx) | Staff-only overflow `…` menu rendered into the context bar's `actions` slot when a video exists. Currently has a single **Replace video** item that opens a `<Dialog>` containing the upload form. Designed to extend with future rehearsal-level actions (delete, archive, share). |
 | [workspace/rehearsal-workspace.tsx](app/rehearsals/[rehearsalId]/workspace/rehearsal-workspace.tsx) | Orchestrator. Owns `videoRef`, `timelineRef`, scrubbing pointer state, playback-URL fetch, audience selection, edit-modal state, **lifted composer state** (mode, audienceOpen, snap), the **four sticky-video trigger states** (syncingAudioIds, isVideoPlaying, timestampTapPinned, composerExpanded — derived from snap), and the **`activeListTab` switcher state** (`"notes" \| "discussions"`). Builds the `markers[]` source for the timeline from whichever tab is active, with the matching `accentTone`. Picks which composer shell mounts (`AddNoteCard` / `AddDiscussionCard` on desktop, the shared `MobileComposerSheet` on mobile with body/peek slots built per active tab) via `useMediaQuery("(min-width: 1024px)")`. **Tab switches are blocked while recording** — the recorder unmount would lose the take; a sonner toast surfaces why the tap didn't take effect. Layout: `lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)]` with sticky-top left rail and sticky-bottom composer in the right column on desktop. The `<ThreadExpansionProvider>` is **shared across both tabs** so open threads survive tab toggles (the mobile single-open rule applies across the union via `${type}:${id}` keys in the coordinator). |
 | [workspace/rehearsal-video-card.tsx](app/rehearsals/[rehearsalId]/workspace/rehearsal-video-card.tsx) | Dark "stage plate" wrapping `<video>` with no native `controls`, custom transport (play / pause + ±5s + mono time), and on-frame overlay pills (file watermark, time pill, center play button when paused). `isPlaying` is tracked locally via `onPlay`/`onPause`/`onEnded` events; an optional `onPlayingChange?: (isPlaying: boolean) => void` prop bubbles the same signal up to the workspace for the sticky-video logic. |
@@ -785,16 +802,30 @@ Use `var(--*)` directly (or `color-mix(in oklch, var(--*) X%, transparent)` for 
 
 Drill mode is **read-only** — all updates still happen through the normal note flows (create, edit, status change). No dedicated drill route in v1; capability ships in two places.
 
+### Priority sort within tag buckets
+
+Within every tag section on every drill surface, rows are ordered by a derived priority via [lib/notes/drill-sort.ts](lib/notes/drill-sort.ts). Default order:
+
+1. Rows in a repeating cluster (their tag's cluster) first
+2. Then by oldest unresolved (`createdAt` asc)
+3. Then by newest rehearsal (`rehearsalDate` desc)
+4. Then by `id` for full determinism (matters for print-output reproducibility)
+
+The helper is parametric over row type via an accessor (`sortByDrillPriority(rows, toKey)`) so `/my-notes` can sort `AssignedNoteRow[]` (nested) and the project page can sort `DrillItem[]` (flat) without sharing a shape.
+
 ### `/my-notes` Drill view
 
 A view-mode toggle at the top of `/my-notes` flips between **Inbox** (default) and **Drill view**. Persisted in the URL as `?view=drill` so it's bookmarkable but not stored server-side.
 
 | File | Responsibility |
 |---|---|
-| [app/my-notes/drill-view.tsx](app/my-notes/drill-view.tsx) | Tag-grouped checklist. Top "Recurring drills" section surfaces clusters; tag sections render in fixed order (TIMING → SPACING → ENERGY → MUSICALITY → FORMATION → TECHNIQUE → Other). Each row is read-only: optional project chip (when 2+ projects active) + rehearsal title link + timestamp + clamped body or voice-note placeholder + status dot. "Print" button calls `window.print()`. Optional `singleProjectHeader` prop renders a "Showing N notes from X · See all projects" banner when filtered. |
-| [app/my-notes/my-notes-list.tsx](app/my-notes/my-notes-list.tsx) | Owns the toggle. Computes `activeProjects` (sorted by openCount desc) once. Lazy-initializes the project filter to the busiest active project on entering drill mode (deep-link case via `useState` initializer; click-toggle case in `setViewMode`). Threads `showProjectInRows` and `singleProjectHeader` props to `DrillView`. Tour gating uses `viewMode === "inbox"` so the tip sequence skips while in drill mode (anchors are absent). |
+| [app/my-notes/drill-view.tsx](app/my-notes/drill-view.tsx) | Tag-grouped checklist. Top "Recurring drills" section surfaces clusters as `ExpandableRepeatingChip`s; tag sections render in fixed order (TIMING → SPACING → ENERGY → MUSICALITY → FORMATION → TECHNIQUE → Other). Each row is read-only: optional project chip (when 2+ projects active) + rehearsal title link + timestamp + clamped body or voice-note placeholder + status dot. Rows are sorted by `sortByDrillPriority` within each bucket. "Print" button calls `window.print()`. Optional `singleProjectHeader` / `singleRehearsalHeader` props render a "Showing N notes from X · See all …" banner when filtered. Wraps its body in `<RepeatingClusterExpansionProvider>` so the chips in the header AND the chips inside each `DrillTagSection` share one coordinator. Empty-state branches (`DrillEmptyState` + `EmptyStateMessage`) live alongside as sibling functions — three cases: rehearsal-scoped + has-elsewhere, project-scoped + has-elsewhere, genuinely caught up. |
+| [app/my-notes/my-notes-list.tsx](app/my-notes/my-notes-list.tsx) | Owns the toggle. Computes `activeProjects` (sorted by openCount desc) once. Lazy-initializes the filter — `?rehearsal=<id>` wins (skip project auto-default entirely), otherwise the busiest-active-project auto-default fires on entering drill mode (deep-link case via `useState` initializer; click-toggle case in `setViewMode`). Threads `showProjectInRows`, `singleProjectHeader`, `singleRehearsalHeader`, and `repeatingClusterDetails` props to `DrillView`. Tour gating uses `viewMode === "inbox"` so the tip sequence skips while in drill mode (anchors are absent). |
+| [app/my-notes/page.tsx](app/my-notes/page.tsx) | Reads `?rehearsal=<id>` from `searchParams` (typed as the Next.js 16 promise shape), normalizes to `string \| null`, passes as `initialRehearsalId`. Builds `RepeatingClusterDetail[]` for this viewer inline from `projectActive` + `myProjectClusters` — voice transcripts only included when `transcriptStatus === "READY"`. Cluster key on this surface is the tag alone (one viewer per cluster). |
 
 **Auto-default rule**: when the user has open + in-progress notes in **2+ projects**, the project filter pre-applies to the project with the most open notes. The `SingleProjectHeader` button "See all projects" clears just the project filter. If the user clears the filter and re-enters drill mode, they get auto-defaulted again — accepted trade-off vs. tracking explicit-clear state through React Compiler's "no setState in effect" rule.
+
+**Rehearsal-scoped drill entry (`?rehearsal=<id>`)**: clicking "Drill from this rehearsal" on a workspace deep-links to `/my-notes?view=drill&rehearsal=<id>`, which initializes the filter with `rehearsalId` set and **skips the project auto-default** (rehearsal is the narrower, more-specific intent). The `SingleRehearsalHeader` companion banner appears above the bucket list with a "See all rehearsals" link that both clears local state AND drops `?rehearsal` from the URL via `router.replace`. The filter survives toggling Inbox ↔ Drill (the URL param is preserved); only the explicit clear removes it. Empty-state copy distinguishes "no drills from this rehearsal — but you have N elsewhere" from the project-scoped or globally-caught-up cases.
 
 **Project chip on rows**: each drill row shows its project title as a small muted chip when the user has notes in 2+ projects (so they always know what show they're drilling). Hidden when there's no ambiguity.
 
@@ -806,8 +837,19 @@ The "Manage cast" button in the project meta band's `actions` slot is also staff
 
 | File | Responsibility |
 |---|---|
-| [app/projects/[projectId]/repeating-clusters-card.tsx](app/projects/[projectId]/repeating-clusters-card.tsx) | Compact summary card. One row per cluster: avatar + dancer name + tag chip + "N unresolved". Hides when `clusters.length === 0`. Uses the `--repeating-*` tokens for surface tinting. |
-| [app/projects/[projectId]/project-drill-section.tsx](app/projects/[projectId]/project-drill-section.tsx) | Per-dancer collapsible drill board. Default expansion is the viewer's own row when they're a recipient, otherwise the dancer with the most clusters. Within each dancer, tag buckets sort: repeating clusters first, then by item count, then canonical tag order, then untagged ("Other") last. Each item is a read-only `DrillRow` from `components/drill/`. Hides when no active assignments exist in the project. |
+| [app/projects/[projectId]/repeating-clusters-card.tsx](app/projects/[projectId]/repeating-clusters-card.tsx) | Compact summary card, **client component** since rows are now expandable. One row per cluster: avatar + dancer name + tag chip + "N unresolved" button. When a matching `RepeatingClusterDetail` is in the lookup (always true in practice — both derive from the same `projectClusters` set), the row's "N unresolved" pill becomes interactive (`aria-expanded`, `ChevronDown`); clicking expands the `RepeatingClusterDetails` panel inline below the row. Mounts its own `<RepeatingClusterExpansionProvider>`. Hides when `clusters.length === 0`. Uses the `--repeating-*` tokens for surface tinting. |
+| [app/projects/[projectId]/project-drill-section.tsx](app/projects/[projectId]/project-drill-section.tsx) | Per-dancer collapsible drill board with a **`?groupBy=tag` toggle** at the top of the section (URL-persisted, defaults to `dancer`). Each grouping mode owns its own expansion state (`dancerExpanded` keyed by `userId`, `tagExpanded` keyed by tag name) so "Expand all" behaves correctly per mode. Mounts one shared `<RepeatingClusterExpansionProvider>` at the section root — repeating-chip expansion state survives mode toggles via the shared `${userId}-${tag}` key. See "Grouping modes" below. Hides when no active assignments exist in the project. |
+
+#### Grouping modes (`/projects/[projectId]` drill board)
+
+| Mode | URL | Layout |
+|---|---|---|
+| **By dancer** (default) | no param | `DancerGroupedView` — one collapsible card per dancer → tag sections inside (existing layout). Answers "is Iris OK?" |
+| **By tag** | `?groupBy=tag` | `TagGroupedView` — one collapsible card per tag → `DancerInTagSection` blocks inside (avatar + name + count + optional `ExpandableRepeatingChip` + their priority-sorted drill rows). Answers "who needs to be in the timing sectional?" |
+
+Same data drives both — the transpose lives in `buildTagGroups(recipients)`, a pure helper that walks the per-recipient buckets and groups by tag. Within each tag card, dancers sort: (1) repeating-on-this-tag first, (2) item count desc, (3) name asc. Tag groups themselves sort by canonical `NOTE_TAGS` order, untagged ("Other") last.
+
+The toggle is a small segmented control next to the existing "Expand all / Collapse all" button. Default copy under the section header adapts to the active mode ("…grouped by dancer and tag" vs "…grouped by tag — useful for planning sectionals").
 
 ### Print stylesheet
 
@@ -815,19 +857,26 @@ The "Manage cast" button in the project meta band's `actions` slot is also staff
 
 While the drill view is mounted:
 - Hides `header, nav, [data-print-hidden]`; reveals `[data-print-only]`.
+- Expanded `RepeatingClusterDetails` panels carry `data-print-hidden` so they collapse out of the printed sheet (their info duplicates the row list, and interactive affordances are dead on paper). Page count stays predictable regardless of which panels were open before Cmd+P.
 - Forces white surfaces on the body for ink economy.
 - `break-inside: avoid` on `.drill-tag-section` and `.drill-row` so dancer/tag groups don't split across pages.
 - `.tag-chip` switches to outlined (currentColor border, transparent bg) for B&W printability.
+
+Note: the project page (`/projects/[id]`) does NOT set the `data-print-target` attribute. Printing that page with the drill board expanded will render everything including the cluster panels — the project page was never print-optimized. If we ship a project-level print mode, it should mirror the my-notes `useEffect` pattern.
 
 ### What's deliberately deferred
 
 - Dedicated `/projects/[id]/drill-list` sub-route with shareable `?dancer=USER_ID` URLs.
 - Whole-company print sheets (instructor printing all dancers in one document).
 - PDF export endpoint — `window.print()` → "Save as PDF" is sufficient for v1.
-- Curated "tonight's drill list" entity (`DrillSheet` + `DrillSheetItem`) for hand-picked subsets.
+- Curated "tonight's drill list" entity (`DrillSheet` + `DrillSheetItem`) for hand-picked subsets — a lighter "Today's focus" client-side multi-select is the proposed next iteration (see [docs/plans/drill-list-expansion-backlog.md](docs/plans/drill-list-expansion-backlog.md)).
 - Per-tag color coding — single neutral chip in v1.
 - Multi-tag per note — single tag column.
 - Cross-project repeating detection — project-scoped only.
+
+### Strategic backlog
+
+The drill-v2 work documented above is the four-PR commitment from [docs/plans/drill-list-v2-implementation.md](docs/plans/drill-list-v2-implementation.md). The next-tier ideas (today's-focus subset, stalled-aware rows, discussion-context surface, etc.) live in [docs/plans/drill-list-expansion-backlog.md](docs/plans/drill-list-expansion-backlog.md) with their full triage rationale.
 
 ## Team Page UI
 
@@ -926,13 +975,17 @@ The persistent header lives in [components/app-header.tsx](components/app-header
 | [components/note-timestamp-pill.tsx](components/note-timestamp-pill.tsx) | Accent-tinted mono pill (`var(--primary)` for text, `var(--note-voice-accent)` for voice). Renders as a `<button>` when `onClick` is set, otherwise a static `<span>`. |
 | [components/section-tab-nav.tsx](components/section-tab-nav.tsx) | Thin sub-nav (`My notes` / `Notes by me`) rendered below the global header on the two notes pages. Active tab is auto-derived from `pathname` but can be overridden. |
 | [components/tag-chip.tsx](components/tag-chip.tsx) | Single neutral chip (`--muted` / `--muted-foreground`) carrying a `NoteTag`. Has the `tag-chip` class for the print stylesheet to switch to outlined rendering. |
-| [components/repeating-chip.tsx](components/repeating-chip.tsx) | Plum-tinted chip (`--repeating-*`) with `Repeat` icon. `compact` mode shows `Repeating × 3`; default mode shows `Repeating · Timing × 3`. |
+| [components/repeating-chip.tsx](components/repeating-chip.tsx) | Plum-tinted chip (`--repeating-*`) with `Repeat` icon. `compact` mode shows `Repeating × 3`; default mode shows `Repeating · Timing × 3`. Pure presentational `<span>` — interactive expansion lives in `ExpandableRepeatingChip` below. |
+| [components/expandable-repeating-chip.tsx](components/expandable-repeating-chip.tsx) | `<button>`-wrapped variant that toggles an inline `RepeatingClusterDetails` panel. Consumes `RepeatingClusterExpansionProvider` for coordinated expansion (one panel on mobile, many on desktop); falls back to local state standalone. Used on both drill surfaces. See "Expandable cluster details" under Repeating-correction detection. |
+| [components/repeating-cluster-details.tsx](components/repeating-cluster-details.tsx) | The inline detail panel — quoted latest body, clickable timestamp pills (capped at 8 + "+N more"), "View latest note in {rehearsalTitle}" link. Carries `data-print-hidden`. |
+| [components/repeating-cluster-expansion-context.tsx](components/repeating-cluster-expansion-context.tsx) | `RepeatingClusterExpansionProvider` + `useRepeatingClusterExpansion()` hook. Mirrors `ThreadExpansionProvider`'s "one on mobile, many on desktop" semantics. Each surface mounts its own provider (independent coordination scope). |
 | [components/threads/thread-attachment.tsx](components/threads/thread-attachment.tsx) | Single entry point for surfacing a note's thread (collapsed chip + expandable thread + reactions + composer) on any note-row surface. Seeds from server-side `summarizeThread`. See "Note threads" above for the full component breakdown. |
 | [components/threads/unread-comments-indicator.tsx](components/threads/unread-comments-indicator.tsx) | Small `--primary`-tinted "N new" pill for the dashboard's "you have new replies" surfacing. |
 | [lib/notes/format.ts](lib/notes/format.ts) | `formatNoteTimestamp(ms)` — single source of truth for `mm:ss` rendering across the app. The workspace's `./utils.ts` re-exports this as `formatTimestamp` so its many existing imports keep working. |
 | [lib/notes/stalled.ts](lib/notes/stalled.ts) | `isNoteStalled({ createdAt, assignments, now })` + `STALLED_THRESHOLD_DAYS = 3`. Pure, server- and client-safe; `now` is injectable so it's deterministic in tests. |
 | [lib/notes/tags.ts](lib/notes/tags.ts) | `NOTE_TAGS` const tuple, `NoteTag` type, `NOTE_TAG_LABELS`, `NOTE_TAG_DESCRIPTIONS`, `isNoteTag` runtime guard. Mirrors the Prisma enum literally (no Prisma import) so the module stays client-safe. |
-| [lib/notes/repeating.ts](lib/notes/repeating.ts) | `detectRepeatingClusters`, `buildRepeatingMarkerByAssignmentId`, `indexClustersByUserAndTag`, `REPEATING_THRESHOLD = 3`. Pure derivation. See "Repeating-correction detection" above. |
+| [lib/notes/repeating.ts](lib/notes/repeating.ts) | `detectRepeatingClusters`, `buildRepeatingMarkerByAssignmentId`, `indexClustersByUserAndTag`, `REPEATING_THRESHOLD = 3`. Also exports `RepeatingClusterDetail` + `RepeatingClusterDetailItem` types for the expandable cluster panel — built inline by each surface from its already-fetched active assignments. Pure derivation. See "Repeating-correction detection" above. |
+| [lib/notes/drill-sort.ts](lib/notes/drill-sort.ts) | `compareDrillPriority` + `sortByDrillPriority<T>(rows, toKey)`. Pure helper that imposes the within-tag-bucket order on drill surfaces: repeating first → oldest unresolved → newest rehearsal → tiebreaker `id`. Accessor-pattern so `/my-notes` (nested `AssignedNoteRow`) and the project page (flat `DrillItem`) can share the sort without sharing a row shape. |
 | [lib/threads/reactions.ts](lib/threads/reactions.ts) | `REACTION_KINDS` tuple, `ReactionKind` type, `REACTION_EMOJI` / `REACTION_LABELS` / `REACTION_DESCRIPTIONS`, `isReactionKind` runtime guard. Mirrors the Prisma `ReactionKind` enum literally (no Prisma import) so the module is client-safe. |
 | [lib/threads/comments.ts](lib/threads/comments.ts) | **Client-safe.** `COMMENT_MAX_LENGTH`, thread types (`ThreadComment`, `ThreadReactionSummary`, `ThreadPayload`, `ThreadSummary`), and the pure `summarizeThread` (chip-seed helper called once per note on every list query). |
 | [lib/threads/thread-access.ts](lib/threads/thread-access.ts) | **Server-only** (guarded by `import "server-only"`). Prisma-touching helpers parameterized over `ThreadTarget`: `canViewThread(target, userId)` (team-membership gate) and `loadThread(target, viewerId)` (full thread serialization with tombstones + per-author role pills). Split out so the Postgres client doesn't leak into the browser bundle when a client component imports `COMMENT_MAX_LENGTH` or a type. |

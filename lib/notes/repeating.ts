@@ -24,6 +24,42 @@ export type RepeatingMarker = {
   count: number;
 };
 
+/**
+ * One assignment's worth of context for the expandable cluster panel —
+ * enough to render the timestamps + the most-recent note's body + a link
+ * back to its rehearsal. Built by each surface (page entry) inline from
+ * its already-fetched active assignments; the type is shared so the
+ * panel component doesn't have to know which surface produced it.
+ */
+export type RepeatingClusterDetailItem = {
+  assignmentId: string;
+  noteId: string;
+  rehearsalId: string;
+  rehearsalTitle: string;
+  startTimestampMs: number;
+  noteType: "TEXT" | "VOICE";
+  bodyText: string | null;
+  voiceTranscript: string | null;
+  audioDurationMs: number | null;
+  // Numbers (not Dates) so the shape survives the server→client
+  // serialization boundary the same way `DrillItem` does.
+  createdAtMs: number;
+};
+
+export type RepeatingClusterDetail = {
+  /**
+   * Stable expansion key. `/my-notes` uses the tag alone (one viewer per
+   * cluster); project surfaces use `${userId}-${tag}` so two dancers with
+   * clusters in the same tag don't collide.
+   */
+  key: string;
+  tag: NoteTag;
+  count: number;
+  // Items, sorted newest-first by createdAt — the head is the "most
+  // recent" one rendered as the quoted body in the panel.
+  items: RepeatingClusterDetailItem[];
+};
+
 export function detectRepeatingClusters(
   assignments: ReadonlyArray<RepeatingAssignmentInput>,
 ): RepeatingCluster[] {

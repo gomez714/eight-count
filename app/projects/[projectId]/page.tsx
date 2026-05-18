@@ -5,9 +5,18 @@ import { ensureDbUser } from "@/lib/auth/ensure-db-user";
 import { db } from "@/lib/db";
 import { getDiscussionsForProject } from "@/lib/discussions/get-discussions-for-project";
 import { getProjectGroups } from "@/lib/groups/get-project-groups";
-import { getActiveAssignmentsForProjects } from "@/lib/notes/get-active-assignments-for-project";
-import { detectRepeatingClusters } from "@/lib/notes/repeating";
+import {
+  getActiveAssignmentsForProjects,
+  type ActiveAssignmentRow,
+} from "@/lib/notes/get-active-assignments-for-project";
+import {
+  detectRepeatingClusters,
+  type RepeatingCluster,
+  type RepeatingClusterDetail,
+  type RepeatingClusterDetailItem,
+} from "@/lib/notes/repeating";
 import { isNoteStalled } from "@/lib/notes/stalled";
+import type { NoteTag } from "@/lib/notes/tags";
 import { getProjectForUser } from "@/lib/projects/get-project-for-user";
 import { summarizeThread } from "@/lib/threads/comments";
 import type { NoteProgressCounts } from "@/components/note-progress-bar";
@@ -45,6 +54,109 @@ function readyTranscript(
 ): string | null {
   if (audioAsset?.transcriptStatus !== "READY") return null;
   return audioAsset.transcript;
+}
+
+function getOrCreateRecipient(
+  drillByUser: Map<string, DrillBoardRecipient>,
+  a: ActiveAssignmentRow,
+): DrillBoardRecipient {
+  let recipient = drillByUser.get(a.userId);
+  if (recipient) return recipient;
+  recipient = {
+    userId: a.userId,
+    userName: a.user.name,
+    userEmail: a.user.email,
+    buckets: [],
+    totalItems: 0,
+    repeatingClusterCount: 0,
+  };
+  drillByUser.set(a.userId, recipient);
+  return recipient;
+}
+
+function getOrCreateBucket(
+  recipient: DrillBoardRecipient,
+  tag: NoteTag | null,
+) {
+  let bucket = recipient.buckets.find((b) => b.tag === tag);
+  if (bucket) return bucket;
+  bucket = { tag, items: [], isRepeating: false, repeatingCount: 0 };
+  recipient.buckets.push(bucket);
+  return bucket;
+}
+
+// Pass 1: assignments → per-recipient buckets. Items start with
+// `isRepeating: false` — pass 2 flags them via the cluster set.
+function assembleDrillBuckets(
+  activeAssignments: ReadonlyArray<ActiveAssignmentRow>,
+): Map<string, DrillBoardRecipient> {
+  const drillByUser = new Map<string, DrillBoardRecipient>();
+  for (const a of activeAssignments) {
+    const recipient = getOrCreateRecipient(drillByUser, a);
+    const bucket = getOrCreateBucket(recipient, a.note.tag);
+    bucket.items.push({
+      assignmentId: a.id,
+      noteId: a.noteId,
+      noteType: a.note.noteType,
+      bodyText: a.note.bodyText,
+      voiceTranscript: readyTranscript(a.note.audioAsset),
+      audioDurationMs: a.note.audioAsset?.durationMs ?? null,
+      startTimestampMs: a.note.startTimestampMs,
+      status: (a.status?.status ?? "OPEN") as NoteStatus,
+      rehearsalId: a.note.rehearsal.id,
+      rehearsalTitle: a.note.rehearsal.title,
+      createdAtMs: a.note.createdAt.getTime(),
+      rehearsalDateMs: a.note.rehearsal.rehearsalDate.getTime(),
+      isRepeating: false,
+    });
+    recipient.totalItems += 1;
+  }
+  return drillByUser;
+}
+
+// Pass 2: clusters → mark each buckets's repeating fields + tag each
+// item in the cluster so the in-bucket priority sort can read it
+// directly without a second cluster lookup.
+function flagRepeatingClusters(
+  drillByUser: Map<string, DrillBoardRecipient>,
+  clusters: ReadonlyArray<RepeatingCluster>,
+): void {
+  for (const cluster of clusters) {
+    const recipient = drillByUser.get(cluster.userId);
+    if (!recipient) continue;
+    const bucket = recipient.buckets.find((b) => b.tag === cluster.tag);
+    if (bucket) {
+      bucket.isRepeating = true;
+      bucket.repeatingCount = cluster.count;
+      const clusterIds = new Set(cluster.assignmentIds);
+      for (const item of bucket.items) {
+        if (clusterIds.has(item.assignmentId)) {
+          item.isRepeating = true;
+        }
+      }
+    }
+    recipient.repeatingClusterCount += 1;
+  }
+}
+
+function compareRecipients(a: DrillBoardRecipient, b: DrillBoardRecipient) {
+  if (a.repeatingClusterCount !== b.repeatingClusterCount) {
+    return b.repeatingClusterCount - a.repeatingClusterCount;
+  }
+  const aName = (a.userName || a.userEmail).toLowerCase();
+  const bName = (b.userName || b.userEmail).toLowerCase();
+  return aName.localeCompare(bName);
+}
+
+// Per-recipient drill board build. Pulled out of `ProjectPage` to keep
+// the page entry's cognitive complexity within bounds.
+function buildDrillRecipients(
+  activeAssignments: ReadonlyArray<ActiveAssignmentRow>,
+  clusters: ReadonlyArray<RepeatingCluster>,
+): DrillBoardRecipient[] {
+  const drillByUser = assembleDrillBuckets(activeAssignments);
+  flagRepeatingClusters(drillByUser, clusters);
+  return [...drillByUser.values()].sort(compareRecipients);
 }
 
 export default async function ProjectPage({ params }: Readonly<ProjectPageProps>) {
@@ -234,68 +346,49 @@ export default async function ProjectPage({ params }: Readonly<ProjectPageProps>
     .filter((c): c is NonNullable<typeof c> => c !== null)
     .sort((a, b) => b.count - a.count);
 
-  // Build per-recipient drill board.
-  const drillByUser = new Map<string, DrillBoardRecipient>();
-  for (const a of projectActiveAssignments) {
-    let recipient = drillByUser.get(a.userId);
-    if (!recipient) {
-      recipient = {
-        userId: a.userId,
-        userName: a.user.name,
-        userEmail: a.user.email,
-        buckets: [],
-        totalItems: 0,
-        repeatingClusterCount: 0,
-      };
-      drillByUser.set(a.userId, recipient);
-    }
-    const bucketTag = a.note.tag;
-    let bucket = recipient.buckets.find((b) => b.tag === bucketTag);
-    if (!bucket) {
-      bucket = {
-        tag: bucketTag,
-        items: [],
-        isRepeating: false,
-        repeatingCount: 0,
-      };
-      recipient.buckets.push(bucket);
-    }
-    bucket.items.push({
-      assignmentId: a.id,
-      noteId: a.noteId,
-      noteType: a.note.noteType,
-      bodyText: a.note.bodyText,
-      voiceTranscript: readyTranscript(a.note.audioAsset),
-      audioDurationMs: a.note.audioAsset?.durationMs ?? null,
-      startTimestampMs: a.note.startTimestampMs,
-      status: (a.status?.status ?? "OPEN") as NoteStatus,
-      rehearsalId: a.note.rehearsal.id,
-      rehearsalTitle: a.note.rehearsal.title,
-    });
-    recipient.totalItems += 1;
-  }
-
-  // Mark repeating buckets and count clusters per recipient.
-  for (const cluster of projectClusters) {
-    const recipient = drillByUser.get(cluster.userId);
-    if (!recipient) continue;
-    const bucket = recipient.buckets.find((b) => b.tag === cluster.tag);
-    if (bucket) {
-      bucket.isRepeating = true;
-      bucket.repeatingCount = cluster.count;
-    }
-    recipient.repeatingClusterCount += 1;
-  }
-
-  const drillRecipients: DrillBoardRecipient[] = [...drillByUser.values()].sort(
-    (a, b) => {
-      if (a.repeatingClusterCount !== b.repeatingClusterCount) {
-        return b.repeatingClusterCount - a.repeatingClusterCount;
+  // Expandable cluster details for the project-page chips. Project surfaces
+  // key by `${userId}-${tag}` so two dancers with clusters in the same tag
+  // don't collide in the expansion coordinator. Same data shape as
+  // `/my-notes`; built inline since it's only ~25 lines and the source
+  // assignment shape is surface-specific.
+  const projectActiveById = new Map(
+    projectActiveAssignments.map((a) => [a.id, a]),
+  );
+  const projectClusterDetails: RepeatingClusterDetail[] = projectClusters.map(
+    (cluster) => {
+      const items: RepeatingClusterDetailItem[] = [];
+      for (const id of cluster.assignmentIds) {
+        const a = projectActiveById.get(id);
+        if (!a) continue;
+        items.push({
+          assignmentId: a.id,
+          noteId: a.noteId,
+          rehearsalId: a.note.rehearsal.id,
+          rehearsalTitle: a.note.rehearsal.title,
+          startTimestampMs: a.note.startTimestampMs,
+          noteType: a.note.noteType,
+          bodyText: a.note.bodyText,
+          voiceTranscript:
+            a.note.audioAsset?.transcriptStatus === "READY"
+              ? (a.note.audioAsset.transcript ?? null)
+              : null,
+          audioDurationMs: a.note.audioAsset?.durationMs ?? null,
+          createdAtMs: a.note.createdAt.getTime(),
+        });
       }
-      const aName = (a.userName || a.userEmail).toLowerCase();
-      const bName = (b.userName || b.userEmail).toLowerCase();
-      return aName.localeCompare(bName);
-    }
+      items.sort((x, y) => y.createdAtMs - x.createdAtMs);
+      return {
+        key: `${cluster.userId}-${cluster.tag}`,
+        tag: cluster.tag,
+        count: cluster.count,
+        items,
+      };
+    },
+  );
+
+  const drillRecipients = buildDrillRecipients(
+    projectActiveAssignments,
+    projectClusters,
   );
 
   // If the viewer is a recipient in this project, default-expand their row;
@@ -391,12 +484,18 @@ export default async function ProjectPage({ params }: Readonly<ProjectPageProps>
       />
 
       <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-6 py-6">
-        {isStaff ? <RepeatingClustersCard clusters={clusterSummaries} /> : null}
+        {isStaff ? (
+          <RepeatingClustersCard
+            clusters={clusterSummaries}
+            clusterDetails={projectClusterDetails}
+          />
+        ) : null}
 
         {isStaff && drillRecipients.length > 0 ? (
           <ProjectDrillSection
             recipients={drillRecipients}
             initialExpandedUserId={initialExpandedUserId}
+            clusterDetails={projectClusterDetails}
           />
         ) : null}
 

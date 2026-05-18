@@ -16,6 +16,7 @@ import {
 } from "@/lib/onboarding/state"
 import { getRehearsalForUser } from "@/lib/rehearsals/get-rehearsal-for-user"
 
+import { DrillFromRehearsalButton } from "./drill-from-rehearsal-button"
 import { RehearsalActionsMenu } from "./rehearsal-actions-menu"
 import { RehearsalContextBar } from "./rehearsal-context-bar"
 import { UploadVideoForm } from "./upload-video-form"
@@ -84,6 +85,14 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
     repeatingClusters
   )
 
+  // Gates the "Drill from this rehearsal" button — we only surface it when
+  // the viewer actually has something to drill in this rehearsal. Avoids
+  // dancers / staff tapping into an empty drill view. Computed from the
+  // already-fetched `projectActiveAssignments` (no extra Prisma round trip).
+  const viewerHasDrillableNotesHere = projectActiveAssignments.some(
+    (a) => a.userId === dbUser.id && a.note.rehearsal.id === rehearsalId
+  )
+
   // Discussions live alongside notes in the workspace right column behind
   // a tab switcher. Fetched in parallel with notes (already in `rehearsal`).
   const discussionRows = await getDiscussionsForRehearsal(
@@ -141,11 +150,21 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
         memberCount={rehearsal.project.team.members.length}
         videoFileName={rehearsal.videoAsset?.originalFileName ?? null}
         actions={
-          canManageVideo && hasVideo ? (
-            <RehearsalActionsMenu
-              rehearsalId={rehearsal.id}
-              hasExistingVideo={hasVideo}
-            />
+          // Two independent actions can render here: the drill button
+          // (anyone with active notes here) and the staff-only video
+          // replace menu. When both apply, they sit side-by-side.
+          viewerHasDrillableNotesHere || (canManageVideo && hasVideo) ? (
+            <div className="inline-flex items-center gap-2">
+              {viewerHasDrillableNotesHere ? (
+                <DrillFromRehearsalButton rehearsalId={rehearsal.id} />
+              ) : null}
+              {canManageVideo && hasVideo ? (
+                <RehearsalActionsMenu
+                  rehearsalId={rehearsal.id}
+                  hasExistingVideo={hasVideo}
+                />
+              ) : null}
+            </div>
           ) : null
         }
       />

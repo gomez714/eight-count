@@ -26,6 +26,12 @@ export const DEFAULT_EXPANDED_STATUSES: Record<NoteStatus, boolean> = {
 export type MyNotesFilter = {
   authorId: string | null;
   projectId: string | null;
+  // When set, narrows the queue to notes from a single rehearsal. Currently
+  // only set via the `?rehearsal=<id>` URL param (driven by the "Drill from
+  // this rehearsal" button on the workspace). Coexists with `projectId`:
+  // a rehearsal belongs to one project, so the rehearsal filter is always
+  // the narrower of the two when both are set.
+  rehearsalId: string | null;
   noteType: "TEXT" | "VOICE" | null;
   tag: NoteTag | null;
 };
@@ -33,6 +39,7 @@ export type MyNotesFilter = {
 export const EMPTY_FILTER: MyNotesFilter = {
   authorId: null,
   projectId: null,
+  rehearsalId: null,
   noteType: null,
   tag: null,
 };
