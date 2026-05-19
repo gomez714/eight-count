@@ -78,6 +78,12 @@ enum ReactionKind {
   ENCOURAGE
 }
 
+enum ResourceType {
+  LINK
+  // FILE reserved for v1.5 — uploaded files via a separate FileAsset table
+  // sharing the AudioAsset two-step upload pattern (upload-url → GCS PUT → complete).
+}
+
 model User {
   id          String  @id @default(cuid())
   clerkUserId String  @unique
@@ -117,6 +123,7 @@ model User {
   discussionComments    DiscussionComment[]    @relation("DiscussionCommentAuthor")
   discussionReactions   DiscussionReaction[]   @relation("DiscussionReactionUser")
   discussionThreadViews DiscussionThreadView[] @relation("DiscussionThreadViewUser")
+  createdResources      ProjectResource[]      @relation("ProjectResourceCreatedBy")
 }
 
 model Team {
@@ -184,11 +191,12 @@ model Project {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  team        Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  createdBy   User           @relation("ProjectCreatedBy", fields: [createdByUserId], references: [id])
+  team        Team              @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  createdBy   User              @relation("ProjectCreatedBy", fields: [createdByUserId], references: [id])
   rehearsals  Rehearsal[]
   groups      ProjectGroup[]
   discussions Discussion[]
+  resources   ProjectResource[]
 
   @@index([teamId])
   @@index([createdByUserId])
@@ -226,6 +234,44 @@ model ProjectGroupMember {
   @@index([teamMemberId])
 }
 
+/// A reference artifact attached to a project — production documents,
+/// running orders, choreographic references, shared spreadsheets, etc.
+/// V1 stores titled external URLs (`resourceType = LINK`); v1.5 will add
+/// `FILE` for uploaded assets via a separate FileAsset table.
+///
+/// `rehearsalId` is reserved for the v1.5 "anchor a resource to a specific
+/// rehearsal" UI — nullable so today's project-level resources don't need
+/// it set. Cascade behavior differs from Discussion intentionally: when a
+/// rehearsal is deleted, the resource demotes to project-level (SetNull)
+/// rather than being deleted. Reference material outlives the anchor;
+/// a creative discussion does not.
+///
+/// Length limits (title 120, url 2048, description 280) are enforced at
+/// the validation layer (`lib/resources/validation.ts`) — matches the
+/// existing convention where Project.title, Note.bodyText, etc. are
+/// unbounded at the DB level.
+model ProjectResource {
+  id              String       @id @default(cuid())
+  projectId       String
+  rehearsalId     String?
+  createdByUserId String
+  resourceType    ResourceType @default(LINK)
+  title           String
+  url             String
+  description     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rehearsal Rehearsal? @relation(fields: [rehearsalId], references: [id], onDelete: SetNull)
+  createdBy User       @relation("ProjectResourceCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([projectId, createdAt])
+  @@index([rehearsalId])
+  @@index([createdByUserId])
+}
+
 model Rehearsal {
   id              String   @id @default(cuid())
   projectId       String
@@ -237,12 +283,13 @@ model Rehearsal {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  createdBy   User         @relation("RehearsalCreatedBy", fields: [createdByUserId], references: [id])
+  project     Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy   User              @relation("RehearsalCreatedBy", fields: [createdByUserId], references: [id])
   videoAsset  VideoAsset?
   audioAssets AudioAsset[]
   notes       Note[]
   discussions Discussion[]
+  resources   ProjectResource[]
 
   @@index([projectId])
   @@index([createdByUserId])

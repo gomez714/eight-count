@@ -120,8 +120,9 @@ The project page is the structural bridge between a team and the rehearsal works
 - **Discussions** section sits between the drill board and the rehearsals spine — see "Discussions" below for the full feature. **Collapsed by default** so it doesn't push the rehearsals/groups navigation targets down; the closed row shows the discussion count and an unread badge when applicable. Visible to all roles including dancers.
 - **Rehearsals spine** is the main column — a list of rehearsal rows sorted newest-first. Each row shows a date plate, the rehearsal title, a "Current" pill on the most recent session in projects with two or more rehearsals, video duration, total note count with a coral voice-note tally, a small contributor stack, a relative-date label, and a "Stalled" chip when at least one assigned note is older than 3 days with active recipients. A right-side progress block shows `closed / total · %` with the same four-segment stacked bar used elsewhere, plus an "All notes resolved" badge when complete.
 - **Groups rail** on the right (desktop) lists the project's groups in a compact card. Admins and Instructors can create new groups inline, edit member lists, and delete groups. Empty groups get a tinted "empty" pill and an inline "Add members" CTA. Groups are the audience pool the rehearsal composer pulls from when leaving section notes.
+- **Resources rail** sits below the groups rail (desktop) — titled external links to docs, spreadsheets, choreography references, anything the team needs to point at while rehearsing. See "Project resources" below for the full feature.
 - **Empty state**: a fresh project with no rehearsals shows a generous panel with a "Create first rehearsal" CTA pre-wired into the same dialog that the header's New rehearsal button opens.
-- **Responsive layout**: on desktop the rehearsals spine and groups rail sit side-by-side. On mobile, the page condenses (smaller title, single-line meta strip, icon-only secondary action) and a segmented **Rehearsals / Groups** tab switcher lets the user focus on one at a time. Rehearsals is the default mobile tab.
+- **Responsive layout**: on desktop the rehearsals spine and the rail (Groups stacked above Resources) sit side-by-side. On mobile, the page condenses (smaller title, single-line meta strip, icon-only secondary action) and a segmented **Rehearsals / Groups / Resources** tab switcher lets the user focus on one at a time. Rehearsals is the default mobile tab.
 
 ### Rehearsals
 - Create dated rehearsal sessions within a project.
@@ -224,6 +225,16 @@ Discussions are the conversational counterpart to notes. Where a **note** is an 
   - **Project page** (`/projects/[id]`) — a **collapsible section** that defaults closed (a single thin row showing `💬 Discussions · N · X unread`). Tap to expand → composer + list + a scope badge per row distinguishing "Project-wide" from "Rehearsal: {title}" rollups. Expansion is persisted in the URL via `?discussions=open` so deep links and back/forward survive. The expanded list is capped at the 50 most recent — a "Showing the latest 50…" line surfaces at the bottom if hit (real pagination deferred until usage justifies it).
 - **Threads on discussions** reuse the same conversation chip + reactions + reply primitives as notes — see "Note conversations" above. Posting comments, reacting, editing/deleting your own reply, the mobile single-thread rule — all identical. The dashboard's "new replies" count combines both note and discussion thread unreads into a single number.
 
+### Project resources
+Project-scoped reference artifacts — running orders, choreography references, shared spreadsheets, costume sheets, anything the team needs to point at while rehearsing. Where a **note** is "follow through on this correction" and a **discussion** is "let's talk about this creative question," a **resource** is "here's the document we keep pointing at."
+
+- **Where they appear**: a compact rail card on the project page, stacked below the groups rail on desktop and surfaced as the third tab (`Rehearsals / Groups / Resources`) on mobile. Visible to everyone in the team.
+- **What they are in v1**: **titled external URLs** — Google Docs, Dropbox, Notion, anything reachable by link. Each row shows a link icon, the title, a domain hint (e.g. `docs.google.com`), an optional one-line description, the author's avatar + name, and a relative time. Clicking the title opens the link in a new tab with `rel="noopener noreferrer"`.
+- **Who can author**: staff only — Admin, Instructor, Assistant. Dancers can view and click through but can't add resources. Production documents flow downward from authority, the same direction notes flow. (Discussions are the horizontal channel — anyone authors.)
+- **URL safety**: only `http://` and `https://` URLs are accepted at the write boundary, so `javascript:`, `data:`, and `file:` schemes can't be stored. A second-layer scheme check at render time falls back to a no-op href if a bad URL ever reaches the DB.
+- **Edits**: only the original author can edit or delete their own resource. Editing swaps the row to a form in-place — no modal, no separate page. Title, URL, and description are all editable.
+- **Deferred for v1**: file uploads (links only — `FILE` is reserved at the schema level for v1.5 via a separate `FileAsset` table sharing the audio upload pipeline), rehearsal-anchored resources (the `rehearsalId` column is reserved but the UI ships project-scoped only), categories/tags, manual reordering, search, page-title scraping (SSRF concerns — the domain hint is the cheap stand-in).
+
 ### My notes (recipient inbox + drill view)
 - Every dancer has a personal work queue at `/my-notes` listing every note assigned to them across all rehearsals and teams.
 - A **view toggle** at the top of the page flips between **Inbox** (the default working surface) and **Drill view** (a printable, tag-grouped checklist for actually rehearsing against). The choice persists in the URL via `?view=drill`.
@@ -262,6 +273,9 @@ Discussions are the conversational counterpart to notes. Where a **note** is an 
 | Author text or voice discussions | ✓ | ✓ | ✓ | ✓ |
 | Edit or delete own discussions | ✓ | ✓ | ✓ | ✓ |
 | Post comments + react on any thread | ✓ | ✓ | ✓ | ✓ |
+| View / click through project resources | ✓ | ✓ | ✓ | ✓ |
+| Add project resources | ✓ | ✓ | ✓ | |
+| Edit or delete own project resource | ✓ | ✓ | ✓ | |
 
 ## Running locally
 

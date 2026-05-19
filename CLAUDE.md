@@ -60,8 +60,10 @@ TeamInvitation  ↓        Note → NoteTarget[]
                 ↓        NoteThreadView[]   (per-(note, user) last-viewed)
                 ↓
                 Discussion → DiscussionComment[]    (same shape as NoteComment)
-                              DiscussionReaction[]  (same shape as NoteReaction)
-                              DiscussionThreadView[]
+                ↓             DiscussionReaction[]  (same shape as NoteReaction)
+                ↓             DiscussionThreadView[]
+                ↓
+                ProjectResource (titled links — production docs, refs)
 ```
 
 - **Teams** have members with roles: `ADMIN | INSTRUCTOR | ASSISTANT | DANCER`
@@ -73,6 +75,7 @@ TeamInvitation  ↓        Note → NoteTarget[]
 - **Notes** are either `TEXT` or `VOICE` (`Note.noteType`). They share targeting/assignment/status pipelines (see below)
 - **Notes** carry a conversational layer — `NoteComment[]` (flat, text-only, soft-deleteable), `NoteReaction[]` (fixed set: `ACKNOWLEDGE | QUESTION | ENCOURAGE`, one per user per kind, click-again-to-remove), and `NoteThreadView[]` for unread tracking. See "Note threads (comments + reactions)" below.
 - **Discussions** are the conversational counterpart to notes — broader creative/process questions ("what quality should we engage here?", "would this work better another way?") with **no assignment, no status, no follow-through**. Author + thread only. Live at the project level always; optionally anchored to a rehearsal, and optionally to a moment (or range) on that rehearsal's video. **Anyone in the team can author one** — including dancers (departure from `Note` which is staff-write-only). Reuse `NoteType` for `TEXT | VOICE`. Voice requires a rehearsal anchor (project-level voice is not supported in v1). Threads use the same shared component family (`<ThreadAttachment target={{ type: "discussion", id }} ... />`) and the same `<canViewThread>` / `<loadThread>` server helpers, parameterized over `ThreadTarget`. See "Discussions" below.
+- **ProjectResources** are reference artifacts attached to a project — titled external links in v1 (running orders, choreography refs, shared spreadsheets), with `FILE` reserved for v1.5 via a separate `FileAsset` table. Project-scoped with a nullable `rehearsalId` reserved for the v1.5 anchoring UI. **Staff-write** (`ADMIN | INSTRUCTOR | ASSISTANT`) since they read as production documents (downward authority, like notes — not horizontal like discussions); author-only edit/delete. No threads, no status. See "Project Resources" below.
 
 ### Note Types
 
@@ -269,6 +272,86 @@ Schema + 12 API routes + auth/access helpers + contract types. **No UI yet** —
 #### Deferred (explicit non-goals for v1)
 
 Tags (v1.5), range-timestamp picker UI (schema permits, UI ships single-timestamp + unanchored only), pinned/featured discussions, archive, "answered" status, voice on project-level discussions, cross-project search, @mentions, notifications, realtime updates. Most of these accommodate at the schema level when their day comes.
+
+### Project Resources
+
+Reference artifacts attached to a project — running orders, choreography references, shared spreadsheets, costume sheets, anything the team needs to point at while rehearsing. Where a `Note` is "follow through on this correction" and a `Discussion` is "let's talk about this creative question," a `ProjectResource` is "here's the document we keep pointing at."
+
+**Defining contrast with notes and discussions:**
+- **No threads.** No comments, no reactions, no unread tracking. Resources are reference material — if a team wants to discuss one, they start a discussion. Keeps the model small and the UI focused.
+- **No status, no assignment.** A resource is either there or not. No follow-through.
+- **Staff-only authoring.** Same role set as notes (`ADMIN | INSTRUCTOR | ASSISTANT`) — production documents flow downward from authority, the same direction notes flow. This is a deliberate contrast with discussions (anyone authors) and the load-bearing distinction for resources.
+
+**Scope:** Always project-scoped. The schema reserves a nullable `rehearsalId` for the v1.5 "anchor a resource to a rehearsal" UI (e.g. "tonight's call sheet"), but v1 surfaces everything at the project level. Cascade-on-rehearsal-delete is `SetNull` (not `Cascade` like Discussion) — a "warm-up routine" PDF should demote to project-level if the rehearsal is removed, not vanish. Reference material outlives the anchor.
+
+**Resource types:** v1 ships `LINK` only — a titled external URL with an optional description. v1.5 will add `FILE` via a separate `FileAsset` table (clone of the `AudioAsset` shape, same two-step `upload-url → GCS PUT → complete` flow). The enum variant is reserved in the schema.
+
+#### Data model
+
+| Model | Purpose |
+|---|---|
+| `ProjectResource` | `resourceType: ResourceType @default(LINK)`. `title` and `url` required; `description?` optional (≤ 280 chars at the validation layer — the column itself is unbounded, matching the convention used for `Project.title`, `Note.bodyText`, etc.). `rehearsalId?` reserved for v1.5. `@@index([projectId, createdAt])` for the list query, `@@index([rehearsalId])` for the v1.5 anchor filter, `@@index([createdByUserId])` matching other models with `createdBy`. |
+
+**Cascade rules** (intentional — see migration `add_project_resources`):
+- `Project ON DELETE CASCADE` — resources die with their project.
+- `Rehearsal ON DELETE SET NULL` — resource demotes to project-level, doesn't get deleted.
+- `User ON DELETE RESTRICT` — protects attribution. (Users are never hard-deleted anyway — see "User soft-delete + reclaim".)
+
+#### Server helpers
+
+| File | Responsibility |
+|---|---|
+| [lib/resources/types.ts](lib/resources/types.ts) | `ProjectResourceRow` (flat row shape consumed by UI directly) + `ProjectResourceAuthor` sub-shape. `resourceType` typed as the Prisma enum so v1.5's `FILE` auto-widens. Dates kept as `Date` objects — Next.js handles server → client serialization natively. |
+| [lib/resources/validation.ts](lib/resources/validation.ts) | Zod schemas (`createResourceSchema`, `updateResourceSchema`) + length constants (`RESOURCE_TITLE_MAX = 120`, `RESOURCE_URL_MAX = 2048`, `RESOURCE_DESCRIPTION_MAX = 280`). URL validator accepts only `http:` and `https:` — blocks `javascript:`, `data:`, `file:`, etc. Description collapses to `null` when empty so the row doesn't render a dangling separator. |
+| [lib/resources/get-resources-for-project.ts](lib/resources/get-resources-for-project.ts) | List helper, newest-first, capped at 100. Returns the flat `ProjectResourceRow[]` so the page entry is one line. Doesn't gate on team membership itself (caller verifies via `getProjectForUser`) — matches the `getDiscussionsForProject` convention. |
+| [lib/resources/get-resource-for-user.ts](lib/resources/get-resource-for-user.ts) | Single-row auth helper. Walks resource → project → team → members in one Prisma round-trip. Returns `null` when not found or not visible; caller does the author-only check on mutations. One hop fewer than the note helpers since resources don't require a rehearsal. |
+
+#### Server actions
+
+Resources use **server actions**, not API routes — match the `group-actions.ts` pattern since the surface is small, dialog-less, and tied to a form. The actions live in [app/projects/[projectId]/resource-actions.ts](app/projects/[projectId]/resource-actions.ts):
+
+| Action | Auth | Behavior |
+|---|---|---|
+| `createResource(_, formData)` | `getProjectForUser` + role ∈ `AUTHOR_ROLES` | Insert + `revalidatePath` |
+| `updateResource(_, formData)` | `getResourceForUser` + author-only | Update + `revalidatePath` |
+| `deleteResource({ resourceId })` | `getResourceForUser` + author-only | Delete + `revalidatePath` |
+
+`AUTHOR_ROLES = { ADMIN, INSTRUCTOR, ASSISTANT }` — same staff set as note authoring. Author-only edit/delete matches the note + discussion convention (no admin-override delete in v1; escape hatch is SQL).
+
+API request types live in [lib/api/contracts.ts](lib/api/contracts.ts) (`CreateResourceRequest`, `UpdateResourceRequest`) — currently consumed only by the server actions, but pre-positioned so future API routes share one shape with the validation layer.
+
+#### UI placement
+
+Rail card on `/projects/[projectId]`, stacked below `ProjectGroupsSection` on desktop and surfaced as the third tab (`Rehearsals / Groups / Resources`) on mobile. Groups sits above Resources in the desktop rail because groups drive note targeting (structurally more load-bearing).
+
+| File | Responsibility |
+|---|---|
+| [app/projects/[projectId]/project-resources-section.tsx](app/projects/[projectId]/project-resources-section.tsx) | Single-file rail card following the `project-groups-section.tsx` convention. Contains: `ProjectResourcesSection` (exported), `EmptyResources` (CTA for staff, muted line for dancers), `ResourceForm` (shared by create + edit via a discriminated `mode` prop), `ResourceRow` (display state that swaps to `ResourceForm` when `isEditing`), and `ResourceActionsMenu` (author-only `…` overflow with Edit / Delete). Helpers: `extractDomain` (cheap client-side `URL` parse for the row's domain hint), `isEdited` (60s grace window — Prisma's `updatedAt` ticks on insert), `firstName`, `formatRelative`. |
+
+**Row anatomy**: `Link2` icon + title (`<a target="_blank" rel="noopener noreferrer">` — only the title is the link, so the `…` menu doesn't conflict) + small `ExternalLink` icon that animates to `--primary` on hover/focus + domain hint + optional description (`line-clamp-1`) + author `AvatarInitials` + first name + relative time + optional `· edited`. The `…` overflow reserves a `size-6` placeholder when hidden so author and non-author rows align consistently.
+
+**Form UX details**:
+- Title field autofocuses on mount (both create and edit).
+- URL field is `<Input type="url" inputMode="url">` with explicit `text-base` to prevent iOS auto-zoom on focus.
+- Description char counter only appears within 40 characters of the cap (mirrors the comment composer's "quiet until needed" pattern).
+- Cmd/Ctrl + Enter on the description textarea submits the form (matches comment composer).
+- Edit swaps the row content in-place rather than opening a modal — preserves spatial context.
+- Delete uses `window.confirm` with the resource title in the prompt; same convention as comment delete.
+
+**Three-tab layout on mobile** ([app/projects/[projectId]/project-mobile-tabs.tsx](app/projects/[projectId]/project-mobile-tabs.tsx)): each tab button gets `min-w-0 flex-1` so the count pill can't bleed out of the tablist on 320px-class viewports; below `sm:`, the buttons drop to `text-[13px]` with `px-2 gap-1` and the label is wrapped in `truncate` while the count pill keeps `shrink-0` (label gives way first if anything has to). At `sm:+` everything returns to the original `text-sm px-3 gap-1.5` sizing.
+
+#### Permissions
+
+| Action | ADMIN | INSTRUCTOR | ASSISTANT | DANCER |
+|---|:---:|:---:|:---:|:---:|
+| View resources | ✓ | ✓ | ✓ | ✓ |
+| Click through to URL | ✓ | ✓ | ✓ | ✓ |
+| Add resource | ✓ | ✓ | ✓ | |
+| Edit / delete own resource | ✓ | ✓ | ✓ | |
+
+#### Deferred (explicit non-goals for v1)
+
+`FILE` uploads (`FileAsset` table + GCS pipeline + file-type icons), rehearsal-anchoring UI (`rehearsalId` column already reserved), categories / tags, pinning / featuring, manual reordering, threads on resources (the discussion entity already exists for that conversation), search across resources, bulk actions, `og:image` / page-title scraping (SSRF concerns; the domain hint is the cheap stand-in).
 
 ### Repeating-correction detection
 
@@ -470,8 +553,11 @@ All design tokens (`--primary`, `--card`, `--status-*`, `--note-voice-*`, `--ava
 | Post comments + react on any thread | ✓ | ✓ | ✓ | ✓ |
 | Retry transcription on own voice recordings | ✓ | ✓ | ✓ | ✓ |
 | Retry transcription on someone else's voice recording | ✓ | ✓ | ✓ | |
+| Add project resources | ✓ | ✓ | ✓ | |
+| Edit or delete own project resource | ✓ | ✓ | ✓ | |
+| View / click through project resources | ✓ | ✓ | ✓ | ✓ |
 
-Enforce via `TeamMember.role` after fetching with a `get*ForUser()` function. **Note vs. Discussion authoring is the load-bearing role contrast**: notes (corrections — staff only) flow downward from authority; discussions (creative questions — anyone) flow horizontally across the team. Don't conflate the two when adding new write paths.
+Enforce via `TeamMember.role` after fetching with a `get*ForUser()` function. **Note vs. Discussion authoring is the load-bearing role contrast**: notes (corrections — staff only) flow downward from authority; discussions (creative questions — anyone) flow horizontally across the team. Don't conflate the two when adding new write paths. `ProjectResource` authoring sits on the same staff-only side as notes — production documents flow downward too.
 
 ## Server Actions
 
@@ -484,6 +570,7 @@ Action files live alongside their route pages:
 | `app/teams/[teamId]/member-actions.ts` | `inviteTeamMember()`, `revokeInvitation()`, `resendInvitation()` |
 | `app/projects/[projectId]/actions.ts` | `createRehearsal()` |
 | `app/projects/[projectId]/group-actions.ts` | `createProjectGroup()`, `updateProjectGroupMembers()`, `deleteProjectGroup()` |
+| `app/projects/[projectId]/resource-actions.ts` | `createResource()`, `updateResource()`, `deleteResource()` |
 | `app/my-notes/note-status-actions.ts` | `updateNoteAssignmentStatus()` |
 | `app/dashboard/onboarding-actions.ts` | `dismissChecklistAction()`, `skipChecklistStepAction(stepKey)`, `dismissTipGroupAction(group)`, `restartOnboardingAction()` |
 
@@ -902,21 +989,22 @@ The drill-v2 work documented above is the four-PR commitment from [docs/plans/dr
 
 ## Project Page UI
 
-`/projects/[projectId]` is a structural bridge into the rehearsal workspace — a lighter-weight page that orients the user (which project, what state, what's next) and surfaces rehearsals as the primary object. Desktop is a two-column shell (rehearsal spine + groups rail). On mobile, a segmented tab switcher toggles between **Rehearsals** and **Groups** so the user can focus on one at a time.
+`/projects/[projectId]` is a structural bridge into the rehearsal workspace — a lighter-weight page that orients the user (which project, what state, what's next) and surfaces rehearsals as the primary object. Desktop is a two-column shell (rehearsal spine + a rail stacking Groups above Resources). On mobile, a three-tab segmented switcher toggles between **Rehearsals**, **Groups**, and **Resources** so the user can focus on one at a time.
 
 | File | Responsibility |
 |---|---|
-| [app/projects/[projectId]/page.tsx](app/projects/[projectId]/page.tsx) | Server entry. Fetches the project, rehearsals (with notes/assignments/authors/video duration), groups, team members, and **discussions** (via `getDiscussionsForProject`) in parallel. Aggregates per-rehearsal totals (text/voice counts, assignment status counts, distinct contributors, stalled count via [`isNoteStalled`](lib/notes/stalled.ts)) and project-wide totals (rehearsal count, cast count, open notes, distinct contributors). Also runs `getActiveAssignmentsForProjects` + `detectRepeatingClusters` to build per-dancer drill recipients and cluster summaries. Maps each discussion through `summarizeThread` server-side so chip seeds paint without a client round-trip. Renders `<ProjectMetaBand />` above `<RepeatingClustersCard />` + `<ProjectDrillSection />` + `<DiscussionsSection />` + `<ProjectMobileTabs>` which slots `<RehearsalsSection />` + `<ProjectGroupsSection />`. |
+| [app/projects/[projectId]/page.tsx](app/projects/[projectId]/page.tsx) | Server entry. Fetches the project, rehearsals (with notes/assignments/authors/video duration), groups, team members, **discussions** (via `getDiscussionsForProject`), and **resources** (via `getResourcesForProject`) in parallel. Aggregates per-rehearsal totals (text/voice counts, assignment status counts, distinct contributors, stalled count via [`isNoteStalled`](lib/notes/stalled.ts)) and project-wide totals (rehearsal count, cast count, open notes, distinct contributors). Also runs `getActiveAssignmentsForProjects` + `detectRepeatingClusters` to build per-dancer drill recipients and cluster summaries. Maps each discussion through `summarizeThread` server-side so chip seeds paint without a client round-trip. Renders `<ProjectMetaBand />` above `<RepeatingClustersCard />` + `<ProjectDrillSection />` + `<DiscussionsSection />` + `<ProjectMobileTabs>` which slots `<RehearsalsSection />` + `<ProjectGroupsSection />` + `<ProjectResourcesSection />`. |
 | [repeating-clusters-card.tsx](app/projects/[projectId]/repeating-clusters-card.tsx) | Tinted summary card listing active repeating clusters one row at a time. **Staff-only** — gated on `isStaff` in the page entry. See "Drill surfaces" above. |
 | [project-drill-section.tsx](app/projects/[projectId]/project-drill-section.tsx) | Per-dancer collapsible drill board for the project. **Staff-only** — gated on `isStaff` in the page entry. See "Drill surfaces" above. |
 | [discussions-section.tsx](app/projects/[projectId]/discussions-section.tsx) | Section card sitting between `ProjectDrillSection` and `ProjectMobileTabs`. **Unconditional** (visible to all roles, including dancers) but **collapsed by default** so it doesn't push the rehearsals/groups navigation targets down the page. Collapsed state is a single thin row: `💬 Discussions · {N} · {U unread}` (the unread pill only appears when U > 0). Tapping the row expands → composer + list + cap-hit indicator beneath. Expansion is persisted in the URL via `?discussions=open` (bookmarkable, survives back/forward) using `router.replace({ scroll: false })` so the page doesn't jump when toggled. Unread count is derived client-side from the discussions' `thread.hasUnread` flags (already populated server-side via `summarizeThread`). When expanded, wraps the list in `ThreadExpansionProvider` so threads coordinate within the section. When the result hits the 50-row cap (`PROJECT_DISCUSSIONS_CAP` mirrors the helper's `take: 50`), surfaces "Showing the latest 50…" copy at the bottom — the cheap-hedge stand-in for proper pagination per the Decisions log. |
 | [project-discussion-row.tsx](app/projects/[projectId]/project-discussion-row.tsx) | Mirror of the workspace `discussion-row.tsx` adapted for the project-wide list. The top meta row shows a **scope badge** that distinguishes project-level (`<MessagesSquare /> Project-wide` chip, tinted with `--discussion-accent`) from rehearsal-anchored (`Rehearsal: {title}` chip that links to `/rehearsals/[id]`). When the discussion is video-anchored, the timestamp pill is wrapped in a `<Link>` to the rehearsal — deep-linking to the exact frame via `?t=` is deferred. Voice rows reuse `VoiceNotePlayer` in **standalone mode** (no `videoRef` or `startTimestampMs` since there's no video on this page) and `VoiceNoteTranscript` with `canRetry` driven by the section's `canRetryTranscript` prop (which mirrors `isStaff`; the API enforces author-or-staff regardless). |
 | [project-discussion-composer.tsx](app/projects/[projectId]/project-discussion-composer.tsx) | Text-only composer for true project-level discussions. Posts to `POST /api/projects/[projectId]/discussions` with `rehearsalId: null`. Voice + anchored variants are deliberately workspace-only in v1 — voice requires a rehearsal anchor (per `AudioAsset.rehearsalId`), and anchoring is rehearsal-scoped by definition. Cmd/Ctrl+Enter sends; `router.refresh()` on success. |
 | [project-meta-band.tsx](app/projects/[projectId]/project-meta-band.tsx) | Edge-to-edge `bg-card` band. Breadcrumb (Dashboard › team › project), title + `ProjectStatusPill` + `RolePill`, optional description, actions slot, and a meta strip with `MetaChip`s (Rehearsals / Cast / Open notes). On mobile the meta strip flattens into compact `[icon] {value} {label}` chips on a single line, the description is `line-clamp-2`, the title shrinks to `text-xl`, the breadcrumb's "Dashboard" segment is hidden, and the contributor `AvatarStack` is hidden. On `sm:+` it gains the eyebrow + `border-t` divider + accent suffix + the contributor stack. |
-| [project-mobile-tabs.tsx](app/projects/[projectId]/project-mobile-tabs.tsx) | Client wrapper. Renders a segmented `role="tablist"` (`Rehearsals (N)` / `Groups (N)`) visible only below `lg:`, plus the `lg:grid-cols-[minmax(0,1fr)_320px]` two-column layout. On mobile the inactive panel gets `hidden lg:flex`; on `lg:+` the override always wins so both panels render together. Default tab on mobile is Rehearsals. |
+| [project-mobile-tabs.tsx](app/projects/[projectId]/project-mobile-tabs.tsx) | Client wrapper. Renders a three-button segmented `role="tablist"` (`Rehearsals (N)` / `Groups (N)` / `Resources (N)`) visible only below `lg:`, plus the `lg:grid-cols-[minmax(0,1fr)_320px]` two-column layout. On mobile only the active panel renders (the other two carry `hidden lg:block` so they re-show at `lg:+`); Groups stacks above Resources in the desktop rail. Default tab on mobile is Rehearsals. Each tab button carries `min-w-0 flex-1` so the count pill can't bleed out of the tablist on 320px-class viewports — the label uses `truncate` (gives way first), the count pill is `shrink-0` (preserved), and below `sm:` the buttons tighten to `text-[13px] px-2 gap-1`. |
 | [rehearsals-section.tsx](app/projects/[projectId]/rehearsals-section.tsx) | Heading + helper line + list of `RehearsalRow`s, OR a generous empty-state panel guiding staff to create the first rehearsal (gated on `canManage`). |
 | [rehearsal-row.tsx](app/projects/[projectId]/rehearsal-row.tsx) | Per-rehearsal `<Link>` row into `/rehearsals/[id]`. CSS-grid layout on `md:+` (date plate / body / progress / chev) collapsing to a single column on mobile. Left accent stripe is teal for the **current** rehearsal and neutral otherwise. Body shows duration (or "No video yet"), total notes (with coral voice-note tally), small contributor stack, relative date, and a `Clock + N stalled` chip when applicable. Progress block uses `NoteProgressBar` with `closed/total · pct%` plus an "All notes resolved" badge or `n open · n working · n done` caption. |
 | [project-groups-section.tsx](app/projects/[projectId]/project-groups-section.tsx) | Compact rail card. Heading + slim `+ New` button → optional inline `CreateGroupForm` → single-column list of `GroupCard`s. Each `GroupCard` shows the name, an "empty" pill tinted with the in-progress palette when membership is zero, an icon-only edit/delete pair (gated on `canManage`), and either an inline "Add members" CTA or a flex-wrapping pill list with `AvatarInitials` + name. CRUD pipeline (`createProjectGroup`, `updateProjectGroupMembers`, `deleteProjectGroup`) is unchanged. |
+| [project-resources-section.tsx](app/projects/[projectId]/project-resources-section.tsx) | Compact rail card below Groups. Heading + slim `+ New` button (staff-only) → optional inline `ResourceForm` → single-column list of `ResourceRow`s. Each row: `Link2` icon + title-as-link (`<a target="_blank" rel="noopener noreferrer">`) + `ExternalLink` decoration + domain hint + optional description (`line-clamp-1`) + author `AvatarInitials` + first name + relative time + optional `· edited`. Author-only `…` overflow menu with Edit (swaps the row to the form in-place) and Delete (`window.confirm`). Empty state branches on `canManage` — staff get an `Add first resource` CTA, dancers get a muted "No resources yet" line. CRUD pipeline (`createResource`, `updateResource`, `deleteResource`) lives in [resource-actions.ts](app/projects/[projectId]/resource-actions.ts). See "Project Resources" above. |
 | [new-rehearsal-button.tsx](app/projects/[projectId]/new-rehearsal-button.tsx) | Client `Dialog` trigger wrapping `CreateRehearsalForm`. Used both as the meta band's primary action and inside the empty state. The form is chromeless (no `Card` wrapper) and accepts `onSuccess` / `onCancel` so the dialog can close after a successful submit. |
 
 **"Current" rehearsal**: server-derived as `idx === 0 && rehearsals.length > 1` after sorting by `rehearsalDate desc`. A solo rehearsal does not get the Current treatment to avoid noise.
@@ -1100,7 +1188,7 @@ Every page sits below a persistent global `<AppHeader>` (brand + team switcher w
 - `/invite/[token]` — Team invitation acceptance. Public route (not gated by `proxy.ts`). Server-rendered with one of: signed-out invite card (Create account / Sign in CTAs that preserve the invite URL via `?redirect_url=`), accept card (matching email), wrong-account card (mismatched email — sign out + retry), or info card (not found / expired / revoked / accepted). See "Team Invitations" above.
 - `/dashboard` — Signed-in home. `DashboardMetaBand` ("Welcome back, {firstName}" + cross-team meta strip with a conditional "New replies" chip when there are unread comments) above `OnboardingChecklist`, `WorkTiles` (2-up "My notes" / "Notes by me" tiles with real metrics + a single `UnreadCommentsIndicator` line below the grid when the count > 0), and `TeamsSection`. Only page that aggregates across teams. Unread count comes from `getUnreadCommentCountForUser` — see "Note threads → Dashboard unread surfacing" above. See "Dashboard UI" and "Onboarding tour" below.
 - `/teams/[teamId]` — Team organizational home. `TeamMetaBand` (breadcrumb, mark, title, role popover, desktop meta strip with Members / Projects / Created / role glance / Your role) above a single-column `TeamMobileTabs` shell that renders `<ProjectsSection />` + `<MembersSection />`. Mobile gets a `Projects (N) / Members (N)` segmented switcher. Header carries no CTAs — each section owns its action. Role chips are popover triggers for contextual role explanations. See "Team Page UI" below.
-- `/projects/[projectId]` — Project home and structural bridge into the workspace. `ProjectMetaBand` (breadcrumb, title + status pill, meta chips, "Manage cast" / "New rehearsal") above an optional `RepeatingClustersCard` + optional `ProjectDrillSection` (per-dancer collapsible drill board) + a **`DiscussionsSection`** (text-only composer + project-level + rehearsal-rolled-up discussions, visible to all roles) + a two-column layout: rehearsals spine on the left (`RehearsalRow`s with date plate, status mini-bar, stalled chips) + a compact `ProjectGroupsSection` rail on the right. On mobile a `ProjectMobileTabs` segmented switcher (`Rehearsals (N)` / `Groups (N)`) toggles between the two so only one renders at a time. See "Project Page UI" and "Drill surfaces" below.
+- `/projects/[projectId]` — Project home and structural bridge into the workspace. `ProjectMetaBand` (breadcrumb, title + status pill, meta chips, "Manage cast" / "New rehearsal") above an optional `RepeatingClustersCard` + optional `ProjectDrillSection` (per-dancer collapsible drill board) + a **`DiscussionsSection`** (text-only composer + project-level + rehearsal-rolled-up discussions, visible to all roles) + a two-column layout: rehearsals spine on the left (`RehearsalRow`s with date plate, status mini-bar, stalled chips) + a rail on the right stacking `ProjectGroupsSection` above `ProjectResourcesSection` (titled external links — production docs, refs — staff-write / everyone-read). On mobile a `ProjectMobileTabs` segmented switcher (`Rehearsals (N)` / `Groups (N)` / `Resources (N)`) toggles between the three so only one renders at a time. See "Project Page UI", "Project Resources", and "Drill surfaces" below.
 - `/rehearsals/[rehearsalId]` — Rehearsal workspace. Page header is a `RehearsalContextBar` (breadcrumb / title / role / meta); body is a two-column workspace with the stage-plate video + density timeline on the left and a thread (progress spine, pill filters + assignee/tag dropdowns, note list with tag + repeating chips) on the right. Each `NoteRow` now carries a `ThreadAttachment` (collapsed-by-default thread + reactions + composer — see "Note threads" above). **Composer shape varies by viewport**: at `lg:+` it's a sticky card at the bottom of the right column; below `lg:` it's a peekable Vaul bottom sheet (80px peek + 280px expanded). The video pins to the top of the viewport on mobile via four contextual triggers — see "Mobile composer sheet" and "Contextual sticky video" under Rehearsal Workspace UI. Voice-note playback is video-synced. First-time note-authors see a 3-step `TipSequence` (timeline / composer / notes thread) once the video URL resolves — see "Onboarding tour" below.
 - `/my-notes` — Recipient inbox / personal work queue. `SectionTabNav` + slim title bar + `Inbox / Drill view` toggle (URL-synced via `?view=drill`). **Inbox mode**: 2-column layout with sticky `QueueSummary` rail (240px on `lg+`, mobile-collapsing for From/Project/Tag/Type filters) + queue with an "Up next" hero (oldest unresolved note) and collapsible status groups. Each card uses an inline `StatusSegmented` radio control plus optional `TagChip` and `RepeatingChip` in the meta row, and carries a `ThreadAttachment` for the conversational layer. **Drill mode**: tag-grouped read-only checklist with `Recurring drills` header, auto-defaults the project filter to the busiest project for users in 2+ projects, and a Print button (`window.print()`). Threads are deliberately hidden in drill mode. First-time visitors in inbox mode with at least one assigned note see a 2-step `TipSequence` (Up-next hero / filter rail). See "My Notes UI" and "Drill surfaces" below.
 - `/notes-by-me` — Author follow-through dashboard. `SectionTabNav` + slim title bar, then `AuthorSummaryStrip` (follow-through %, stalled, unassigned, plus a Repeating tile when any clusters exist) + `FilterSortBar` (Outstanding / Stalled / Complete / Unassigned / All; sort: Stalled first / Most recent / Oldest; tag-filter row when any tagged notes exist) + a list of `AuthoredNoteCard`s (with `TagChip` in the meta row) with per-recipient pip rows (with a small `Repeat` decoration on pips that are part of a cluster). Each card carries a `ThreadAttachment` so authors can read and reply to recipient questions inline. Stalled is computed server-side via [lib/notes/stalled.ts](lib/notes/stalled.ts) (`createdAt` older than 3 days AND any active assignment); repeating clusters via [lib/notes/repeating.ts](lib/notes/repeating.ts). See "Notes By Me UI" and "Repeating-correction detection" above.

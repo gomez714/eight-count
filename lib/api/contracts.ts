@@ -286,3 +286,32 @@ export type DeleteDiscussionData = {
 }
 
 export type DeleteDiscussionResponse = ApiResponse<DeleteDiscussionData>
+
+// --- Project resources ---------------------------------------------------
+
+/**
+ * Create a project-scoped resource (a titled external link in v1; v1.5
+ * will add FILE via a separate FileAsset table). Length limits and URL
+ * validation are enforced server-side in `lib/resources/validation.ts`:
+ * title ≤ 120, URL ≤ 2048 and must be http(s), description ≤ 280.
+ *
+ * v1 routes through a server action (`createResource` in
+ * `app/projects/[projectId]/resource-actions.ts`) rather than an API
+ * route. This type sits alongside the others so future API routes
+ * share one definition with the validation layer.
+ */
+export type CreateResourceRequest = {
+  title: string
+  url: string
+  description?: string | null
+}
+
+/**
+ * Edit a resource. Author-only. Full replace — the edit form always
+ * submits all three fields, so there are no PATCH semantics.
+ */
+export type UpdateResourceRequest = {
+  title: string
+  url: string
+  description?: string | null
+}

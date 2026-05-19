@@ -18,6 +18,7 @@ import {
 import { isNoteStalled } from "@/lib/notes/stalled";
 import type { NoteTag } from "@/lib/notes/tags";
 import { getProjectForUser } from "@/lib/projects/get-project-for-user";
+import { getResourcesForProject } from "@/lib/resources/get-resources-for-project";
 import { summarizeThread } from "@/lib/threads/comments";
 import type { NoteProgressCounts } from "@/components/note-progress-bar";
 import type { NoteStatus } from "@/lib/notes/statuses";
@@ -32,6 +33,7 @@ import {
   type TeamMemberOption,
 } from "./project-groups-section";
 import { ProjectMobileTabs } from "./project-mobile-tabs";
+import { ProjectResourcesSection } from "./project-resources-section";
 import { RehearsalsSection } from "./rehearsals-section";
 import { RepeatingClustersCard } from "./repeating-clusters-card";
 import type { RehearsalRowData } from "./rehearsal-row";
@@ -180,7 +182,7 @@ export default async function ProjectPage({ params }: Readonly<ProjectPageProps>
     notFound();
   }
 
-  const [rehearsals, groups, allTeamMembers, discussionRows] =
+  const [rehearsals, groups, allTeamMembers, discussionRows, resources] =
     await Promise.all([
       db.rehearsal.findMany({
         where: { projectId: project.id },
@@ -219,6 +221,7 @@ export default async function ProjectPage({ params }: Readonly<ProjectPageProps>
         orderBy: { createdAt: "asc" },
       }),
       getDiscussionsForProject(project.id, dbUser.id),
+      getResourcesForProject(project.id),
     ]);
 
   const membership = project.team.members[0];
@@ -509,6 +512,7 @@ export default async function ProjectPage({ params }: Readonly<ProjectPageProps>
         <ProjectMobileTabs
           rehearsalCount={rehearsalRows.length}
           groupCount={groupItems.length}
+          resourceCount={resources.length}
           rehearsals={
             <RehearsalsSection
               projectId={project.id}
@@ -522,6 +526,14 @@ export default async function ProjectPage({ params }: Readonly<ProjectPageProps>
               canManage={canManageGroups}
               groups={groupItems}
               teamMembers={teamMemberOptions}
+            />
+          }
+          resources={
+            <ProjectResourcesSection
+              projectId={project.id}
+              canManage={isStaff}
+              viewerId={dbUser.id}
+              resources={resources}
             />
           }
         />
