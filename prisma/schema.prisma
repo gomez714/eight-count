@@ -102,6 +102,18 @@ model User {
   /// with the same email — see `ensureDbUser`.
   deletedAt DateTime?
 
+  /// Daily email digest opt-in. Defaults true for new accounts; the
+  /// sign-up form discloses it, the invitation email mentions it, and
+  /// every digest carries a one-click unsubscribe link that flips this
+  /// to false. Users can also manage it at /settings/notifications.
+  digestEnabled Boolean @default(true)
+
+  /// Timestamp of the most recent digest email we sent the user. The
+  /// cron uses this as the lower bound for "what's new since last
+  /// digest" — first-time sends (null) include up to 7 days of activity.
+  /// Also used by the cron's skip-if-recently-active heuristic.
+  lastDigestSentAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

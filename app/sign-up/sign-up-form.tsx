@@ -361,6 +361,19 @@ function CreateAccountStep({
         purpose: leaving timestamped notes on rehearsal videos.
       </p>
 
+      <p className="text-center text-xs text-muted-foreground">
+        You&apos;ll receive a daily email digest when there&apos;s new
+        activity to see. We skip days when there&apos;s nothing — and you
+        can turn it off anytime in{" "}
+        <Link
+          href="/settings/notifications"
+          className="underline decoration-dotted underline-offset-4 hover:text-foreground hover:decoration-solid"
+        >
+          email preferences
+        </Link>
+        .
+      </p>
+
       <p className="text-center text-sm text-muted-foreground">
         Already have an account?{" "}
         <Link

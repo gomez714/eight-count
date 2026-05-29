@@ -1,5 +1,6 @@
 import { SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
+import { Mail } from "lucide-react";
 import { headers } from "next/headers";
 
 import { BrandLockup } from "@/components/brand-lockup";
@@ -60,7 +61,15 @@ export async function AppHeader() {
       <div className="flex items-center gap-2 sm:gap-3">
         <ThemeToggle />
         {isSignedIn ? (
-          <UserButton />
+          <UserButton>
+            <UserButton.MenuItems>
+              <UserButton.Link
+                label="Email preferences"
+                labelIcon={<Mail className="size-4" />}
+                href="/settings/notifications"
+              />
+            </UserButton.MenuItems>
+          </UserButton>
         ) : (
           <>
             {/* mode="redirect" sends users to our custom /sign-in and

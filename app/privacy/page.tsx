@@ -4,7 +4,7 @@ import { RoleChip } from "../teams/[teamId]/role-chip";
 
 // NOTE: update this date whenever the policy changes — readers use it to
 // confirm they're seeing the current version.
-const LAST_UPDATED = "May 5, 2026";
+const LAST_UPDATED = "May 18, 2026";
 
 // Monitored personal address. When Eight Count gets its own domain and a
 // dedicated privacy@ inbox, swap this over and update the README's
@@ -72,6 +72,22 @@ export default function PrivacyPage() {
             — timestamps of when notes are created, edited, and addressed.
             Used to power features like the &ldquo;Notes by me&rdquo;
             dashboard and stalled-note detection.
+          </li>
+          <li>
+            <strong className="font-semibold text-foreground">
+              Email preferences
+            </strong>{" "}
+            — whether you&apos;ve opted in to the daily digest, and the
+            timestamp of the most recent one we sent. The digest itself is a
+            summary of activity you already have access to in the app; it
+            never contains your videos or audio. Manage from{" "}
+            <Link
+              href="/settings/notifications"
+              className="font-medium text-foreground underline decoration-dotted underline-offset-4 hover:decoration-solid"
+            >
+              email preferences
+            </Link>
+            , or unsubscribe one-click from any digest.
           </li>
         </ul>
       </Section>
@@ -240,9 +256,10 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong className="font-semibold text-foreground">Resend</strong>{" "}
-            delivers team-invitation emails. The recipient&apos;s email
-            address and the inviter&apos;s name are passed to Resend for the
-            duration of sending.{" "}
+            delivers team-invitation emails and the daily activity digest.
+            The recipient&apos;s email address and the email body (which
+            contains a summary of your recent activity in the app) are passed
+            to Resend for the duration of sending.{" "}
             <ExternalLink href="https://resend.com/legal/privacy-policy">
               Resend privacy policy
             </ExternalLink>

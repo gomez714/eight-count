@@ -2,12 +2,26 @@ import { Resend } from "resend";
 
 import type { TeamRole } from "@/generated/prisma/client";
 
+import type { DigestPayload } from "@/lib/digest/build-digest";
+import { renderDigestEmail } from "@/lib/digest/render-email";
+import { signUnsubscribeToken } from "@/lib/digest/token";
+
 const ROLE_LABEL: Record<TeamRole, string> = {
   ADMIN: "Admin",
   INSTRUCTOR: "Instructor",
   ASSISTANT: "Assistant",
   DANCER: "Dancer",
 };
+
+// Support inbox the operator monitors. Surfaced as the Reply-To on
+// every transactional email so replies go to a real human during the
+// beta (keep in sync with `CONTACT_EMAIL` in app/privacy/page.tsx).
+const SUPPORT_REPLY_TO = "lgomez00714@gmail.com";
+
+// Default From address for daily digest. Domain (`eightcountnotes.com`)
+// is already verified in Resend for invitation sending; `digest@` is a
+// new local-part on the same domain so no DNS changes are needed.
+const DEFAULT_DIGEST_FROM = "Eight Count <digest@eightcountnotes.com>";
 
 let cachedClient: Resend | null = null;
 
@@ -25,7 +39,11 @@ function getFromAddress(): string {
   return process.env.EMAIL_FROM ?? "Eight Count <onboarding@resend.dev>";
 }
 
-function getAppUrl(): string {
+function getDigestFromAddress(): string {
+  return process.env.EMAIL_DIGEST_FROM ?? DEFAULT_DIGEST_FROM;
+}
+
+export function getAppUrl(): string {
   const url = process.env.NEXT_PUBLIC_APP_URL;
   if (!url) {
     throw new Error("NEXT_PUBLIC_APP_URL is not set.");
@@ -62,6 +80,8 @@ export async function sendInvitationEmail(
     `This link expires on ${expiresLabel}.`,
     ``,
     `Eight Count is a tool for giving and tracking rehearsal notes. If you weren't expecting this invitation, you can safely ignore this email.`,
+    ``,
+    `After you accept, you'll get a daily digest from Eight Count when there's new activity on your team — never on quiet days. You can turn this off anytime in your email preferences.`,
   ].join("\n");
 
   const html = renderInvitationHtml({
@@ -143,8 +163,11 @@ function renderInvitationHtml(params: {
             </tr>
             <tr>
               <td style="padding:18px 32px 24px;border-top:1px solid #f0eeea;background:#fafaf8;">
-                <p style="margin:0;font-size:12px;line-height:1.55;color:#8a8a8a;">
+                <p style="margin:0 0 8px;font-size:12px;line-height:1.55;color:#8a8a8a;">
                   Eight Count is a tool for giving and tracking rehearsal notes. If you weren't expecting this invitation, you can safely ignore this email.
+                </p>
+                <p style="margin:0;font-size:12px;line-height:1.55;color:#8a8a8a;">
+                  After you accept, you'll get a daily digest from Eight Count when there's new activity on your team — never on quiet days. You can turn this off anytime in your email preferences.
                 </p>
               </td>
             </tr>
@@ -158,9 +181,64 @@ function renderInvitationHtml(params: {
 
 function escapeHtml(input: string): string {
   return input
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+export type SendDigestEmailParams = {
+  to: string;
+  userId: string;
+  firstName: string | null;
+  payload: DigestPayload;
+};
+
+/**
+ * Sends a single daily-digest email. Renders subject + HTML + text from
+ * the payload, attaches a signed unsubscribe URL to both the visible
+ * footer and the `List-Unsubscribe` headers (so Gmail / Apple Mail
+ * surface their native unsubscribe button per RFC 8058).
+ */
+export async function sendDigestEmail(
+  params: SendDigestEmailParams
+): Promise<void> {
+  const appUrl = getAppUrl();
+  const token = signUnsubscribeToken(params.userId);
+  const unsubscribeUrl = `${appUrl}/digest/unsubscribe?token=${encodeURIComponent(token)}`;
+  const preferencesUrl = `${appUrl}/settings/notifications`;
+
+  const rendered = renderDigestEmail({
+    payload: params.payload,
+    firstName: params.firstName,
+    appUrl,
+    unsubscribeUrl,
+    preferencesUrl,
+  });
+
+  const { error } = await getResend().emails.send({
+    from: getDigestFromAddress(),
+    to: params.to,
+    replyTo: SUPPORT_REPLY_TO,
+    subject: rendered.subject,
+    text: rendered.text,
+    html: rendered.html,
+    headers: {
+      // RFC 2369 + RFC 8058. Both URLs go to our `/api/digest/unsubscribe`
+      // endpoint — GET for the visible footer link (idempotent on the
+      // user's row), POST for Gmail's "one-click" header. The mailto:
+      // fallback covers older clients that only handle that scheme.
+      "List-Unsubscribe": `<${unsubscribeUrl}>, <mailto:${SUPPORT_REPLY_TO}?subject=Unsubscribe>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    },
+  });
+
+  if (error) {
+    throw new Error(
+      typeof error === "object" && error !== null && "message" in error
+        ? String(error.message)
+        : "Failed to send digest email."
+    );
+  }
 }
