@@ -115,7 +115,7 @@ export function TeamSwitcher({
               </span>
             )}
             <span className="min-w-0 truncate">{triggerLabel}</span>
-            {currentTeam ? (
+            {currentTeam && !currentTeam.isPersonal ? (
               <RoleChip role={currentTeam.role} className="hidden sm:inline-flex" />
             ) : null}
             <ChevronsUpDown
@@ -163,7 +163,13 @@ export function TeamSwitcher({
                       <span className="min-w-0 flex-1 truncate font-medium">
                         {team.name}
                       </span>
-                      <RoleChip role={team.role} />
+                      {team.isPersonal ? (
+                        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                          Personal
+                        </span>
+                      ) : (
+                        <RoleChip role={team.role} />
+                      )}
                       <Check
                         aria-hidden
                         className={cn(

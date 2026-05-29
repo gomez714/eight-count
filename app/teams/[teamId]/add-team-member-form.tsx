@@ -82,7 +82,17 @@ export function AddTeamMemberForm({
         return;
       }
 
-      toast.success(`Invitation sent to ${values.email}.`);
+      if (result.promotedToTeam) {
+        toast.success(
+          `Invitation sent to ${values.email} — welcome to team mode!`,
+          {
+            description:
+              "Now that you're inviting collaborators, you can manage roles and assignments from the team page.",
+          }
+        );
+      } else {
+        toast.success(`Invitation sent to ${values.email}.`);
+      }
 
       reset({
         email: "",

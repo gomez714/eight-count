@@ -23,6 +23,14 @@ type TeamMetaBandProps = {
   roleGlance: RoleGlance[];
   createdAt: Date;
   titleActions?: ReactNode;
+  /**
+   * Personal-workspace mode: hide member-count chip, role glance strip,
+   * and the viewer's role chip; replace the desktop helper line and the
+   * mobile counts subtitle with "Personal workspace" framing. Inviting
+   * anyone (via the members section) flips this back off — see
+   * `inviteTeamMember` in member-actions.ts.
+   */
+  isPersonal?: boolean;
 };
 
 function formatCreated(date: Date): string {
@@ -124,6 +132,43 @@ function RoleGlanceStrip({ glance }: Readonly<{ glance: RoleGlance[] }>) {
   );
 }
 
+function MobileCountsSubtitle({
+  isPersonal,
+  memberCount,
+  projectCount,
+}: Readonly<{
+  isPersonal: boolean;
+  memberCount: number;
+  projectCount: number;
+}>) {
+  const projectWord = projectCount === 1 ? "project" : "projects";
+  if (isPersonal) {
+    return (
+      <p className="text-[12px] leading-snug text-muted-foreground sm:hidden">
+        <span className="font-medium text-foreground">Personal workspace</span>
+        <span aria-hidden className="mx-1.5">·</span>
+        <span className="font-semibold tabular-nums text-foreground">
+          {projectCount}
+        </span>{" "}
+        {projectWord}
+      </p>
+    );
+  }
+  return (
+    <p className="text-[12px] leading-snug text-muted-foreground sm:hidden">
+      <span className="font-semibold tabular-nums text-foreground">
+        {memberCount}
+      </span>{" "}
+      {memberCount === 1 ? "member" : "members"}
+      <span aria-hidden className="mx-1.5">·</span>
+      <span className="font-semibold tabular-nums text-foreground">
+        {projectCount}
+      </span>{" "}
+      {projectWord}
+    </p>
+  );
+}
+
 export function TeamMetaBand({
   team,
   viewerRole,
@@ -132,6 +177,7 @@ export function TeamMetaBand({
   roleGlance,
   createdAt,
   titleActions,
+  isPersonal = false,
 }: Readonly<TeamMetaBandProps>) {
   return (
     <header className="border-b bg-card">
@@ -166,38 +212,38 @@ export function TeamMetaBand({
               ) : null}
             </div>
             {/* Mobile: role chip lives below the title so it never orphans next to a wrapping name. */}
-            {viewerRole ? (
+            {viewerRole && !isPersonal ? (
               <span className="inline-flex sm:hidden">
                 <RoleChipPopover role={viewerRole} />
               </span>
             ) : null}
             {/* Mobile: compact counts subtitle replaces the generic helper line. */}
-            <p className="text-[12px] leading-snug text-muted-foreground sm:hidden">
-              <span className="font-semibold tabular-nums text-foreground">
-                {memberCount}
-              </span>{" "}
-              {memberCount === 1 ? "member" : "members"}
-              <span aria-hidden className="mx-1.5">·</span>
-              <span className="font-semibold tabular-nums text-foreground">
-                {projectCount}
-              </span>{" "}
-              {projectCount === 1 ? "project" : "projects"}
-            </p>
-            {/* Desktop helper — unchanged. */}
+            <MobileCountsSubtitle
+              isPersonal={isPersonal}
+              memberCount={memberCount}
+              projectCount={projectCount}
+            />
+            {/* Desktop helper — switches copy when in personal mode. */}
             <p className="hidden text-[13px] leading-snug text-muted-foreground sm:block">
-              Members and projects under this team.
+              {isPersonal
+                ? "Personal workspace — invite someone to turn this into a team."
+                : "Members and projects under this team."}
             </p>
           </div>
         </div>
 
-        {/* Meta strip is desktop-only; counts and role are inlined above on mobile. */}
+        {/* Meta strip is desktop-only; counts and role are inlined above on mobile.
+            In personal mode, the Members chip / role glance / "Your role" are hidden
+            since they all reduce to "you, ADMIN" and add noise. */}
         <div className="hidden flex-wrap items-center gap-x-5 gap-y-2 border-t border-border pt-3 sm:flex">
-          <MetaChip
-            icon={<Users className="size-3" />}
-            label="Members"
-            value={String(memberCount)}
-            mobileLabel={memberCount === 1 ? "member" : "members"}
-          />
+          {isPersonal ? null : (
+            <MetaChip
+              icon={<Users className="size-3" />}
+              label="Members"
+              value={String(memberCount)}
+              mobileLabel={memberCount === 1 ? "member" : "members"}
+            />
+          )}
           <MetaChip
             icon={<Sparkles className="size-3" />}
             label="Projects"
@@ -209,9 +255,9 @@ export function TeamMetaBand({
             label="Created"
             value={formatCreated(createdAt)}
           />
-          <RoleGlanceStrip glance={roleGlance} />
+          {isPersonal ? null : <RoleGlanceStrip glance={roleGlance} />}
 
-          {viewerRole ? (
+          {viewerRole && !isPersonal ? (
             <span className="ml-auto inline-flex items-center gap-2">
               <span className="hidden text-[10.5px] font-semibold uppercase tracking-wider text-muted-foreground sm:inline">
                 Your role

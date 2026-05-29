@@ -13,6 +13,7 @@
     "postinstall": "prisma generate",
     "db:backfill-onboarding": "tsx scripts/backfill-onboarding-state.ts",
     "db:backfill-transcripts": "tsx scripts/backfill-audio-transcripts.ts",
+    "db:backfill-personal-teams": "tsx scripts/backfill-personal-teams.ts",
     "db:reap-stale-uploads": "tsx scripts/reap-stale-uploads.ts"
   },
   "dependencies": {

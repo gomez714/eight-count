@@ -114,6 +114,7 @@ export default async function DashboardPage() {
       projectCount: projects.length,
       lastActivityAt,
       createdAt: membership.team.createdAt,
+      isPersonal: membership.team.isPersonal,
     };
   });
 

@@ -20,6 +20,12 @@ type MembersSectionProps = {
   members: MemberRowData[];
   pendingInvitations: PendingInvitationRowData[];
   canManage: boolean;
+  /**
+   * Personal-workspace mode: skip the members list entirely and surface a
+   * single "Invite someone to collaborate" card. The first invitation
+   * flips this flag off via `inviteTeamMember`.
+   */
+  isPersonal?: boolean;
 };
 
 const ROLE_ORDER: Record<TeamRole, number> = {
@@ -75,11 +81,48 @@ function MembersEmptyState({
   );
 }
 
+function PersonalWorkspaceCard({
+  teamId,
+  canManage,
+}: Readonly<{ teamId: string; canManage: boolean }>) {
+  return (
+    <section className="flex flex-col gap-4">
+      <div className="flex flex-col items-start gap-4 rounded-lg border border-dashed bg-card px-7 py-9">
+        <span
+          aria-hidden
+          className="inline-flex size-11 items-center justify-center rounded-xl border bg-muted/50 text-muted-foreground"
+        >
+          <UserPlus className="size-5" />
+        </span>
+        <div className="flex max-w-lg flex-col gap-1.5">
+          <h3 className="text-base font-semibold tracking-tight">
+            Invite someone to collaborate
+          </h3>
+          <p className="text-sm leading-relaxed text-muted-foreground">
+            This is a personal workspace right now. Inviting your first
+            teammate turns it into a team — you&apos;ll be able to assign
+            notes and manage roles.
+          </p>
+        </div>
+        {canManage ? (
+          <InviteMemberButton
+            teamId={teamId}
+            variant="default"
+            size="default"
+            label="Invite someone"
+          />
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 export function MembersSection({
   teamId,
   members,
   pendingInvitations,
   canManage,
+  isPersonal = false,
 }: Readonly<MembersSectionProps>) {
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<RoleFilter>("ALL");
@@ -131,6 +174,15 @@ export function MembersSection({
   }, [members, query, roleFilter, showSearch, showRoleFilter]);
 
   const hasPending = pendingInvitations.length > 0;
+
+  // Personal workspaces skip the entire members list and surface a single
+  // invite card. Once anyone is invited, the team flips out of personal
+  // mode (see inviteTeamMember) and renders the normal list below.
+  // Early return goes here, AFTER all hooks have run, to keep React's
+  // hooks order stable across re-renders.
+  if (isPersonal) {
+    return <PersonalWorkspaceCard teamId={teamId} canManage={canManage} />;
+  }
 
   if (members.length === 0 && !hasPending) {
     return (

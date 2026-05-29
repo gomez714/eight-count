@@ -23,10 +23,22 @@ import { EditTeamForm } from "./edit-team-form";
 type TeamActionsMenuProps = {
   teamId: string;
   teamName: string;
+  /**
+   * Swap "team" → "workspace" in the menu item, dialog title, and
+   * description copy when the page is in personal-workspace mode.
+   * The underlying rename action is identical in either case.
+   */
+  isPersonal?: boolean;
 };
 
-export function TeamActionsMenu({ teamId, teamName }: TeamActionsMenuProps) {
+export function TeamActionsMenu({
+  teamId,
+  teamName,
+  isPersonal = false,
+}: Readonly<TeamActionsMenuProps>) {
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const noun = isPersonal ? "workspace" : "team";
+  const renameLabel = isPersonal ? "Rename workspace" : "Rename team";
 
   return (
     <>
@@ -36,7 +48,7 @@ export function TeamActionsMenu({ teamId, teamName }: TeamActionsMenuProps) {
             type="button"
             variant="ghost"
             size="icon"
-            aria-label="Team actions"
+            aria-label={`${noun.charAt(0).toUpperCase() + noun.slice(1)} actions`}
             className="size-8"
           >
             <MoreHorizontal className="size-4" />
@@ -50,7 +62,7 @@ export function TeamActionsMenu({ teamId, teamName }: TeamActionsMenuProps) {
             }}
           >
             <Pencil className="size-4" />
-            Rename team
+            {renameLabel}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -58,9 +70,9 @@ export function TeamActionsMenu({ teamId, teamName }: TeamActionsMenuProps) {
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Rename team</DialogTitle>
+            <DialogTitle>{renameLabel}</DialogTitle>
             <DialogDescription>
-              This updates the team name everywhere it appears.
+              This updates the {noun} name everywhere it appears.
             </DialogDescription>
           </DialogHeader>
 

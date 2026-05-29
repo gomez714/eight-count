@@ -10,7 +10,8 @@ type TabKey = "projects" | "members";
 type Tab = {
   key: TabKey;
   label: string;
-  count: number;
+  /** Suppressed in the rendered pill when null. */
+  count: number | null;
 };
 
 type TeamMobileTabsProps = {
@@ -18,6 +19,12 @@ type TeamMobileTabsProps = {
   memberCount: number;
   projects: ReactNode;
   members: ReactNode;
+  /**
+   * Personal-workspace mode: relabel the "Members" tab to "Invite" and
+   * drop its count pill, since the only "member" is the viewer and the
+   * tab contents are the `PersonalWorkspaceCard` invite affordance.
+   */
+  isPersonal?: boolean;
 };
 
 export function TeamMobileTabs({
@@ -25,12 +32,17 @@ export function TeamMobileTabs({
   memberCount,
   projects,
   members,
+  isPersonal = false,
 }: Readonly<TeamMobileTabsProps>) {
   const [tab, setTab] = useState<TabKey>("projects");
 
   const tabs: Tab[] = [
     { key: "projects", label: "Projects", count: projectCount },
-    { key: "members", label: "Members", count: memberCount },
+    {
+      key: "members",
+      label: isPersonal ? "Invite" : "Members",
+      count: isPersonal ? null : memberCount,
+    },
   ];
 
   return (
@@ -57,16 +69,18 @@ export function TeamMobileTabs({
               )}
             >
               {t.label}
-              <span
-                className={cn(
-                  "inline-flex min-w-4 items-center justify-center rounded-full px-1.5 text-[10.5px] font-semibold tabular-nums",
-                  active
-                    ? "bg-muted text-muted-foreground"
-                    : "bg-card text-muted-foreground"
-                )}
-              >
-                {t.count}
-              </span>
+              {typeof t.count === "number" ? (
+                <span
+                  className={cn(
+                    "inline-flex min-w-4 items-center justify-center rounded-full px-1.5 text-[10.5px] font-semibold tabular-nums",
+                    active
+                      ? "bg-muted text-muted-foreground"
+                      : "bg-card text-muted-foreground"
+                  )}
+                >
+                  {t.count}
+                </span>
+              ) : null}
             </button>
           );
         })}

@@ -5,6 +5,7 @@ export type TeamSwitcherTeam = {
   id: string;
   name: string;
   role: TeamRole;
+  isPersonal: boolean;
 };
 
 export async function getTeamsForUser(
@@ -20,5 +21,6 @@ export async function getTeamsForUser(
     id: membership.team.id,
     name: membership.team.name,
     role: membership.role,
+    isPersonal: membership.team.isPersonal,
   }));
 }

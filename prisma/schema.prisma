@@ -141,6 +141,12 @@ model User {
 model Team {
   id   String @id @default(cuid())
   name String
+  /// True for "personal workspace" teams created by the welcome wizard
+  /// (single ADMIN member, no pending invitations). Used by the UI to
+  /// hide team chrome — role chips, members section heading, role glance
+  /// strip — until the user invites someone. Flipped to false in the
+  /// inviteTeamMember action the moment the first invitation goes out.
+  isPersonal Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

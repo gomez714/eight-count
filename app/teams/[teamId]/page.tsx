@@ -156,9 +156,14 @@ export default async function TeamPage({ params }: Readonly<TeamPageProps>) {
         projectCount={projectRows.length}
         roleGlance={roleGlance}
         createdAt={team.createdAt}
+        isPersonal={team.isPersonal}
         titleActions={
           viewerRole === "ADMIN" ? (
-            <TeamActionsMenu teamId={team.id} teamName={team.name} />
+            <TeamActionsMenu
+              teamId={team.id}
+              teamName={team.name}
+              isPersonal={team.isPersonal}
+            />
           ) : null
         }
       />
@@ -167,6 +172,7 @@ export default async function TeamPage({ params }: Readonly<TeamPageProps>) {
         <TeamMobileTabs
           projectCount={projectRows.length}
           memberCount={memberRows.length}
+          isPersonal={team.isPersonal}
           projects={
             <ProjectsSection
               teamId={team.id}
@@ -180,6 +186,7 @@ export default async function TeamPage({ params }: Readonly<TeamPageProps>) {
               members={memberRows}
               pendingInvitations={pendingInvitationRows}
               canManage={canManageMembers}
+              isPersonal={team.isPersonal}
             />
           }
         />

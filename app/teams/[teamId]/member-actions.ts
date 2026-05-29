@@ -23,6 +23,13 @@ const inviteSchema = z.object({
 export type InviteTeamMemberState = {
   error?: string;
   success?: boolean;
+  /**
+   * True when this invitation was the first one sent for a personal
+   * workspace — the team's `isPersonal` flag flipped to false in the
+   * same transaction. The client uses this to swap the "Invitation
+   * sent" toast for the "Welcome to team mode" toast.
+   */
+  promotedToTeam?: boolean;
 };
 
 export async function inviteTeamMember(
@@ -94,15 +101,30 @@ export async function inviteTeamMember(
   const { raw, hash } = generateInvitationToken();
   const expiresAt = invitationExpiry();
 
-  await db.teamInvitation.create({
-    data: {
-      teamId,
-      email,
-      role,
-      tokenHash: hash,
-      invitedByUserId: dbUser.id,
-      expiresAt,
-    },
+  // Inviting anyone "promotes" a personal workspace into team mode.
+  // We flip `isPersonal` here at invite time (not on accept) so the team
+  // page immediately drops the personal-mode chrome — once the admin
+  // has expressed team intent, the lighter UI is misleading.
+  const wasPersonal = team.isPersonal;
+
+  await db.$transaction(async (tx) => {
+    await tx.teamInvitation.create({
+      data: {
+        teamId,
+        email,
+        role,
+        tokenHash: hash,
+        invitedByUserId: dbUser.id,
+        expiresAt,
+      },
+    });
+
+    if (wasPersonal) {
+      await tx.team.update({
+        where: { id: teamId },
+        data: { isPersonal: false },
+      });
+    }
   });
 
   try {
@@ -124,7 +146,7 @@ export async function inviteTeamMember(
   }
 
   revalidatePath(`/teams/${teamId}`);
-  return { success: true };
+  return { success: true, promotedToTeam: wasPersonal };
 }
 
 const invitationIdSchema = z.object({

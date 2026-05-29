@@ -21,7 +21,12 @@ import { Input } from "@/components/ui/input";
 import { clerkErrorMessage } from "@/lib/auth/clerk-error-message";
 
 const SAFE_REDIRECT_PREFIX = "/";
-const DEFAULT_REDIRECT = "/dashboard";
+// Default post-signup destination. `/welcome` runs an idempotent
+// "already has a workspace?" check and either bootstraps a starter
+// team + project + rehearsal or redirects to /dashboard. Existing
+// `?redirect_url=` query params (invitation acceptance, deep links)
+// still override this — see `resolveRedirect` below.
+const DEFAULT_REDIRECT = "/welcome";
 const SUPPORT_EMAIL = "lgomez00714@gmail.com";
 // If `signUp.sso()` doesn't navigate away within this window, the SDK is
 // most likely stuck on stale state from a prior failed attempt. Watchdog
