@@ -11,6 +11,7 @@ import { type MemberRowData } from "./member-row";
 import { type PendingInvitationRowData } from "./pending-invitation-row";
 import { ProjectsSection } from "./projects-section";
 import { type ProjectRowData } from "./project-row";
+import { TeamActionsMenu } from "./team-actions-menu";
 import { TeamMetaBand } from "./team-meta-band";
 import { TeamMobileTabs } from "./team-mobile-tabs";
 import { type TeamRole } from "./role-chip";
@@ -155,6 +156,11 @@ export default async function TeamPage({ params }: Readonly<TeamPageProps>) {
         projectCount={projectRows.length}
         roleGlance={roleGlance}
         createdAt={team.createdAt}
+        titleActions={
+          viewerRole === "ADMIN" ? (
+            <TeamActionsMenu teamId={team.id} teamName={team.name} />
+          ) : null
+        }
       />
 
       <main className="mx-auto w-full max-w-7xl px-6 py-6">

@@ -1,6 +1,6 @@
 "use client";
 
-import { MoreHorizontal, RefreshCcw } from "lucide-react";
+import { MoreHorizontal, Pencil, RefreshCcw } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -18,17 +18,25 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+import { EditRehearsalForm } from "./edit-rehearsal-form";
 import { UploadVideoForm } from "./upload-video-form";
 
 type RehearsalActionsMenuProps = {
   rehearsalId: string;
   hasExistingVideo: boolean;
+  rehearsalTitle: string;
+  rehearsalDescription: string | null;
+  rehearsalDate: Date;
 };
 
 export function RehearsalActionsMenu({
   rehearsalId,
   hasExistingVideo,
-}: RehearsalActionsMenuProps) {
+  rehearsalTitle,
+  rehearsalDescription,
+  rehearsalDate,
+}: Readonly<RehearsalActionsMenuProps>) {
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const [isReplaceOpen, setIsReplaceOpen] = useState(false);
 
   return (
@@ -49,6 +57,15 @@ export function RehearsalActionsMenu({
           <DropdownMenuItem
             onSelect={(event) => {
               event.preventDefault();
+              setIsEditOpen(true);
+            }}
+          >
+            <Pencil className="size-4" />
+            Edit details
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={(event) => {
+              event.preventDefault();
               setIsReplaceOpen(true);
             }}
           >
@@ -57,6 +74,26 @@ export function RehearsalActionsMenu({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit rehearsal</DialogTitle>
+            <DialogDescription>
+              Update the rehearsal title, date, or description.
+            </DialogDescription>
+          </DialogHeader>
+
+          <EditRehearsalForm
+            rehearsalId={rehearsalId}
+            initialTitle={rehearsalTitle}
+            initialDescription={rehearsalDescription}
+            initialRehearsalDate={rehearsalDate}
+            onSuccess={() => setIsEditOpen(false)}
+            onCancel={() => setIsEditOpen(false)}
+          />
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isReplaceOpen} onOpenChange={setIsReplaceOpen}>
         <DialogContent>

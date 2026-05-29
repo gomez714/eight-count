@@ -222,30 +222,31 @@ export function ProjectMetaBand({
         {/* Breadcrumb — Dashboard segment hidden on mobile to keep the chain to one line. */}
         <nav
           aria-label="Breadcrumb"
-          className="flex items-center gap-1.5 text-xs text-muted-foreground"
+          className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground"
         >
           <Link
             href="/dashboard"
-            className="hidden rounded outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring sm:inline"
+            className="hidden shrink-0 rounded outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring sm:inline"
           >
             Dashboard
           </Link>
-          <ChevronRight aria-hidden className="hidden size-3 opacity-60 sm:inline" />
+          <ChevronRight aria-hidden className="hidden size-3 shrink-0 opacity-60 sm:inline" />
           <Link
             href={`/teams/${team.id}`}
-            className="rounded outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="min-w-0 truncate rounded outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
             {team.name}
           </Link>
-          <ChevronRight aria-hidden className="size-3 opacity-60" />
-          <span className="truncate font-semibold text-foreground">
+          <ChevronRight aria-hidden className="size-3 shrink-0 opacity-60" />
+          <span className="min-w-0 truncate font-semibold text-foreground">
             {project.title}
           </span>
         </nav>
 
-        {/* Title row */}
-        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 sm:gap-x-6 sm:gap-y-3">
-          <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:gap-2">
+        {/* Title row — stacks on mobile so the title gets the full width;
+            side-by-side at sm:+ so actions stay anchored right. */}
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between sm:gap-x-6 sm:gap-y-3">
+          <div className="flex min-w-0 flex-col gap-1.5 sm:flex-1 sm:gap-2">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 sm:gap-2.5">
               <h1 className="text-xl font-semibold leading-tight tracking-tight sm:text-[28px]">
                 {project.title}

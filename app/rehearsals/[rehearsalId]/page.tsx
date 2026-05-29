@@ -151,17 +151,21 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
         videoFileName={rehearsal.videoAsset?.originalFileName ?? null}
         actions={
           // Two independent actions can render here: the drill button
-          // (anyone with active notes here) and the staff-only video
-          // replace menu. When both apply, they sit side-by-side.
-          viewerHasDrillableNotesHere || (canManageVideo && hasVideo) ? (
+          // (anyone with active notes here) and the staff-only actions
+          // menu (edit details, upload/replace video). When both apply,
+          // they sit side-by-side.
+          viewerHasDrillableNotesHere || canManageVideo ? (
             <div className="inline-flex items-center gap-2">
               {viewerHasDrillableNotesHere ? (
                 <DrillFromRehearsalButton rehearsalId={rehearsal.id} />
               ) : null}
-              {canManageVideo && hasVideo ? (
+              {canManageVideo ? (
                 <RehearsalActionsMenu
                   rehearsalId={rehearsal.id}
                   hasExistingVideo={hasVideo}
+                  rehearsalTitle={rehearsal.title}
+                  rehearsalDescription={rehearsal.description}
+                  rehearsalDate={rehearsal.rehearsalDate}
                 />
               ) : null}
             </div>

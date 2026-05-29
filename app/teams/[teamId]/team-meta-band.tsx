@@ -22,6 +22,7 @@ type TeamMetaBandProps = {
   projectCount: number;
   roleGlance: RoleGlance[];
   createdAt: Date;
+  titleActions?: ReactNode;
 };
 
 function formatCreated(date: Date): string {
@@ -130,22 +131,23 @@ export function TeamMetaBand({
   projectCount,
   roleGlance,
   createdAt,
+  titleActions,
 }: Readonly<TeamMetaBandProps>) {
   return (
     <header className="border-b bg-card">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-2.5 px-4 py-3.5 sm:gap-4 sm:px-6 sm:py-5">
         <nav
           aria-label="Breadcrumb"
-          className="flex items-center gap-1.5 text-xs text-muted-foreground"
+          className="flex min-w-0 items-center gap-1.5 overflow-hidden text-xs text-muted-foreground"
         >
           <Link
             href="/dashboard"
-            className="rounded outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            className="shrink-0 rounded outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
             Dashboard
           </Link>
-          <ChevronRight aria-hidden className="size-3 opacity-60" />
-          <span className="truncate font-semibold text-foreground">
+          <ChevronRight aria-hidden className="size-3 shrink-0 opacity-60" />
+          <span className="min-w-0 truncate font-semibold text-foreground">
             {team.name}
           </span>
         </nav>
@@ -153,9 +155,16 @@ export function TeamMetaBand({
         <div className="flex min-w-0 items-start gap-3 sm:gap-4">
           <TeamMark name={team.name} />
           <div className="flex min-w-0 flex-col gap-1 sm:gap-2">
-            <h1 className="text-xl font-semibold leading-tight tracking-tight sm:text-[28px]">
-              {team.name}
-            </h1>
+            <div className="flex min-w-0 items-start gap-2">
+              <h1 className="min-w-0 flex-1 text-xl font-semibold leading-tight tracking-tight sm:text-[28px]">
+                {team.name}
+              </h1>
+              {titleActions ? (
+                <span className="-mt-1 inline-flex shrink-0 items-center sm:mt-0">
+                  {titleActions}
+                </span>
+              ) : null}
+            </div>
             {/* Mobile: role chip lives below the title so it never orphans next to a wrapping name. */}
             {viewerRole ? (
               <span className="inline-flex sm:hidden">

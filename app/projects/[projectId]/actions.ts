@@ -8,6 +8,78 @@ import { db } from "@/lib/db";
 import { getProjectForUser } from "@/lib/projects/get-project-for-user";
 
 const REHEARSAL_AUTHOR_ROLES = new Set(["ADMIN", "INSTRUCTOR", "ASSISTANT"]);
+const PROJECT_MANAGE_ROLES = new Set(["ADMIN", "INSTRUCTOR"]);
+
+const updateProjectSchema = z.object({
+  projectId: z.string().min(1),
+  title: z.string().trim().min(2, "Project title must be at least 2 characters."),
+  description: z.string().trim().optional(),
+});
+
+export type UpdateProjectState = {
+  error?: string;
+  success?: boolean;
+};
+
+export async function updateProject(
+  _prevState: UpdateProjectState,
+  formData: FormData
+): Promise<UpdateProjectState> {
+  const dbUser = await ensureDbUser();
+
+  if (!dbUser) {
+    return { error: "You must be signed in." };
+  }
+
+  const parsed = updateProjectSchema.safeParse({
+    projectId: formData.get("projectId"),
+    title: formData.get("title"),
+    description: formData.get("description") || "",
+  });
+
+  if (!parsed.success) {
+    return {
+      error: parsed.error.issues[0]?.message ?? "Invalid project data.",
+    };
+  }
+
+  const { projectId, title, description } = parsed.data;
+
+  const project = await getProjectForUser(projectId, dbUser.id);
+
+  if (!project) {
+    return { error: "You do not have access to this project." };
+  }
+
+  const role = project.team.members[0]?.role;
+  if (!role || !PROJECT_MANAGE_ROLES.has(role)) {
+    return {
+      error: "Only admins and instructors can update projects.",
+    };
+  }
+
+  try {
+    await db.project.update({
+      where: { id: projectId },
+      data: {
+        title,
+        description: description || null,
+      },
+    });
+
+    revalidatePath(`/projects/${projectId}`);
+    revalidatePath(`/teams/${project.teamId}`);
+    // Notes pages render NoteRehearsalLink (project › rehearsal title)
+    // so a project rename leaves them stale until visited otherwise.
+    revalidatePath("/my-notes");
+    revalidatePath("/notes-by-me");
+
+    return { success: true };
+  } catch (error) {
+    console.error("Failed to update project:", error);
+    return { error: "Something went wrong while updating the project." };
+  }
+}
 
 const createRehearsalSchema = z.object({
   projectId: z.string().min(1),

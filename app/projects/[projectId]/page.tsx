@@ -25,6 +25,7 @@ import type { NoteStatus } from "@/lib/notes/statuses";
 
 import { DiscussionsSection } from "./discussions-section";
 import { NewRehearsalButton } from "./new-rehearsal-button";
+import { ProjectActionsMenu } from "./project-actions-menu";
 import { ProjectDrillSection, type DrillBoardRecipient } from "./project-drill-section";
 import { ProjectMetaBand } from "./project-meta-band";
 import type { ProjectDiscussionItem } from "./project-discussion-row";
@@ -481,6 +482,13 @@ export default async function ProjectPage({ params }: Readonly<ProjectPageProps>
             ) : null}
             {canCreateRehearsal ? (
               <NewRehearsalButton projectId={project.id} size="sm" />
+            ) : null}
+            {canManageGroups ? (
+              <ProjectActionsMenu
+                projectId={project.id}
+                projectTitle={project.title}
+                projectDescription={project.description}
+              />
             ) : null}
           </>
         }
