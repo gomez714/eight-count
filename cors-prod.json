@@ -2,7 +2,7 @@
   {
     "origin": ["https://eightcountnotes.com", "https://www.eightcountnotes.com"],
     "method": ["PUT", "GET", "HEAD"],
-    "responseHeader": ["Content-Type"],
+    "responseHeader": ["Content-Type", "Content-Range", "Range", "x-goog-resumable"],
     "maxAgeSeconds": 3600
   }
 ]

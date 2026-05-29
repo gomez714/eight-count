@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "postinstall": "prisma generate",
     "db:backfill-onboarding": "tsx scripts/backfill-onboarding-state.ts",
-    "db:backfill-transcripts": "tsx scripts/backfill-audio-transcripts.ts"
+    "db:backfill-transcripts": "tsx scripts/backfill-audio-transcripts.ts",
+    "db:reap-stale-uploads": "tsx scripts/reap-stale-uploads.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.2.7",

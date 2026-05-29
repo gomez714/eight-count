@@ -5,9 +5,14 @@ import { useEffect, useRef, useState } from "react";
 
 import type {
   AudioCompleteUploadResponse,
-  AudioUploadUrlResponse,
+  AudioUploadSessionResponse,
 } from "@/lib/api/contracts";
 import { Button } from "@/components/ui/button";
+import {
+  uploadResumable,
+  UploadAbortedError,
+  UploadSessionExpiredError,
+} from "@/lib/upload/resumable-uploader";
 
 import { formatTimestamp } from "./utils";
 
@@ -106,6 +111,7 @@ export function VoiceNoteRecorder({
   const [previewDurationMs, setPreviewDurationMs] = useState<number | null>(
     null
   );
+  const [uploadPercent, setUploadPercent] = useState(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -460,6 +466,7 @@ export function VoiceNoteRecorder({
 
     resetPreviewState();
     setState("uploading");
+    setUploadPercent(0);
     setError(null);
 
     const startMs = startTimestampRef.current;
@@ -468,14 +475,16 @@ export function VoiceNoteRecorder({
     const fileName = `voice-note.${extensionForMime(mime)}`;
 
     try {
-      // 1. upload-url. The query param threads the caller's intent so
-      //    the route can apply the right role gate (voice notes are
-      //    staff-only; voice discussions are open to any team member).
-      const uploadUrlPath =
+      // 1. upload-session. Resumable session URI valid ~7 days; chunked
+      //    transfer survives transient network blips. The query param
+      //    threads the caller's intent so the route can apply the right
+      //    role gate (voice notes are staff-only; voice discussions are
+      //    open to any team member).
+      const sessionPath =
         uploadPurpose === "discussion"
-          ? `/api/rehearsals/${rehearsalId}/audio/upload-url?purpose=discussion`
-          : `/api/rehearsals/${rehearsalId}/audio/upload-url`;
-      const uploadUrlResp = await fetch(uploadUrlPath, {
+          ? `/api/rehearsals/${rehearsalId}/audio/upload-session?purpose=discussion`
+          : `/api/rehearsals/${rehearsalId}/audio/upload-session`;
+      const sessionResp = await fetch(sessionPath, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -484,21 +493,23 @@ export function VoiceNoteRecorder({
           fileSizeBytes: blob.size,
         }),
       });
-      const uploadUrlData =
-        (await uploadUrlResp.json()) as AudioUploadUrlResponse;
-      if (!uploadUrlData.ok) throw new Error(uploadUrlData.error.message);
+      const sessionData =
+        (await sessionResp.json()) as AudioUploadSessionResponse;
+      if (!sessionData.ok) throw new Error(sessionData.error.message);
 
-      // 2. PUT to GCS
-      const putResp = await fetch(uploadUrlData.data.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": mime },
-        body: blob,
+      // 2. Stream blob to GCS via the resumable uploader. Voice notes are
+      //    small (≤25 MB) so this typically completes in one chunk, but
+      //    the chunked retry + progress reporting still applies.
+      await uploadResumable({
+        sessionUri: sessionData.data.sessionUri,
+        file: blob,
+        chunkSize: sessionData.data.chunkSize,
+        onProgress: (p) => setUploadPercent(Math.floor(p.percent)),
       });
-      if (!putResp.ok) throw new Error("Upload to storage failed.");
 
       // 3. complete
       const completeResp = await fetch(
-        `/api/audio-assets/${uploadUrlData.data.audioAssetId}/complete`,
+        `/api/audio-assets/${sessionData.data.audioAssetId}/complete`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -513,7 +524,7 @@ export function VoiceNoteRecorder({
       //    request (note or discussion). Throwing keeps us in preview
       //    state with the blob retained for retry.
       await onAudioReady({
-        audioAssetId: uploadUrlData.data.audioAssetId,
+        audioAssetId: sessionData.data.audioAssetId,
         durationMs,
         startTimestampMs: startMs,
         endTimestampMs: endMs,
@@ -526,11 +537,21 @@ export function VoiceNoteRecorder({
       chunksRef.current = [];
       mimeTypeRef.current = null;
       setElapsedMs(0);
+      setUploadPercent(0);
       setState("idle");
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to save voice note.";
+      let message: string;
+      if (err instanceof UploadAbortedError) {
+        message = "Upload cancelled.";
+      } else if (err instanceof UploadSessionExpiredError) {
+        message = "Upload session expired. Please try again.";
+      } else if (err instanceof Error) {
+        message = err.message;
+      } else {
+        message = "Failed to save voice note.";
+      }
       setError(message);
+      setUploadPercent(0);
       // Stay in preview state with blob retained so the user can retry.
       setState("preview");
     }
@@ -651,7 +672,9 @@ export function VoiceNoteRecorder({
       ) : null}
 
       {isUploading ? (
-        <p className="text-sm text-muted-foreground">Saving voice note…</p>
+        <p className="text-sm text-muted-foreground">
+          Saving voice note… {uploadPercent}%
+        </p>
       ) : null}
 
       {error ? (

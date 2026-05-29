@@ -55,6 +55,29 @@ export type UploadUrlData = {
 
 export type UploadUrlResponse = ApiResponse<UploadUrlData>
 
+/**
+ * Resumable upload session for large video uploads. The server initiates a
+ * GCS resumable upload session and returns the session URI; the client then
+ * PUTs the file in chunks (size hinted by `chunkSize`) directly to that URI.
+ * Sessions are valid for ~7 days (GCS default), so the URL-expiry failure
+ * mode that affected the single-PUT `/upload-url` path doesn't apply here.
+ * See [lib/upload/resumable-uploader.ts](lib/upload/resumable-uploader.ts).
+ */
+export type UploadSessionRequest = {
+  fileName: string
+  contentType: string
+  fileSizeBytes: number
+}
+
+export type UploadSessionData = {
+  videoAssetId: string
+  sessionUri: string
+  objectPath: string
+  chunkSize: number
+}
+
+export type UploadSessionResponse = ApiResponse<UploadSessionData>
+
 export type CompleteUploadRequest = {
   durationMs?: number | null
 }
@@ -88,6 +111,27 @@ export type AudioUploadUrlData = {
 }
 
 export type AudioUploadUrlResponse = ApiResponse<AudioUploadUrlData>
+
+/**
+ * Resumable upload session for audio. Mirrors the video session shape — same
+ * pipeline serves voice notes and voice discussions. The `?purpose=discussion`
+ * query param applies to this route too (opens authoring to any team member;
+ * default is staff-only).
+ */
+export type AudioUploadSessionRequest = {
+  fileName: string
+  contentType: string
+  fileSizeBytes: number
+}
+
+export type AudioUploadSessionData = {
+  audioAssetId: string
+  sessionUri: string
+  objectPath: string
+  chunkSize: number
+}
+
+export type AudioUploadSessionResponse = ApiResponse<AudioUploadSessionData>
 
 export type AudioCompleteUploadRequest = {
   durationMs?: number | null

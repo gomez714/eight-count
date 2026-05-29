@@ -7,6 +7,7 @@ import type {
 } from "@/lib/api/contracts";
 import { apiError } from "@/lib/api/responses";
 import { db } from "@/lib/db";
+import { statGcsObject } from "@/lib/storage/gcs";
 
 export async function POST(
   request: NextRequest,
@@ -47,6 +48,23 @@ export async function POST(
         404,
         "VIDEO_ASSET_NOT_FOUND",
         "Video asset not found or you didn't initiate this upload"
+      );
+    }
+
+    // Defense-in-depth: confirm the object actually landed in GCS before
+    // flipping to READY. A failed/aborted PUT followed by a stray /complete
+    // call would otherwise leave the row pointing at nothing. Leaving status
+    // at UPLOADING lets the client retry the PUT cleanly (and the
+    // db:reap-stale-uploads sweeper handles permanent abandonment).
+    const stat = await statGcsObject(videoAsset.objectPath);
+    if (!stat.exists) {
+      console.error(
+        `[upload] video /complete called but GCS object missing: ${videoAsset.objectPath}`
+      );
+      return apiError(
+        409,
+        "UPLOAD_NOT_FOUND",
+        "Upload didn't finish reaching storage. Please try again."
       );
     }
 

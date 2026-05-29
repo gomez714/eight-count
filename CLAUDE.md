@@ -21,6 +21,12 @@ npm run db:backfill-onboarding  # One-shot script: mark active users as already-
 npm run db:backfill-transcripts # One-shot script: run Deepgram transcription on
                                 # voice notes recorded before transcripts shipped.
                                 # See "Voice Note Transcription" below.
+
+npm run db:reap-stale-uploads   # One-shot script: reconcile VideoAsset/AudioAsset
+                                # rows stuck at status=UPLOADING for >24h against
+                                # GCS. Recovers rows whose object actually landed;
+                                # deletes rows pointing at nothing.
+                                # See "Video Upload Flow" below.
 ```
 
 ## Environment Variables
@@ -594,11 +600,13 @@ REST endpoints under `app/api/`:
 - `PATCH /api/notes/[noteId]` — edit note (author-only; type-aware: text edits body+timestamp+tag+targets, voice edits start/end+tag+targets only). Diffs assignments to preserve existing statuses. Tag PATCH semantics: `undefined` leaves untouched, `null` clears, valid enum sets.
 - `DELETE /api/notes/[noteId]` — delete note and all its targets/assignments; also deletes the linked `AudioAsset` row for voice notes (author-only)
 - `GET /api/rehearsals/[rehearsalId]/audience` — list all audience members and project groups for the target picker UI
-- `POST /api/rehearsals/[rehearsalId]/video/upload-url` — generate GCS signed upload URL for video (staff roles only; mp4 / mov / webm)
-- `POST /api/video-assets/[videoAssetId]/complete` — mark video upload complete (**uploader-only**: caller must equal `videoAsset.uploadedByUserId`)
+- `POST /api/rehearsals/[rehearsalId]/video/upload-url` — generate GCS signed upload URL for video (staff roles only; mp4 / mov / webm). Server-side size cap: 2 GB (`VIDEO_TOO_LARGE`). **Legacy** — new clients use `/upload-session` (below); kept in place for any in-flight clients.
+- `POST /api/rehearsals/[rehearsalId]/video/upload-session` — primary path: initiate a GCS resumable upload session for video (staff roles only; mp4 / mov / webm; 2 GB cap). Returns `{ videoAssetId, sessionUri, objectPath, chunkSize }`. See "Video Upload Flow" above.
+- `POST /api/video-assets/[videoAssetId]/complete` — mark video upload complete (**uploader-only**: caller must equal `videoAsset.uploadedByUserId`). Verifies the GCS object actually exists before flipping to `READY` — responds `409 UPLOAD_NOT_FOUND` if the upload didn't land, so the row stays at `UPLOADING` for retry. Works regardless of which upload route was used.
 - `GET /api/rehearsals/[rehearsalId]/video/playback-url` — get signed video playback URL (1-hr expiry)
-- `POST /api/rehearsals/[rehearsalId]/audio/upload-url` — generate GCS signed upload URL for a voice audio asset (25 MB cap; webm/mp4/ogg/mpeg). **Auth gate depends on `?purpose` query param**: default (no param, or any value other than `discussion`) is staff-only (ADMIN / INSTRUCTOR / ASSISTANT) — the voice-note path. With `?purpose=discussion`, gate loosens to "any team member" so dancers can record voice discussions. Both paths share the same route, GCS layout, and `AudioAsset` row shape — purpose just toggles the role check.
-- `POST /api/audio-assets/[audioAssetId]/complete` — mark audio upload complete and store `durationMs` (**uploader-only**: caller must equal `audioAsset.uploadedByUserId`). Also kicks off Deepgram transcription via `after()` — see "Voice Note Transcription" below.
+- `POST /api/rehearsals/[rehearsalId]/audio/upload-url` — generate GCS signed upload URL for a voice audio asset (25 MB cap; webm/mp4/ogg/mpeg). **Auth gate depends on `?purpose` query param**: default (no param, or any value other than `discussion`) is staff-only (ADMIN / INSTRUCTOR / ASSISTANT) — the voice-note path. With `?purpose=discussion`, gate loosens to "any team member" so dancers can record voice discussions. Both paths share the same route, GCS layout, and `AudioAsset` row shape — purpose just toggles the role check. **Legacy** — new clients use `/upload-session` (below).
+- `POST /api/rehearsals/[rehearsalId]/audio/upload-session` — primary path: initiate a GCS resumable upload session for audio. Same auth gate + `?purpose=discussion` behavior as `/upload-url`. Returns `{ audioAssetId, sessionUri, objectPath, chunkSize }`. See "Voice Note Recording Flow" below.
+- `POST /api/audio-assets/[audioAssetId]/complete` — mark audio upload complete and store `durationMs` (**uploader-only**: caller must equal `audioAsset.uploadedByUserId`). Verifies the GCS object actually exists before flipping to `READY` — responds `409 UPLOAD_NOT_FOUND` if the PUT didn't land, so the row stays at `UPLOADING` for retry. Also kicks off Deepgram transcription via `after()` — see "Voice Note Transcription" below.
 - `GET /api/audio-assets/[audioAssetId]/playback-url` — get signed audio playback URL (1-hr expiry); fetched lazily on first play
 - `GET /api/audio-assets/[audioAssetId]/transcript` — get current transcript state (`status`, `transcript`, `transcriptError`) for polling. Auth: any team member of the owning team.
 - `POST /api/audio-assets/[audioAssetId]/transcript/retry` — re-trigger transcription for a `FAILED` (or any) row. **Author-or-staff**: the original uploader (so dancers can retry their own voice-discussion transcripts) OR a staff member (ADMIN / INSTRUCTOR / ASSISTANT) on the team. Resets row to `PENDING` and fires a fresh `after(() => runTranscription(...))`.
@@ -625,11 +633,58 @@ Request/response types: [lib/api/contracts.ts](lib/api/contracts.ts) and [lib/ap
 
 ## Video Upload Flow
 
-1. Client POSTs to `/upload-url` → server creates `VideoAsset` (`UPLOADING`) and returns GCS signed URL
-2. Client uploads file directly to GCS
-3. Client POSTs to `/complete` with duration → server sets status to `READY`
+The primary path is **resumable chunked upload** — the single-PUT `/upload-url` route is kept in place for legacy clients but new uploads go through `/upload-session`. The resumable flow survives connection drops, mobile-Safari memory pressure, and slow uplinks that the single PUT couldn't (the original bug: a 145 MB `.mov` from iOS Safari stuck at `UPLOADING` for a week).
+
+1. Client POSTs to `/upload-session` → server creates `VideoAsset` (`UPLOADING`), initiates a GCS resumable upload session via `createResumableUploadSession` ([lib/storage/gcs.ts](lib/storage/gcs.ts)), and returns `{ videoAssetId, sessionUri, objectPath, chunkSize }`. The session URI is valid for **~7 days** (GCS default) — none of the URL-expiry failure modes from the single-PUT path apply. Server-side cap is 2 GB (`MAX_VIDEO_BYTES`) — anything larger is rejected with `VIDEO_TOO_LARGE`.
+2. Client uses `uploadResumable` ([lib/upload/resumable-uploader.ts](lib/upload/resumable-uploader.ts)) to PUT 8 MiB chunks directly to the session URI. Each chunk has its own `Content-Range: bytes {start}-{end}/{total}` header; GCS responds with `308 Resume Incomplete` and a `Range` header until the final chunk lands as `200`. Failed chunks retry with exponential backoff (1s → 2s → 4s); aborts (via `AbortSignal`) surface as `UploadAbortedError`; expired sessions (`404/410`) surface as `UploadSessionExpiredError`. Progress is reported continuously via `XMLHttpRequest.upload.onprogress` — `fetch` can't surface PUT body progress, which is why the uploader is XHR-based.
+3. Client POSTs to `/complete` with duration → server **verifies the GCS object exists** via `statGcsObject` ([lib/storage/gcs.ts](lib/storage/gcs.ts)) before flipping status to `READY`. If the object is missing (failed/aborted upload followed by a stray /complete), responds `409 UPLOAD_NOT_FOUND` and leaves the row at `UPLOADING` so the client can retry. Same defense-in-depth check on `/api/audio-assets/[id]/complete`.
 
 GCS path: `teams/{teamId}/projects/{projectId}/rehearsals/{rehearsalId}/video/{videoAssetId}-{filename}`
+
+### Upload UI
+
+[upload-video-form.tsx](app/rehearsals/[rehearsalId]/upload-video-form.tsx) is the only mount of the resumable uploader on the video side. While in `phase = "uploading"`, the form renders a `UploadProgressCard` showing: file name, percent, filled `--primary`-tinted bar, `MB / MB · MB/s · ~ETA`, and a Cancel button wired to `controller.abort()`. The two transient phases (`preparing` for `/upload-session`, `finalizing` for `/complete`) keep the same card shape — the bar pulses (`animate-pulse`) at full width and the metric strip swaps to a one-liner — so the UI doesn't restructure mid-upload. Component-unmount aborts any in-flight upload (the DB row is reaped by `db:reap-stale-uploads` after 24 h).
+
+### CORS (one-time bucket setup + per-session origin)
+
+Two-part requirement that's easy to miss:
+
+1. **Bucket CORS** (one-time). The browser's chunked PUTs to `storage.googleapis.com` cross origins, so the bucket needs PUT + `Content-Range` allowed. Apply via `gsutil cors set cors.json gs://{bucket-name}`:
+
+```json
+[
+  {
+    "origin": ["https://your-prod-domain", "http://localhost:3000"],
+    "method": ["PUT", "GET", "HEAD"],
+    "responseHeader": [
+      "Content-Type",
+      "Content-Range",
+      "Range",
+      "x-goog-resumable"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]
+```
+
+2. **Session origin** (per-request). Bucket CORS alone is **not** sufficient for resumable uploads — GCS only emits `Access-Control-Allow-Origin` on chunk-PUT responses when the session was *initiated* with that `Origin` header. The `/upload-session` routes forward `request.headers.get("origin")` into `createResumableUploadSession({ origin })` in [lib/storage/gcs.ts](lib/storage/gcs.ts), which sets it on the SDK's `createResumableUpload({ origin })` call. Without this, every chunk PUT fails with "No 'Access-Control-Allow-Origin' header" even when the bucket CORS is correct.
+
+If a chunk PUT is rejected with a CORS error in the browser console (`No 'Access-Control-Allow-Origin' header`), check both halves before debugging deeper: `gsutil cors get gs://{bucket}` for (1), and confirm the API route is reading `request.headers.get("origin")` and forwarding it for (2).
+
+### Reaping stalled uploads
+
+The single-PUT pattern has well-known failure modes (tab closed mid-upload, connection drop, browser memory pressure on large mobile-Safari uploads) that can leave a `VideoAsset` or `AudioAsset` row stuck at `status=UPLOADING` forever, because step 3 never fires. The signed-URL expiry bump to 1 h covers most cases, and the `/complete` GCS verification prevents the DB from claiming a missing object is `READY`, but neither cleans up rows that were truly abandoned.
+
+[scripts/reap-stale-uploads.ts](scripts/reap-stale-uploads.ts) — `npm run db:reap-stale-uploads`. Behavior:
+- Finds `VideoAsset` and `AudioAsset` rows where `status=UPLOADING` and `updatedAt < now - 24h` (`STALE_THRESHOLD_HOURS`).
+- For each, calls `statGcsObject(objectPath)`:
+  - **Exists + size > 0** → recover: flip status to `READY`. For audio, also kicks off `runTranscription` (which the row missed when `/complete` didn't fire).
+  - **Missing or empty** → delete the DB row. Safe because (a) UPLOADING audio rows have no `Note` pointing at them yet (the Note is only created post-/complete), and (b) the video upload-url route creates a fresh row on retry when one isn't present.
+- `DRY_RUN = false` at the top (matches the `db:backfill-transcripts` convention — flip to `true` for a dry-run preview before running for real, then flip back). Always dry-run first when pointing at prod.
+- `MAX_PROCESS = 200` cap per run.
+- Idempotent.
+
+Not yet automated (no cron). Run manually after upload outage reports; consider scheduling once the project is on a paid Vercel tier.
 
 ## Voice Note Recording Flow
 
@@ -644,16 +699,16 @@ UI flow (in [app/rehearsals/[rehearsalId]/workspace/voice-note-recorder.tsx](app
 5. Author clicks **Stop** (or 2-min auto-cap fires) → `endTimestampMs` captured, video pauses at end position, recording transitions to preview
 6. Preview audio is wired to play in **sync with the video**: clicking play seeks the video to `startTimestampMs`, mutes it, and plays both together so the author can confirm alignment before saving
 7. Author clicks **Save** → 4-step upload sequence runs:
-   1. `POST /audio/upload-url` → creates `AudioAsset(UPLOADING)`, returns signed PUT URL
-   2. `PUT` blob to GCS
-   3. `POST /audio-assets/[id]/complete` → marks `READY`, stores `durationMs`
+   1. `POST /audio/upload-session` → creates `AudioAsset(UPLOADING)`, initiates a GCS resumable session, returns `{ audioAssetId, sessionUri, chunkSize }`
+   2. Blob streamed to GCS via `uploadResumable` ([lib/upload/resumable-uploader.ts](lib/upload/resumable-uploader.ts)). Voice notes are typically small enough to fit in one chunk, but the chunked-retry behavior still applies on transient failures. Upload percent surfaces in the recorder UI as "Saving voice note… N%".
+   3. `POST /audio-assets/[id]/complete` → server verifies the GCS object exists, marks `READY`, stores `durationMs`
    4. `POST /rehearsals/[id]/notes` with `noteType=VOICE`, `audioAssetId`, `startTimestampMs`, `endTimestampMs`, `targets`
 
 GCS path: `teams/{teamId}/projects/{projectId}/rehearsals/{rehearsalId}/audio/{audioAssetId}-{filename}`
 
 Mime detection: prefers `audio/webm;codecs=opus`, falls back through `audio/webm`, `audio/mp4;codecs=mp4a.40.2`, `audio/mp4`, `audio/ogg;codecs=opus`. Recording is hard-capped at 2 minutes. On save failure, the blob is retained so the user can retry without re-recording.
 
-**Voice discussions** follow the same 4-step flow with two adjustments. (1) The upload-url request adds `?purpose=discussion` so the route bypasses the staff role gate (any team member, including dancers, can record voice discussions — see "Discussions" above). (2) Step 4 posts to `POST /api/projects/[projectId]/discussions` with `noteType=VOICE`, `rehearsalId` (required), `videoAssetId` (required), `audioAssetId`, and both timestamps — instead of the note-creation route. The GCS path is identical (the audio still belongs to a rehearsal). Project-level voice is **not** supported in v1 because `AudioAsset.rehearsalId` is required at the schema level — text-only at the project scope.
+**Voice discussions** follow the same 4-step flow with two adjustments. (1) The upload-session request adds `?purpose=discussion` so the route bypasses the staff role gate (any team member, including dancers, can record voice discussions — see "Discussions" above). (2) Step 4 posts to `POST /api/projects/[projectId]/discussions` with `noteType=VOICE`, `rehearsalId` (required), `videoAssetId` (required), `audioAssetId`, and both timestamps — instead of the note-creation route. The GCS path is identical (the audio still belongs to a rehearsal). Project-level voice is **not** supported in v1 because `AudioAsset.rehearsalId` is required at the schema level — text-only at the project scope.
 
 ## Voice Note Playback (Sync Mode)
 

@@ -2,16 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 
 import type {
-  UploadUrlRequest,
-  UploadUrlResponse,
+  UploadSessionRequest,
+  UploadSessionResponse,
 } from "@/lib/api/contracts";
 import { apiError } from "@/lib/api/responses";
 import { db } from "@/lib/db";
 import { getRehearsalForUser } from "@/lib/rehearsals/get-rehearsal-for-user";
 import {
   buildRehearsalVideoObjectPath,
-  createSignedUploadUrl,
+  createResumableUploadSession,
 } from "@/lib/storage/gcs";
+import { DEFAULT_CHUNK_SIZE } from "@/lib/upload/resumable-uploader";
 
 const ALLOWED_VIDEO_TYPES = new Set([
   "video/mp4",
@@ -23,10 +24,15 @@ const MAX_VIDEO_BYTES = 2 * 1024 * 1024 * 1024;
 
 const VIDEO_MANAGER_ROLES = new Set(["ADMIN", "INSTRUCTOR", "ASSISTANT"]);
 
+// Resumable-upload counterpart to /upload-url. The single-PUT route stays
+// in place for any legacy clients, but new uploads should use this one —
+// session URIs are valid for 7 days (vs. 1 h for the signed URL) and the
+// client uploads in chunks so a network blip kills one chunk instead of
+// the whole transfer. See "Video Upload Flow" in CLAUDE.md.
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ rehearsalId: string }> }
-): Promise<NextResponse<UploadUrlResponse>> {
+): Promise<NextResponse<UploadSessionResponse>> {
   try {
     const { userId } = await auth();
 
@@ -64,7 +70,7 @@ export async function POST(
       );
     }
 
-    const body = (await request.json()) as Partial<UploadUrlRequest>;
+    const body = (await request.json()) as Partial<UploadSessionRequest>;
 
     const fileName = body.fileName?.trim();
     const contentType = body.contentType?.trim();
@@ -113,11 +119,19 @@ export async function POST(
       originalFileName: fileName,
     });
 
-    const uploadUrl = await createSignedUploadUrl({
+    // Forward the browser's Origin so the session URI emits CORS headers
+    // on chunk PUTs. Without this, the browser blocks every PUT regardless
+    // of bucket-level CORS — bucket CORS doesn't auto-apply to resumable
+    // sessions (see "Video Upload Flow" in CLAUDE.md).
+    const origin = request.headers.get("origin");
+    const sessionUri = await createResumableUploadSession({
       objectPath,
       contentType,
+      origin,
     });
 
+    // Same row-shape as the /upload-url path so /complete behaves identically
+    // regardless of which upload route was used.
     const videoAsset = existingVideoAsset
       ? await db.videoAsset.update({
           where: { id: existingVideoAsset.id },
@@ -150,16 +164,19 @@ export async function POST(
       ok: true,
       data: {
         videoAssetId: videoAsset.id,
-        uploadUrl,
+        sessionUri,
         objectPath,
+        chunkSize: DEFAULT_CHUNK_SIZE,
       },
     });
   } catch (error) {
-    console.error("Failed to create upload URL:", error);
+    console.error("[upload] failed to create video upload session:", error);
     return apiError(
       500,
-      "UPLOAD_URL_CREATE_FAILED",
-      error instanceof Error ? error.message : "Failed to create upload URL"
+      "UPLOAD_SESSION_CREATE_FAILED",
+      error instanceof Error
+        ? error.message
+        : "Failed to create upload session"
     );
   }
 }
