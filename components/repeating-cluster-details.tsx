@@ -2,6 +2,7 @@ import { ArrowUpRight, FileText, Mic } from "lucide-react";
 import Link from "next/link";
 
 import { formatNoteTimestamp } from "@/lib/notes/format";
+import { formatRelativeDate } from "@/lib/notes/format-relative-date";
 import type { RepeatingClusterDetail } from "@/lib/notes/repeating";
 
 const MAX_VISIBLE_TIMESTAMPS = 8;
@@ -90,16 +91,35 @@ export function RepeatingClusterDetails({
           All {detail.count} instances
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {visibleTimestamps.map((item) => (
-            <Link
-              key={item.assignmentId}
-              href={`/rehearsals/${item.rehearsalId}`}
-              className="inline-flex items-center gap-1 rounded-md border bg-card px-2 py-0.5 font-mono text-[11px] font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
-              title={`${item.rehearsalTitle} · ${formatNoteTimestamp(item.startTimestampMs)}`}
-            >
-              {formatNoteTimestamp(item.startTimestampMs)}
-            </Link>
-          ))}
+          {visibleTimestamps.map((item) => {
+            // Un-anchored items fall back to a relative-date pill built
+            // from the note's `createdAtMs`. Pill is still a link to the
+            // rehearsal (no exact-frame jump possible without an anchor).
+            const isAnchored = item.startTimestampMs !== null;
+            const relative = isAnchored
+              ? null
+              : formatRelativeDate(new Date(item.createdAtMs));
+            const label = isAnchored
+              ? formatNoteTimestamp(item.startTimestampMs as number)
+              : (relative?.short ?? "");
+            const longTitle = isAnchored
+              ? `${item.rehearsalTitle} · ${formatNoteTimestamp(item.startTimestampMs as number)}`
+              : `${item.rehearsalTitle} · ${relative?.long ?? ""}`;
+            return (
+              <Link
+                key={item.assignmentId}
+                href={`/rehearsals/${item.rehearsalId}`}
+                className={
+                  isAnchored
+                    ? "inline-flex items-center gap-1 rounded-md border bg-card px-2 py-0.5 font-mono text-[11px] font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                    : "inline-flex items-center gap-1 rounded-md border border-dashed bg-card px-2 py-0.5 text-[11px] font-medium text-muted-foreground italic outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+                }
+                title={longTitle}
+              >
+                {label}
+              </Link>
+            );
+          })}
           {hiddenCount > 0 ? (
             <span
               className="inline-flex items-center rounded-md border border-dashed px-2 py-0.5 text-[11px] text-muted-foreground"

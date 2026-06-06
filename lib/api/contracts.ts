@@ -14,7 +14,13 @@ export type NoteTargetInput =
 export type CreateTextNoteRequest = {
   noteType?: "TEXT"
   bodyText: string
-  startTimestampMs: number
+  /**
+   * Optional. When set, the rehearsal must have a ready video; the note
+   * is anchored to that moment. When null/omitted, the note is
+   * un-anchored and surfaces in the "Notes without anchor" group on the
+   * workspace.
+   */
+  startTimestampMs?: number | null
   tag?: NoteTag | null
   targets?: NoteTargetInput[]
   /**
@@ -27,8 +33,14 @@ export type CreateTextNoteRequest = {
 export type CreateVoiceNoteRequest = {
   noteType: "VOICE"
   audioAssetId: string
-  startTimestampMs: number
-  endTimestampMs: number
+  /**
+   * Voice timestamps are a coordinated pair. Both must be set (and
+   * end >= start) to anchor the recording against video time; both
+   * omitted means the audio plays standalone with no anchor (used when
+   * the rehearsal has no video yet).
+   */
+  startTimestampMs?: number | null
+  endTimestampMs?: number | null
   tag?: NoteTag | null
   targets?: NoteTargetInput[]
 }
@@ -167,15 +179,25 @@ export type TranscriptResponse = ApiResponse<TranscriptData>
 export type UpdateTextNoteRequest = {
   noteType?: "TEXT"
   bodyText: string
-  startTimestampMs: number
+  /**
+   * PATCH semantics — `undefined` leaves the column untouched, `null`
+   * clears it (un-anchors the note), a number sets it (requires the
+   * note to already be attached to a video).
+   */
+  startTimestampMs?: number | null
   tag?: NoteTag | null
   targets: NoteTargetInput[]
 }
 
 export type UpdateVoiceNoteRequest = {
   noteType: "VOICE"
-  startTimestampMs: number
-  endTimestampMs: number
+  /**
+   * Voice timestamps are a coordinated pair on edit too. Valid
+   * combinations: both omitted (leave alone), both null (un-anchor),
+   * both numbers (re-anchor). Mixed shapes return INVALID_TIMESTAMP_PAIR.
+   */
+  startTimestampMs?: number | null
+  endTimestampMs?: number | null
   tag?: NoteTag | null
   targets: NoteTargetInput[]
 }
@@ -264,9 +286,12 @@ export type ThreadViewResponse = ApiResponse<{ viewedAt: string }>
  *   - `videoAssetId`, when set, must reference the rehearsal's video AND
  *     `rehearsalId` must be set
  *   - timestamps may only be non-null when `videoAssetId` is set
- *   - voice (`noteType: "VOICE"`) requires `rehearsalId`, `videoAssetId`,
- *     `audioAssetId`, and both timestamps (project-level voice is
- *     deliberately not supported in v1)
+ *   - voice (`noteType: "VOICE"`) requires `rehearsalId` + `audioAssetId`.
+ *     `videoAssetId` + timestamps are optional — a voice discussion can be
+ *     recorded against a rehearsal that has no video yet (the audio plays
+ *     standalone). When `videoAssetId` is set, both timestamps must also
+ *     be set. Project-level voice is still unsupported — `AudioAsset.rehearsalId`
+ *     is required at the schema level.
  */
 export type CreateTextDiscussionRequest = {
   noteType?: "TEXT"
@@ -280,10 +305,16 @@ export type CreateTextDiscussionRequest = {
 export type CreateVoiceDiscussionRequest = {
   noteType: "VOICE"
   rehearsalId: string
-  videoAssetId: string
   audioAssetId: string
-  startTimestampMs: number
-  endTimestampMs: number
+  /**
+   * Optional video anchor. When set, both timestamps must also be set
+   * (and the server validates `videoAssetId` belongs to the rehearsal).
+   * When omitted, the voice discussion is un-anchored — the audio plays
+   * standalone with no sync.
+   */
+  videoAssetId?: string | null
+  startTimestampMs?: number | null
+  endTimestampMs?: number | null
   bodyText?: never
 }
 
@@ -311,8 +342,14 @@ export type UpdateTextDiscussionRequest = {
 
 export type UpdateVoiceDiscussionRequest = {
   noteType: "VOICE"
-  startTimestampMs: number
-  endTimestampMs: number
+  /**
+   * Voice timestamps are a coordinated pair. Valid combinations:
+   * both omitted (leave alone), both null (un-anchor — only valid if
+   * the discussion is already video-anchored), or both numbers (set).
+   * Mixed shapes return INVALID_TIMESTAMP_PAIR.
+   */
+  startTimestampMs?: number | null
+  endTimestampMs?: number | null
 }
 
 export type UpdateDiscussionRequest =

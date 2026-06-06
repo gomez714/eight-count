@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 
 import { AudienceChips } from "@/components/audience-chips";
 import { NoteActionsMenu } from "@/components/note-actions-menu";
+import { NoteCreatedAtPill } from "@/components/note-created-at-pill";
 import { NoteProgressBar } from "@/components/note-progress-bar";
 import { NoteRehearsalLink } from "@/components/note-rehearsal-link";
 import { ThreadAttachment } from "@/components/threads/thread-attachment";
@@ -87,10 +88,14 @@ export function AuthoredNoteCard({
         {/* Top meta */}
         <div className="flex flex-wrap items-center gap-2">
           <NoteRehearsalLink rehearsal={row.rehearsal} />
-          <NoteTimestampPill
-            timestampMs={row.startTimestampMs}
-            noteType={row.noteType}
-          />
+          {row.startTimestampMs === null ? (
+            <NoteCreatedAtPill createdAt={row.createdAt} />
+          ) : (
+            <NoteTimestampPill
+              timestampMs={row.startTimestampMs}
+              noteType={row.noteType}
+            />
+          )}
           {row.tag ? <TagChip tag={row.tag} /> : null}
           <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
             {isVoice ? (

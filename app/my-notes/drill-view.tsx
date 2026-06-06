@@ -123,6 +123,7 @@ function toDrillItem(row: AssignedNoteRow): DrillRowItem {
     voiceTranscript,
     audioDurationMs: row.note.audioAsset?.durationMs ?? null,
     startTimestampMs: row.note.startTimestampMs,
+    createdAt: row.note.createdAt,
     status: row.status,
   };
 }

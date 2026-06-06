@@ -94,7 +94,13 @@ export type AssignedNoteRow = {
     id: string;
     noteType: "TEXT" | "VOICE";
     bodyText: string | null;
-    startTimestampMs: number;
+    /**
+     * Null when the note has no video anchor — the row renders a
+     * `NoteCreatedAtPill` (relative-date) in place of `NoteTimestampPill`.
+     * Voice rows in standalone mode get the same fallback for their
+     * timestamp meta line.
+     */
+    startTimestampMs: number | null;
     endTimestampMs: number | null;
     tag: NoteTag | null;
     audioAsset: AssignedNoteAudio | null;

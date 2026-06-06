@@ -43,7 +43,17 @@ import type { NoteTag } from "@/lib/notes/tags";
 
 export type EditNoteFormValues = {
   bodyText: string | null;
-  startTimestampMs: number;
+  /**
+   * Null when the author chose to un-anchor the note (or it was already
+   * un-anchored and stayed that way). The workspace + notes-by-me edit
+   * handlers translate `null` into the PATCH body's nullable timestamp
+   * fields.
+   */
+  startTimestampMs: number | null;
+  /**
+   * Voice notes only — paired with `startTimestampMs`. Null follows
+   * start (both nullable in lockstep per the API contract).
+   */
   endTimestampMs: number | null;
   tag: NoteTag | null;
   isFullCast: boolean;
@@ -67,7 +77,12 @@ export type EditableNote = {
   id: string;
   noteType: "TEXT" | "VOICE";
   bodyText: string | null;
-  startTimestampMs: number;
+  /**
+   * Null when the note has no video anchor — the sheet renders an
+   * "Anchor to current time" affordance (only when `hasVideo` is true
+   * on the parent surface) or a muted "No anchor" pill otherwise.
+   */
+  startTimestampMs: number | null;
   endTimestampMs: number | null;
   tag: NoteTag | null;
   audioAsset: EditableNoteAudio | null;
@@ -91,8 +106,18 @@ type EditNoteSheetProps = {
   assignableMembers: AssignableMember[];
   availableGroups: AvailableGroup[];
   /**
-   * If provided, a "Use current playhead" button is rendered. Returns
-   * the current video playback position in milliseconds.
+   * When true, the sheet renders anchor controls — "Use current
+   * playhead" + "Remove anchor" when already anchored, or "Anchor to
+   * current time" when not. When false (no video on the parent
+   * surface — `/my-notes`, `/notes-by-me`, or workspace without
+   * video), the timestamp section collapses to a read-only "No anchor"
+   * state. Defaults to false so callers can opt in explicitly.
+   */
+  hasVideo?: boolean;
+  /**
+   * Returns the current video playback position in milliseconds. Used
+   * by the "Use current playhead" / "Anchor to current time" buttons
+   * when `hasVideo` is true. Ignored when `hasVideo` is false.
    */
   onUseCurrentPlayhead?: () => number;
   isPending: boolean;
@@ -176,6 +201,7 @@ function EditNoteForm({
   note,
   assignableMembers,
   availableGroups,
+  hasVideo = false,
   onUseCurrentPlayhead,
   isPending,
   errorMessage,
@@ -186,8 +212,17 @@ function EditNoteForm({
   const isVoice = note.noteType === "VOICE";
 
   const [bodyText, setBodyText] = useState(note.bodyText ?? "");
+  // Anchored state is the source of truth for the timestamp section.
+  // When true, the inputs render and the form submits numeric timestamps;
+  // when false, the form submits null timestamps and the un-anchored UI
+  // is shown. Seeded from the note's actual state on mount.
+  const [isAnchored, setIsAnchored] = useState(
+    () => note.startTimestampMs !== null
+  );
   const [startTimestampInput, setStartTimestampInput] = useState(() =>
-    formatMsToMmSs(note.startTimestampMs)
+    note.startTimestampMs !== null
+      ? formatMsToMmSs(note.startTimestampMs)
+      : ""
   );
   const [endTimestampInput, setEndTimestampInput] = useState(() =>
     note.endTimestampMs !== null ? formatMsToMmSs(note.endTimestampMs) : ""
@@ -207,6 +242,30 @@ function EditNoteForm({
     string[]
   >(initialAudience.selectedAssigneeUserIds);
   const [tag, setTag] = useState<NoteTag | null>(note.tag);
+
+  // Flip un-anchored → anchored using the current video position. For
+  // voice notes we seed the end timestamp so the API's "both timestamps
+  // or neither" rule is satisfied without a second click. We use the
+  // existing audio duration when known; otherwise fall back to a 1s
+  // window the user can edit before saving.
+  const handleAnchorNow = () => {
+    if (!onUseCurrentPlayhead) return;
+    const startMs = onUseCurrentPlayhead();
+    setStartTimestampInput(formatMsToMmSs(startMs));
+    setStartTimestampError(null);
+    if (isVoice) {
+      const durationMs = note.audioAsset?.durationMs ?? 1000;
+      setEndTimestampInput(formatMsToMmSs(startMs + durationMs));
+      setEndTimestampError(null);
+    }
+    setIsAnchored(true);
+  };
+
+  const handleRemoveAnchor = () => {
+    setIsAnchored(false);
+    setStartTimestampError(null);
+    setEndTimestampError(null);
+  };
 
   const newResolvedUserIds = useMemo(() => {
     const recipients = new Set<string>();
@@ -298,7 +357,7 @@ function EditNoteForm({
 
   type ValidatedValues = {
     bodyText: string | null;
-    startMs: number;
+    startMs: number | null;
     endMs: number | null;
   };
 
@@ -306,6 +365,21 @@ function EditNoteForm({
     setBodyError(null);
     setStartTimestampError(null);
     setEndTimestampError(null);
+
+    // Un-anchored path — timestamps are null, only body needs validation
+    // for text notes. Voice notes save as standalone with both
+    // timestamps cleared (the API accepts the pair-null shape).
+    if (!isAnchored) {
+      if (!isVoice) {
+        const trimmed = bodyText.trim();
+        if (!trimmed) {
+          setBodyError("Please enter a note.");
+          return null;
+        }
+        return { bodyText: trimmed, startMs: null, endMs: null };
+      }
+      return { bodyText: null, startMs: null, endMs: null };
+    }
 
     const startMs = parseMmSsToMs(startTimestampInput);
     if (startMs === null) {
@@ -374,84 +448,144 @@ function EditNoteForm({
     <>
       <div className="flex-1 overflow-y-auto px-4">
         <FieldGroup className="flex flex-col gap-4 py-2">
-          <Field>
-            <FieldLabel htmlFor="editStartTimestamp">
-              {isVoice ? "Start timestamp" : "Timestamp"}
-            </FieldLabel>
-            <FieldContent>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="editStartTimestamp"
-                  value={startTimestampInput}
-                  onChange={(event) => {
-                    setStartTimestampInput(event.target.value);
-                    setStartTimestampError(null);
-                  }}
-                  placeholder="0:00"
-                  disabled={isPending}
-                  className="w-28"
-                />
-                {onUseCurrentPlayhead ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleUseStartPlayhead}
-                    disabled={isPending}
-                  >
-                    Use current playhead
-                  </Button>
-                ) : null}
-              </div>
-              <FieldDescription>
-                Format: minutes:seconds (e.g. 1:23).
-              </FieldDescription>
-              <FieldError
-                errors={
-                  startTimestampError
-                    ? [{ message: startTimestampError }]
-                    : []
-                }
-              />
-            </FieldContent>
-          </Field>
+          {/* Anchor section. Two states; `hasVideo` only controls
+              whether we offer the "from current playhead" affordances:
+              1. isAnchored → editable timestamp inputs (always editable
+                 — the author may want to type a correction even on a
+                 surface with no video). "Use current playhead" +
+                 "Anchor to current time" buttons only render when
+                 `hasVideo` AND `onUseCurrentPlayhead` are both set.
+                 "Remove anchor" always renders so an author on
+                 /notes-by-me can un-anchor without a video.
+              2. !isAnchored → muted "No anchor" pill + "Anchor to
+                 current time" button (only when `hasVideo` + handler
+                 are set). Voice notes seed the end timestamp from
+                 audio duration when flipping to anchored. */}
+          {isAnchored ? (
+            <>
+              <Field>
+                <FieldLabel htmlFor="editStartTimestamp">
+                  {isVoice ? "Start timestamp" : "Timestamp"}
+                </FieldLabel>
+                <FieldContent>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="editStartTimestamp"
+                      value={startTimestampInput}
+                      onChange={(event) => {
+                        setStartTimestampInput(event.target.value);
+                        setStartTimestampError(null);
+                      }}
+                      placeholder="0:00"
+                      disabled={isPending}
+                      className="w-28"
+                    />
+                    {hasVideo && onUseCurrentPlayhead ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleUseStartPlayhead}
+                        disabled={isPending}
+                      >
+                        Use current playhead
+                      </Button>
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleRemoveAnchor}
+                      disabled={isPending}
+                    >
+                      Remove anchor
+                    </Button>
+                  </div>
+                  <FieldDescription>
+                    Format: minutes:seconds (e.g. 1:23). Removing the
+                    anchor scopes the note to the whole rehearsal.
+                  </FieldDescription>
+                  <FieldError
+                    errors={
+                      startTimestampError
+                        ? [{ message: startTimestampError }]
+                        : []
+                    }
+                  />
+                </FieldContent>
+              </Field>
 
-          {isVoice ? (
+              {isVoice ? (
+                <Field>
+                  <FieldLabel htmlFor="editEndTimestamp">
+                    End timestamp
+                  </FieldLabel>
+                  <FieldContent>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="editEndTimestamp"
+                        value={endTimestampInput}
+                        onChange={(event) => {
+                          setEndTimestampInput(event.target.value);
+                          setEndTimestampError(null);
+                        }}
+                        placeholder="0:00"
+                        disabled={isPending}
+                        className="w-28"
+                      />
+                      {hasVideo && onUseCurrentPlayhead ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleUseEndPlayhead}
+                          disabled={isPending}
+                        >
+                          Use current playhead
+                        </Button>
+                      ) : null}
+                    </div>
+                    <FieldError
+                      errors={
+                        endTimestampError
+                          ? [{ message: endTimestampError }]
+                          : []
+                      }
+                    />
+                  </FieldContent>
+                </Field>
+              ) : null}
+            </>
+          ) : (
             <Field>
-              <FieldLabel htmlFor="editEndTimestamp">End timestamp</FieldLabel>
+              <FieldLabel>
+                {isVoice ? "Anchor (start + end)" : "Anchor"}
+              </FieldLabel>
               <FieldContent>
                 <div className="flex items-center gap-2">
-                  <Input
-                    id="editEndTimestamp"
-                    value={endTimestampInput}
-                    onChange={(event) => {
-                      setEndTimestampInput(event.target.value);
-                      setEndTimestampError(null);
-                    }}
-                    placeholder="0:00"
-                    disabled={isPending}
-                    className="w-28"
-                  />
-                  {onUseCurrentPlayhead ? (
+                  <span className="inline-flex items-center rounded-full border border-dashed border-border bg-muted/40 px-2.5 py-0.5 text-xs text-muted-foreground">
+                    No anchor — rehearsal-wide
+                  </span>
+                  {hasVideo && onUseCurrentPlayhead ? (
                     <Button
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={handleUseEndPlayhead}
+                      onClick={handleAnchorNow}
                       disabled={isPending}
                     >
-                      Use current playhead
+                      Anchor to current time
                     </Button>
                   ) : null}
                 </div>
-                <FieldError
-                  errors={
-                    endTimestampError ? [{ message: endTimestampError }] : []
-                  }
-                />
+                <FieldDescription>
+                  {hasVideo
+                    ? "This note isn't pegged to a moment. Anchor it to the current video position to place it on the timeline."
+                    : "This rehearsal has no video, so the note isn't pegged to a moment. Upload a video to enable anchoring."}
+                </FieldDescription>
               </FieldContent>
             </Field>
-          ) : null}
+          )}
 
           {isVoice && note.audioAsset ? (
             <Field>

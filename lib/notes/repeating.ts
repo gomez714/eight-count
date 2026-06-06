@@ -36,7 +36,12 @@ export type RepeatingClusterDetailItem = {
   noteId: string;
   rehearsalId: string;
   rehearsalTitle: string;
-  startTimestampMs: number;
+  /**
+   * Null when the note has no video anchor — the cluster panel falls
+   * back to a relative-date pill (built from `createdAtMs`) in place of
+   * the `mm:ss` timestamp pill. Links target the same rehearsal page.
+   */
+  startTimestampMs: number | null;
   noteType: "TEXT" | "VOICE";
   bodyText: string | null;
   voiceTranscript: string | null;

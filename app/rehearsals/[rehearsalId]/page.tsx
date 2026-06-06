@@ -1,5 +1,4 @@
 import { auth } from "@clerk/nextjs/server"
-import { Film } from "lucide-react"
 import { notFound, redirect } from "next/navigation"
 
 import { ensureDbUser } from "@/lib/auth/ensure-db-user"
@@ -19,7 +18,6 @@ import { getRehearsalForUser } from "@/lib/rehearsals/get-rehearsal-for-user"
 import { DrillFromRehearsalButton } from "./drill-from-rehearsal-button"
 import { RehearsalActionsMenu } from "./rehearsal-actions-menu"
 import { RehearsalContextBar } from "./rehearsal-context-bar"
-import { UploadVideoForm } from "./upload-video-form"
 import { RehearsalWorkspace } from "./workspace/rehearsal-workspace"
 
 type RehearsalPageProps = {
@@ -174,44 +172,45 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
       />
 
       <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-6">
-        {hasVideo && rehearsal.videoAsset ? (
-          <RehearsalWorkspace
-            rehearsalId={rehearsal.id}
-            projectId={rehearsal.project.id}
-            videoAssetId={rehearsal.videoAsset.id}
-            fileName={rehearsal.videoAsset.originalFileName}
-            canAuthorNotes={canAuthorNotes}
-            currentUserId={dbUser.id}
-            workspaceTipsDismissed={workspaceTipsDismissed}
-            discussions={discussions}
-            assignableMembers={rehearsal.project.team.members.map(
-              (member) => ({
-                id: member.user.id,
-                name: member.user.name,
-                email: member.user.email,
-                role: member.role,
-              })
-            )}
-            availableGroups={rehearsal.project.groups.map((group) => ({
-              id: group.id,
-              name: group.name,
-              memberUserIds: group.members.map(
-                (groupMember) => groupMember.teamMember.userId
-              ),
-            }))}
-            notes={rehearsal.notes.map((note) => {
-              const noteRepeating: Record<string, { tag: NonNullable<typeof note.tag>; count: number }> = {}
-              for (const assignment of note.assignments) {
-                const marker = repeatingByAssignmentId.get(assignment.id)
-                if (marker) noteRepeating[assignment.id] = marker
-              }
-              const threadSummary = summarizeThread({
-                viewerId: dbUser.id,
-                comments: note.comments,
-                reactions: note.reactions,
-                lastViewedAt: note.threadViews[0]?.lastViewedAt ?? null,
-              })
-              return ({
+        <RehearsalWorkspace
+          rehearsalId={rehearsal.id}
+          projectId={rehearsal.project.id}
+          videoAssetId={rehearsal.videoAsset?.id ?? null}
+          fileName={rehearsal.videoAsset?.originalFileName ?? null}
+          canManageVideo={canManageVideo}
+          canAuthorNotes={canAuthorNotes}
+          currentUserId={dbUser.id}
+          workspaceTipsDismissed={workspaceTipsDismissed}
+          discussions={discussions}
+          assignableMembers={rehearsal.project.team.members.map((member) => ({
+            id: member.user.id,
+            name: member.user.name,
+            email: member.user.email,
+            role: member.role,
+          }))}
+          availableGroups={rehearsal.project.groups.map((group) => ({
+            id: group.id,
+            name: group.name,
+            memberUserIds: group.members.map(
+              (groupMember) => groupMember.teamMember.userId
+            ),
+          }))}
+          notes={rehearsal.notes.map((note) => {
+            const noteRepeating: Record<
+              string,
+              { tag: NonNullable<typeof note.tag>; count: number }
+            > = {}
+            for (const assignment of note.assignments) {
+              const marker = repeatingByAssignmentId.get(assignment.id)
+              if (marker) noteRepeating[assignment.id] = marker
+            }
+            const threadSummary = summarizeThread({
+              viewerId: dbUser.id,
+              comments: note.comments,
+              reactions: note.reactions,
+              lastViewedAt: note.threadViews[0]?.lastViewedAt ?? null,
+            })
+            return {
               id: note.id,
               noteType: note.noteType,
               bodyText: note.bodyText,
@@ -265,51 +264,10 @@ export default async function RehearsalPage({ params }: RehearsalPageProps) {
                   ? { id: target.group.id, name: target.group.name }
                   : null,
               })),
-            })
-            })}
-          />
-        ) : (
-          <NoVideoEmptyState
-            rehearsalId={rehearsal.id}
-            canManageVideo={canManageVideo}
-          />
-        )}
+            }
+          })}
+        />
       </main>
     </>
-  )
-}
-
-function NoVideoEmptyState({
-  rehearsalId,
-  canManageVideo,
-}: {
-  rehearsalId: string
-  canManageVideo: boolean
-}) {
-  return (
-    <div className="mx-auto flex w-full max-w-xl flex-col items-center gap-4 rounded-lg border border-dashed bg-card px-6 py-12 text-center">
-      <span
-        aria-hidden
-        className="inline-flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground"
-      >
-        <Film className="size-5" />
-      </span>
-      <div className="flex flex-col gap-1">
-        <h2 className="text-base font-semibold">No video yet</h2>
-        <p className="text-sm text-muted-foreground">
-          {canManageVideo
-            ? "Upload a rehearsal video to start leaving timestamped notes."
-            : "Your instructor will upload one for this session."}
-        </p>
-      </div>
-      {canManageVideo ? (
-        <div className="w-full pt-2 text-left">
-          <UploadVideoForm
-            rehearsalId={rehearsalId}
-            submitLabel="Upload video"
-          />
-        </div>
-      ) : null}
-    </div>
   )
 }

@@ -47,6 +47,7 @@ import { ComposerPeekRow } from "./composer-peek-row"
 import { DiscussionComposer } from "./discussion-composer"
 import { DiscussionsListCard } from "./discussions-list-card"
 import { DiscussionsSummary } from "./discussions-summary"
+import { NoVideoBanner } from "./no-video-banner"
 import {
   COMPOSER_EXPANDED_SNAP,
   COMPOSER_PEEK_SNAP,
@@ -76,13 +77,26 @@ import { clamp, formatTimestamp } from "./utils"
 type RehearsalWorkspaceProps = {
   rehearsalId: string
   projectId: string
-  videoAssetId: string
-  fileName: string
+  /**
+   * Null when the rehearsal has no video yet (or one is mid-upload and
+   * not READY). In that case the video card + timeline are hidden, the
+   * layout collapses to single-column, sticky-video logic is bypassed,
+   * and the composer falls back to its no-video mode. Existing un-anchored
+   * notes still render via the "Notes without anchor" group.
+   */
+  videoAssetId: string | null
+  fileName: string | null
   notes: NoteItem[]
   discussions: DiscussionItem[]
   assignableMembers: AssignableMember[]
   availableGroups: AvailableGroup[]
   canAuthorNotes: boolean
+  /**
+   * Staff (ADMIN / INSTRUCTOR / ASSISTANT). Drives whether the no-video
+   * banner at the top of the workspace shows the "Upload video" CTA
+   * (staff) or the passive "your instructor will upload" copy (dancers).
+   */
+  canManageVideo: boolean
   currentUserId: string
   workspaceTipsDismissed: boolean
 }
@@ -159,9 +173,11 @@ export function RehearsalWorkspace({
   assignableMembers,
   availableGroups,
   canAuthorNotes,
+  canManageVideo,
   currentUserId,
   workspaceTipsDismissed,
 }: RehearsalWorkspaceProps) {
+  const hasVideo = videoAssetId !== null
   const router = useRouter()
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const timelineRef = useRef<HTMLDivElement | null>(null)
@@ -306,17 +322,31 @@ export function RehearsalWorkspace({
     [isRecording]
   )
 
+  // Sticky-video pinning only makes sense when there's actually a video.
+  // Without one, none of the triggers can fire anyway (no playback, no
+  // sync, no tap-to-jump), but short-circuit explicitly for clarity.
   const isVideoPinned =
-    syncingAudioIds.size > 0 ||
-    composerExpanded ||
-    isVideoPlaying ||
-    timestampTapPinned
+    hasVideo &&
+    (syncingAudioIds.size > 0 ||
+      composerExpanded ||
+      isVideoPlaying ||
+      timestampTapPinned)
 
   const [isPending, startTransition] = useTransition()
   const [isEditPending, startEditTransition] = useTransition()
   const [isDiscussionPending, startDiscussionTransition] = useTransition()
 
   useEffect(() => {
+    // No video → nothing to fetch. Short-circuit so the workspace doesn't
+    // sit in a perpetual "loading video" state when the rehearsal has no
+    // VideoAsset (a Phase 1+ scenario).
+    if (!hasVideo) {
+      setPlaybackUrl(null)
+      setIsLoadingVideo(false)
+      setVideoError(null)
+      return
+    }
+
     let isMounted = true
 
     async function loadPlaybackUrl() {
@@ -359,27 +389,55 @@ export function RehearsalWorkspace({
     return () => {
       isMounted = false
     }
-  }, [rehearsalId])
+  }, [rehearsalId, hasVideo])
 
+  // Notes can be either anchored (number startTimestampMs) or un-anchored
+  // (null — created without a video). The sort puts anchored notes in
+  // timeline order at the top; un-anchored notes fall to the bottom in
+  // createdAt order. NotesListCard further splits these into two visual
+  // groups ("Notes without anchor" above the timeline-anchored list).
   const sortedNotes = useMemo(
-    () => [...notes].sort((a, b) => a.startTimestampMs - b.startTimestampMs),
+    () =>
+      [...notes].sort((a, b) => {
+        const aAnchored = a.startTimestampMs !== null
+        const bAnchored = b.startTimestampMs !== null
+        if (aAnchored && bAnchored) {
+          return (a.startTimestampMs ?? 0) - (b.startTimestampMs ?? 0)
+        }
+        if (aAnchored) return -1
+        if (bAnchored) return 1
+        // Both un-anchored: newest first.
+        const aTime =
+          a.createdAt instanceof Date
+            ? a.createdAt.getTime()
+            : new Date(a.createdAt).getTime()
+        const bTime =
+          b.createdAt instanceof Date
+            ? b.createdAt.getTime()
+            : new Date(b.createdAt).getTime()
+        return bTime - aTime
+      }),
     [notes]
   )
 
-  // Markers for the timeline. Notes always have a timestamp; discussions
-  // are filtered to anchored-only (un-anchored discussions appear in the
-  // list but not on the timeline).
+  // Markers for the timeline. Un-anchored notes are excluded — same
+  // rule that already applied to un-anchored discussions.
   const noteMarkers = useMemo<TimelineMarker[]>(
     () =>
-      sortedNotes.map((note) => ({
-        id: note.id,
-        startTimestampMs: note.startTimestampMs,
-        mediaType: note.noteType,
-        summary:
-          note.noteType === "VOICE"
-            ? `Voice note (${note.audioAsset?.durationMs ? formatTimestamp(note.audioAsset.durationMs) : "—"})`
-            : (note.bodyText ?? ""),
-      })),
+      sortedNotes
+        .filter(
+          (note): note is NoteItem & { startTimestampMs: number } =>
+            note.startTimestampMs !== null
+        )
+        .map((note) => ({
+          id: note.id,
+          startTimestampMs: note.startTimestampMs,
+          mediaType: note.noteType,
+          summary:
+            note.noteType === "VOICE"
+              ? `Voice note (${note.audioAsset?.durationMs ? formatTimestamp(note.audioAsset.durationMs) : "—"})`
+              : (note.bodyText ?? ""),
+        })),
     [sortedNotes]
   )
   const discussionMarkers = useMemo<TimelineMarker[]>(
@@ -532,10 +590,14 @@ export function RehearsalWorkspace({
           ]
         }
 
+        // No video → omit the timestamp entirely so the note is created
+        // un-anchored. The API treats absent startTimestampMs the same as
+        // an explicit null and the note shows up in the "Notes without
+        // anchor" group on the workspace.
         const requestBody: CreateNoteRequest = {
           noteType: "TEXT",
           bodyText: noteText,
-          startTimestampMs: selectedTimestampMs,
+          ...(hasVideo ? { startTimestampMs: selectedTimestampMs } : {}),
           tag: selectedTag,
           targets,
         }
@@ -576,12 +638,16 @@ export function RehearsalWorkspace({
       try {
         setDiscussionError(null)
 
-        const anchored = discussionAnchored
+        // Anchoring requires a video to anchor against. The discussion
+        // composer's effectiveAnchored already enforces this in the UI,
+        // but defend at the POST boundary too so no-video text discussions
+        // can never accidentally send a stray videoAssetId / timestamp.
+        const anchored = discussionAnchored && hasVideo
         const body = {
           noteType: "TEXT" as const,
           bodyText: discussionText,
           rehearsalId,
-          ...(anchored
+          ...(anchored && videoAssetId
             ? {
                 videoAssetId,
                 startTimestampMs: selectedTimestampMs,
@@ -635,12 +701,20 @@ export function RehearsalWorkspace({
       try {
         setEditError(null)
 
+        // The form returns `startTimestampMs: null` when the author chose
+        // un-anchored (or kept an already-un-anchored note that way). For
+        // voice that pairs with a null end. The PATCH route accepts null
+        // to clear (un-anchor) or numbers to set — Phase 1 widened the
+        // request types accordingly.
         const requestBody: UpdateNoteRequest =
           editingNote.noteType === "VOICE"
             ? {
                 noteType: "VOICE",
                 startTimestampMs: values.startTimestampMs,
-                endTimestampMs: values.endTimestampMs ?? values.startTimestampMs,
+                endTimestampMs:
+                  values.startTimestampMs === null
+                    ? null
+                    : (values.endTimestampMs ?? values.startTimestampMs),
                 tag: values.tag,
                 targets: buildTargetsFromSelection(values),
               }
@@ -754,11 +828,17 @@ export function RehearsalWorkspace({
   // Mobile sheet body + peek depend on the active tab. The sheet shell
   // is shared (snap math, recording lock, focus-trap escape, auto-collapse).
   const isNotesTab = activeListTab === "notes"
-  const composerDisabled = !playbackUrl || (isNotesTab ? isPending : isDiscussionPending)
+  // Only block the composer on playbackUrl when there's actually a video
+  // to load. Without one, the discussion composer ships standalone (no
+  // anchor) so the pending-fetch state isn't a blocker.
+  const composerDisabled =
+    (hasVideo && !playbackUrl) ||
+    (isNotesTab ? isPending : isDiscussionPending)
 
   const noteComposerProps = {
     rehearsalId,
     videoRef,
+    hasVideo,
     selectedTimestampMs,
     noteText,
     onNoteTextChange: setNoteText,
@@ -813,8 +893,21 @@ export function RehearsalWorkspace({
 
   return (
     <ThreadExpansionProvider>
-      <div className="flex flex-col gap-6 lg:grid lg:gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] lg:items-start">
-        {/* LEFT — video + timeline */}
+      <div
+        className={cn(
+          "flex flex-col gap-6",
+          hasVideo &&
+            "lg:grid lg:gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] lg:items-start",
+          // Without a video the workspace collapses to single column.
+          // Constrain max-width so the right column reads as an intentional
+          // composition (not a stretched 1.45fr cell with empty space).
+          !hasVideo && "lg:mx-auto lg:max-w-3xl",
+        )}
+      >
+        {/* LEFT — video + timeline. Hidden entirely when the rehearsal
+            has no video; in that case the workspace renders the right
+            column only and the layout becomes single-column. */}
+        {hasVideo ? (
         <div className="contents lg:flex lg:flex-col lg:gap-4 lg:sticky lg:top-4 lg:self-start">
           <div
             className={cn(
@@ -824,7 +917,12 @@ export function RehearsalWorkspace({
             )}
           >
             <RehearsalVideoCard
-              fileName={fileName}
+              // Non-null assertion is safe here — this entire block is
+              // gated on `hasVideo` (`videoAssetId !== null`), and the
+              // page entry pairs `fileName` and `videoAssetId` so they
+              // are either both null or both set. TypeScript can't
+              // refine paired nullables, hence the assertion.
+              fileName={fileName!}
               playbackUrl={playbackUrl}
               isLoading={isLoadingVideo}
               error={videoError}
@@ -856,9 +954,23 @@ export function RehearsalWorkspace({
             />
           </div>
         </div>
+        ) : null}
 
         {/* RIGHT — switcher, summary, list, composer */}
         <div className="flex min-w-0 flex-col gap-4 max-lg:pb-24">
+          {/* When the rehearsal has no video, surface a prominent banner
+              above everything else. Visually fills the space the video
+              card would occupy and gives staff a one-click path to
+              upload — discoverability fix for the case where the only
+              other upload affordance is hidden behind the actions
+              menu's overflow icon. */}
+          {hasVideo ? null : (
+            <NoVideoBanner
+              rehearsalId={rehearsalId}
+              canManageVideo={canManageVideo}
+            />
+          )}
+
           <NotesDiscussionsSwitcher
             active={activeListTab}
             onChange={handleListTabChange}
@@ -901,7 +1013,15 @@ export function RehearsalWorkspace({
           {/* Composer — gated on canAuthorNotes for notes; discussions are
               available to any team member. Mounted at lg+ as a sticky card,
               below lg as the shared MobileComposerSheet with body/peek
-              built per active tab. */}
+              built per active tab.
+
+              Both composers work without a video: the sub-bar's timestamp
+              pill becomes a "Rehearsal-wide" chip, the recorder falls back
+              to its null-videoRef path, and the POSTs omit timestamps +
+              videoAssetId so the entities are created un-anchored. The
+              top-of-workspace NoVideoBanner (above) handles the no-video
+              messaging + upload CTA, so the composer area only needs the
+              role gate. */}
           {isNotesTab && !canAuthorNotes ? (
             <div className="rounded-lg border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
               Only admins, instructors, and assistants can author notes. You
@@ -909,6 +1029,9 @@ export function RehearsalWorkspace({
             </div>
           ) : null}
 
+          {/* Mount the composer when:
+              - notes tab + viewer can author notes (video-optional), OR
+              - discussions tab (always — anyone can author, video optional) */}
           {(isNotesTab ? canAuthorNotes : true) ? (
             <>
               {isDesktop === true ? (
@@ -944,6 +1067,7 @@ export function RehearsalWorkspace({
                         mode={composerMode}
                         onModeChange={handleComposerModeChange}
                         selectedTimestampMs={selectedTimestampMs}
+                        hasVideo={hasVideo}
                         audienceSummary={audienceSummary}
                         onCaptureTimestamp={captureCurrentTimestamp}
                         onTapAudience={() => handleAudienceOpenChange(true)}
@@ -957,6 +1081,7 @@ export function RehearsalWorkspace({
                         mode={composerMode}
                         onModeChange={handleComposerModeChange}
                         selectedTimestampMs={selectedTimestampMs}
+                        hasVideo={hasVideo}
                         audienceSummary={null}
                         onCaptureTimestamp={captureCurrentTimestamp}
                         onExpand={() =>
@@ -991,6 +1116,7 @@ export function RehearsalWorkspace({
         note={editingNote ? toEditableNote(editingNote) : null}
         assignableMembers={assignableMembers}
         availableGroups={availableGroups}
+        hasVideo={hasVideo}
         onUseCurrentPlayhead={getCurrentPlayheadMs}
         isPending={isEditPending}
         errorMessage={editError}
@@ -1001,10 +1127,15 @@ export function RehearsalWorkspace({
         groupKey="workspace"
         steps={WORKSPACE_TIP_STEPS}
         initiallyDismissed={workspaceTipsDismissed}
-        // Tips key off the notes-mode anchors; skip them entirely while
-        // the discussions tab is active (anchors don't exist in that tab).
+        // Tips key off the notes-mode anchors (timeline + composer +
+        // notes list). They don't exist when the discussions tab is
+        // active, nor when there's no video (the timeline is hidden;
+        // the composer is mounted but in its no-video shape with no
+        // timestamp pill to point at). Skip the sequence then —
+        // showing arrows pointing at nothing is worse than no onboarding.
         enabled={
           canAuthorNotes &&
+          hasVideo &&
           playbackUrl !== null &&
           !composerExpanded &&
           isNotesTab

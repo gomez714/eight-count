@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 
 import { AudienceChips } from "@/components/audience-chips";
 import { NoteActionsMenu } from "@/components/note-actions-menu";
+import { NoteCreatedAtPill } from "@/components/note-created-at-pill";
 import { ThreadAttachment } from "@/components/threads/thread-attachment";
 import { RepeatingChip } from "@/components/repeating-chip";
 import { TagChip } from "@/components/tag-chip";
@@ -188,6 +189,10 @@ function NoteRow({
   const hasAssignments = note.assignments.length > 0;
   const isVoice = note.noteType === "VOICE";
   const accent = isVoice ? "var(--note-voice-accent)" : "var(--primary)";
+  // Un-anchored notes (no video at create time) render a muted
+  // relative-date pill instead of the clickable timestamp button —
+  // there's nowhere to jump to.
+  const isAnchored = note.startTimestampMs !== null;
 
   return (
     <article className="relative flex flex-col gap-3 rounded-lg border bg-card p-4 pl-3.5 sm:grid sm:grid-cols-[84px_1fr] sm:gap-4">
@@ -197,26 +202,36 @@ function NoteRow({
         style={{ backgroundColor: accent }}
       />
 
-      <button
-        type="button"
-        onClick={() => onJumpToTimestamp(note.startTimestampMs)}
-        aria-label={`Jump to ${formatTimestamp(note.startTimestampMs)}`}
-        className="flex flex-row items-center gap-2 rounded text-left focus-visible:outline-2 focus-visible:outline-ring sm:flex-col sm:items-start sm:gap-1"
-      >
-        <span
-          className="rounded-md px-2 py-1 font-mono text-sm font-semibold"
-          style={{
-            backgroundColor: `color-mix(in oklch, ${accent} 12%, transparent)`,
-            color: "var(--foreground)",
-          }}
+      {isAnchored ? (
+        <button
+          type="button"
+          onClick={() => onJumpToTimestamp(note.startTimestampMs as number)}
+          aria-label={`Jump to ${formatTimestamp(note.startTimestampMs as number)}`}
+          className="flex flex-row items-center gap-2 rounded text-left focus-visible:outline-2 focus-visible:outline-ring sm:flex-col sm:items-start sm:gap-1"
         >
-          {formatTimestamp(note.startTimestampMs)}
-        </span>
-        <span className="inline-flex items-center gap-1 text-[10.5px] text-muted-foreground sm:pl-2">
-          {isVoice ? <Mic className="size-2.5" /> : <FileText className="size-2.5" />}
-          {isVoice ? "Voice" : "Note"}
-        </span>
-      </button>
+          <span
+            className="rounded-md px-2 py-1 font-mono text-sm font-semibold"
+            style={{
+              backgroundColor: `color-mix(in oklch, ${accent} 12%, transparent)`,
+              color: "var(--foreground)",
+            }}
+          >
+            {formatTimestamp(note.startTimestampMs as number)}
+          </span>
+          <span className="inline-flex items-center gap-1 text-[10.5px] text-muted-foreground sm:pl-2">
+            {isVoice ? <Mic className="size-2.5" /> : <FileText className="size-2.5" />}
+            {isVoice ? "Voice" : "Note"}
+          </span>
+        </button>
+      ) : (
+        <div className="flex flex-row items-center gap-2 sm:flex-col sm:items-start sm:gap-1">
+          <NoteCreatedAtPill createdAt={note.createdAt} size="md" />
+          <span className="inline-flex items-center gap-1 text-[10.5px] text-muted-foreground sm:pl-2">
+            {isVoice ? <Mic className="size-2.5" /> : <FileText className="size-2.5" />}
+            {isVoice ? "Voice" : "Note"}
+          </span>
+        </div>
+      )}
 
       <div className="flex min-w-0 flex-col gap-2.5">
         <div className="flex items-center gap-2">
@@ -239,8 +254,12 @@ function NoteRow({
           <VoiceNotePlayer
             audioAssetId={note.audioAsset.id}
             durationMs={note.audioAsset.durationMs}
-            videoRef={videoRef}
-            startTimestampMs={note.startTimestampMs}
+            // Sync mode requires both videoRef AND a numeric anchor.
+            // Un-anchored voice notes play standalone.
+            videoRef={isAnchored ? videoRef : undefined}
+            startTimestampMs={
+              isAnchored ? (note.startTimestampMs as number) : undefined
+            }
             onSyncPlaybackChange={onSyncPlaybackChange}
             transcriptSlot={
               <VoiceNoteTranscript
@@ -412,6 +431,39 @@ export function NotesListCard({
         selectedAssigneeMember?.email ||
         "All";
 
+  // Split the filtered list into un-anchored notes (no video / null
+  // startTimestampMs) and anchored ones. Un-anchored notes render in a
+  // leading group so they don't get lost at the bottom of the
+  // timeline-sorted list. When there's no group to split off, only one
+  // bucket renders and the existing layout is preserved exactly.
+  const { unanchoredNotes, anchoredNotes } = useMemo(() => {
+    const unanchored: NoteItem[] = [];
+    const anchored: NoteItem[] = [];
+    for (const note of filteredNotes) {
+      if (note.startTimestampMs === null) {
+        unanchored.push(note);
+      } else {
+        anchored.push(note);
+      }
+    }
+    return { unanchoredNotes: unanchored, anchoredNotes: anchored };
+  }, [filteredNotes]);
+
+  const renderRow = (note: NoteItem) => (
+    <NoteRow
+      key={note.id}
+      note={note}
+      canEdit={note.author.id === currentUserId}
+      canRetryTranscript={canRetryTranscript}
+      currentUserId={currentUserId}
+      videoRef={videoRef}
+      onJumpToTimestamp={onJumpToTimestamp}
+      onEdit={onEditNote}
+      onDelete={onDeleteNote}
+      onSyncPlaybackChange={onSyncPlaybackChange}
+    />
+  );
+
   const renderBody = () => {
     if (notes.length === 0) {
       return (
@@ -440,21 +492,24 @@ export function NotesListCard({
     }
 
     return (
-      <div className="space-y-3">
-        {filteredNotes.map((note) => (
-          <NoteRow
-            key={note.id}
-            note={note}
-            canEdit={note.author.id === currentUserId}
-            canRetryTranscript={canRetryTranscript}
-            currentUserId={currentUserId}
-            videoRef={videoRef}
-            onJumpToTimestamp={onJumpToTimestamp}
-            onEdit={onEditNote}
-            onDelete={onDeleteNote}
-            onSyncPlaybackChange={onSyncPlaybackChange}
-          />
-        ))}
+      <div className="space-y-5">
+        {unanchoredNotes.length > 0 ? (
+          <section
+            aria-label="Notes without video anchor"
+            className="space-y-3"
+          >
+            <header className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <span>Notes without anchor</span>
+              <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] tabular-nums">
+                {unanchoredNotes.length}
+              </span>
+            </header>
+            <div className="space-y-3">{unanchoredNotes.map(renderRow)}</div>
+          </section>
+        ) : null}
+        {anchoredNotes.length > 0 ? (
+          <div className="space-y-3">{anchoredNotes.map(renderRow)}</div>
+        ) : null}
       </div>
     );
   };

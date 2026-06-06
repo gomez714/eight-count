@@ -58,7 +58,11 @@ export type AuthoredNoteRow = {
   id: string;
   noteType: "TEXT" | "VOICE";
   bodyText: string | null;
-  startTimestampMs: number;
+  /**
+   * Null when the note has no video anchor — the card renders a
+   * `NoteCreatedAtPill` (relative-date) in place of `NoteTimestampPill`.
+   */
+  startTimestampMs: number | null;
   endTimestampMs: number | null;
   tag: NoteTag | null;
   audioAsset: AuthoredNoteAudio | null;

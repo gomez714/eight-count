@@ -283,13 +283,19 @@ export function NotesByMeList({ notes, viewerId }: Readonly<NotesByMeListProps>)
       try {
         setEditError(null);
 
+        // Same null-pair semantics as the workspace edit handler. The
+        // edit sheet returns null when the author un-anchored (or kept
+        // an already-un-anchored note that way); the API treats null as
+        // "clear" and numbers as "set".
         const requestBody: UpdateNoteRequest =
           editingRow.noteType === "VOICE"
             ? {
                 noteType: "VOICE",
                 startTimestampMs: values.startTimestampMs,
                 endTimestampMs:
-                  values.endTimestampMs ?? values.startTimestampMs,
+                  values.startTimestampMs === null
+                    ? null
+                    : (values.endTimestampMs ?? values.startTimestampMs),
                 tag: values.tag,
                 targets: buildTargetsFromSelection(values),
               }

@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { StatusDot } from "@/app/rehearsals/[rehearsalId]/workspace/status-chip";
 import { formatNoteTimestamp } from "@/lib/notes/format";
+import { formatRelativeDate } from "@/lib/notes/format-relative-date";
 import type { NoteStatus } from "@/lib/notes/statuses";
 
 export type DrillRowItem = {
@@ -18,7 +19,19 @@ export type DrillRowItem = {
    */
   voiceTranscript: string | null;
   audioDurationMs: number | null;
-  startTimestampMs: number;
+  /**
+   * Null when the note has no video anchor — the drill row falls back to
+   * a relative-date label ("Today 7:23 PM" / "Tue") in place of the
+   * `mm:ss` timestamp. Drives the printable drill sheet too; un-anchored
+   * notes print with their created-at date so dancers can still tell
+   * them apart from anchored ones.
+   */
+  startTimestampMs: number | null;
+  /**
+   * Fallback for the time label when `startTimestampMs` is null. Always
+   * present on the row so callers don't have to thread it conditionally.
+   */
+  createdAt: Date | string;
   status: NoteStatus;
 };
 
@@ -75,6 +88,16 @@ function renderDrillBody(item: DrillRowItem) {
 }
 
 export function DrillRow({ item, projectName }: Readonly<DrillRowProps>) {
+  // Anchored notes render the familiar mm:ss; un-anchored notes (no
+  // video on the rehearsal) fall back to a relative-date label so the
+  // row still has a temporal anchor for skimming and print.
+  const isAnchored = item.startTimestampMs !== null;
+  const relativeLabel = isAnchored ? null : formatRelativeDate(item.createdAt);
+  const timeLabelText = isAnchored
+    ? formatNoteTimestamp(item.startTimestampMs as number)
+    : (relativeLabel?.short ?? "");
+  const timeLabelTitle = isAnchored ? undefined : relativeLabel?.long;
+
   return (
     <li className="drill-row flex items-center gap-2 rounded-md border bg-background px-3 py-2">
       {projectName ? (
@@ -95,8 +118,15 @@ export function DrillRow({ item, projectName }: Readonly<DrillRowProps>) {
       <span data-print-only className="hidden text-[11px] text-muted-foreground">
         {item.rehearsalTitle}
       </span>
-      <span className="font-mono text-[11px] text-muted-foreground">
-        {formatNoteTimestamp(item.startTimestampMs)}
+      <span
+        className={
+          isAnchored
+            ? "font-mono text-[11px] text-muted-foreground"
+            : "text-[11px] text-muted-foreground italic"
+        }
+        title={timeLabelTitle}
+      >
+        {timeLabelText}
       </span>
       <span className="inline-flex min-w-0 flex-1 items-center gap-1.5 truncate text-[13px] text-foreground">
         {renderDrillBody(item)}

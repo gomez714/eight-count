@@ -23,7 +23,13 @@ export type DrillItem = {
   bodyText: string | null;
   voiceTranscript: string | null;
   audioDurationMs: number | null;
-  startTimestampMs: number;
+  /**
+   * Null when the note has no video anchor — the drill row renders a
+   * relative-date label (from `createdAtMs`) in place of `mm:ss`. The
+   * project-drill priority sort already keys off `createdAtMs` /
+   * `rehearsalDateMs`, so null timestamps don't change ordering.
+   */
+  startTimestampMs: number | null;
   status: NoteStatus;
   rehearsalId: string;
   rehearsalTitle: string;
@@ -430,6 +436,7 @@ function DancerGroupedView({
                             voiceTranscript: item.voiceTranscript,
                             audioDurationMs: item.audioDurationMs,
                             startTimestampMs: item.startTimestampMs,
+                            createdAt: new Date(item.createdAtMs),
                             status: item.status,
                           }}
                         />
@@ -587,6 +594,7 @@ function DancerInTagSection({
               voiceTranscript: item.voiceTranscript,
               audioDurationMs: item.audioDurationMs,
               startTimestampMs: item.startTimestampMs,
+              createdAt: new Date(item.createdAtMs),
               status: item.status,
             }}
           />

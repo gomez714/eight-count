@@ -373,14 +373,23 @@ model AudioAsset {
   @@index([transcriptStatus])
 }
 
+/// A correction or directive anchored (optionally) to a moment of rehearsal
+/// footage. `videoAssetId` + `startTimestampMs` are both nullable so a note
+/// can exist on a rehearsal that has no video yet — the workspace falls
+/// back to chronological ordering and a relative-date label in that case
+/// (see "Notes without anchor" in CLAUDE.md). When the video later lands,
+/// existing un-anchored notes stay un-anchored; the edit sheet is the path
+/// to retro-anchor. Voice notes follow the same rule — without video,
+/// `startTimestampMs`/`endTimestampMs` are null and the audio plays
+/// standalone (no sync).
 model Note {
   id               String   @id @default(cuid())
   rehearsalId      String
-  videoAssetId     String
+  videoAssetId     String?
   authorUserId     String
   noteType         NoteType @default(TEXT)
   bodyText         String?
-  startTimestampMs Int
+  startTimestampMs Int?
   endTimestampMs   Int?
   audioAssetId     String?  @unique
   tag              NoteTag?
@@ -389,7 +398,7 @@ model Note {
   updatedAt DateTime @updatedAt
 
   rehearsal   Rehearsal        @relation(fields: [rehearsalId], references: [id], onDelete: Cascade)
-  videoAsset  VideoAsset       @relation(fields: [videoAssetId], references: [id], onDelete: Cascade)
+  videoAsset  VideoAsset?      @relation(fields: [videoAssetId], references: [id], onDelete: Cascade)
   author      User             @relation("NoteAuthor", fields: [authorUserId], references: [id])
   audioAsset  AudioAsset?      @relation(fields: [audioAssetId], references: [id])
   assignments NoteAssignment[]

@@ -12,6 +12,12 @@ type ComposerPeekRowProps = {
   onModeChange: (next: ComposerMode) => void;
   selectedTimestampMs: number;
   /**
+   * When false, the timestamp pill is omitted entirely — there's no
+   * video to anchor against. Defaults to true to preserve the existing
+   * behavior at every existing call site.
+   */
+  hasVideo?: boolean;
+  /**
    * Audience chip is note-specific. Discussions don't target individuals
    * (everyone in the team sees them), so the discussion peek row passes
    * `null` and we omit the chip entirely.
@@ -33,6 +39,7 @@ export function ComposerPeekRow({
   mode,
   onModeChange,
   selectedTimestampMs,
+  hasVideo = true,
   audienceSummary,
   onCaptureTimestamp,
   onTapAudience,
@@ -82,19 +89,21 @@ export function ComposerPeekRow({
         </button>
       </div>
 
-      <button
-        type="button"
-        onClick={onCaptureTimestamp}
-        disabled={disabled}
-        title="Tap to update to the current video time"
-        aria-label={`Note appears at ${formatTimestamp(selectedTimestampMs)}. Tap to update.`}
-        className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border border-transparent px-2 font-mono text-xs text-muted-foreground hover:border-border hover:bg-card disabled:opacity-50"
-      >
-        <Clock className="size-3.5" />
-        <span className="font-semibold text-foreground">
-          {formatTimestamp(selectedTimestampMs)}
-        </span>
-      </button>
+      {hasVideo ? (
+        <button
+          type="button"
+          onClick={onCaptureTimestamp}
+          disabled={disabled}
+          title="Tap to update to the current video time"
+          aria-label={`Note appears at ${formatTimestamp(selectedTimestampMs)}. Tap to update.`}
+          className="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border border-transparent px-2 font-mono text-xs text-muted-foreground hover:border-border hover:bg-card disabled:opacity-50"
+        >
+          <Clock className="size-3.5" />
+          <span className="font-semibold text-foreground">
+            {formatTimestamp(selectedTimestampMs)}
+          </span>
+        </button>
+      ) : null}
 
       {audienceSummary ? (
         <button

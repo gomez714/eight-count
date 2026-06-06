@@ -120,6 +120,13 @@ export function computeRecipientCount(
 export type ComposerBodyProps = {
   rehearsalId: string;
   videoRef: React.RefObject<HTMLVideoElement | null>;
+  /**
+   * Whether the rehearsal has a video to anchor against. False enables
+   * no-video mode: the timestamp pill is hidden from the sub-bar, the
+   * text placeholder changes, and the POST omits videoAssetId +
+   * timestamps so the note is created un-anchored.
+   */
+  hasVideo: boolean;
   selectedTimestampMs: number;
   noteText: string;
   onNoteTextChange: (value: string) => void;
@@ -166,6 +173,7 @@ export type ComposerBodyProps = {
 export function ComposerBody({
   rehearsalId,
   videoRef,
+  hasVideo,
   selectedTimestampMs,
   noteText,
   onNoteTextChange,
@@ -193,7 +201,7 @@ export function ComposerBody({
   onRecordingStateChange,
   writingMode = false,
   onTextareaFocusChange,
-}: ComposerBodyProps) {
+}: Readonly<ComposerBodyProps>) {
   // Treat null (SSR / pre-hydration) as not-desktop. The audience popover
   // would render off-screen on a mobile viewport, while the inline panel
   // is benign during the brief unresolved window since `audienceOpen`
@@ -268,6 +276,12 @@ export function ComposerBody({
       />
     );
   } else if (mode === "TEXT") {
+    // Placeholder leans on the timestamp when anchored, otherwise hints
+    // at the un-anchored ("rehearsal-wide") shape so the user knows the
+    // note isn't pegged to a moment.
+    const placeholder = hasVideo
+      ? `Note at ${formatTimestamp(selectedTimestampMs)}…`
+      : "Note for this rehearsal…";
     body = (
       <div className="flex flex-col gap-2">
         <div className="flex items-end gap-2">
@@ -277,7 +291,7 @@ export function ComposerBody({
             onChange={(event) => onNoteTextChange(event.target.value)}
             onFocus={() => onTextareaFocusChange?.(true)}
             onBlur={() => onTextareaFocusChange?.(false)}
-            placeholder={`Note at ${formatTimestamp(selectedTimestampMs)}…`}
+            placeholder={placeholder}
             disabled={isPending}
             rows={writingMode ? 6 : 2}
             className={cn(
@@ -318,14 +332,19 @@ export function ComposerBody({
           // Step 4 of the voice flow — entity-specific. The recorder
           // handed off the AudioAsset; here we attach it to a Note with
           // the audience + tag the user picked in the sub-bar.
+          //
+          // In no-video mode the recorder's null-videoRef fallback fills
+          // startTimestampMs with 0 and endTimestampMs with elapsed ms;
+          // we discard both at the POST boundary so the API doesn't
+          // reject with TIMESTAMP_REQUIRES_VIDEO. Mirrors the discussion
+          // composer's same conditional.
           const resp = await fetch(`/api/rehearsals/${rehearsalId}/notes`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               noteType: "VOICE",
               audioAssetId,
-              startTimestampMs,
-              endTimestampMs,
+              ...(hasVideo ? { startTimestampMs, endTimestampMs } : {}),
               tag: getSelectedTag(),
               targets: buildTargets(),
             }),
@@ -443,21 +462,34 @@ export function ComposerBody({
           disabled={isPending}
         />
 
-        <button
-          type="button"
-          onClick={onCapture}
-          disabled={disabled}
-          title="Tap to update to the current video time"
-          className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2 font-mono text-xs text-muted-foreground hover:border-border hover:bg-card disabled:opacity-50"
-        >
-          <Clock className="size-3" />
-          <span>
-            Note appears at{" "}
-            <span className="font-semibold text-foreground">
-              {formatTimestamp(selectedTimestampMs)}
+        {hasVideo ? (
+          <button
+            type="button"
+            onClick={onCapture}
+            disabled={disabled}
+            title="Tap to update to the current video time"
+            className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2 font-mono text-xs text-muted-foreground hover:border-border hover:bg-card disabled:opacity-50"
+          >
+            <Clock className="size-3" />
+            <span>
+              Note appears at{" "}
+              <span className="font-semibold text-foreground">
+                {formatTimestamp(selectedTimestampMs)}
+              </span>
             </span>
+          </button>
+        ) : (
+          // No video — surface the un-anchored scope as a small muted
+          // chip so the sub-bar's right side doesn't feel empty and the
+          // user understands the note won't be pegged to a moment.
+          <span
+            className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-full border border-dashed px-2.5 text-[11px] font-medium text-muted-foreground"
+            title="No video on this rehearsal — note isn't pegged to a moment."
+          >
+            <Clock aria-hidden className="size-3" />
+            Rehearsal-wide
           </span>
-        </button>
+        )}
       </div>
 
       {/* Body */}

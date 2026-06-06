@@ -26,6 +26,14 @@ async function loadNoteForAuthor(noteId: string) {
       assignments: true,
       rehearsal: {
         include: {
+          // Needed for the retro-anchor branch in PATCH: when the user
+          // anchors a previously un-anchored note (created before the
+          // rehearsal had a video), we link the note to the rehearsal's
+          // current video at save time. Without this we'd reject the
+          // PATCH with TIMESTAMP_REQUIRES_VIDEO even when a ready video
+          // does exist on the rehearsal — silently breaking the
+          // "started without video, added one later" upgrade path.
+          videoAsset: { select: { id: true, status: true } },
           project: {
             include: {
               team: { include: { members: true } },
@@ -90,23 +98,64 @@ export async function PATCH(
     const body = (await request.json()) as Partial<
       UpdateNoteRequest & {
         bodyText?: string;
-        startTimestampMs?: number;
-        endTimestampMs?: number;
+        startTimestampMs?: number | null;
+        endTimestampMs?: number | null;
       }
     >;
 
-    const startTimestampMs = body.startTimestampMs;
+    // Timestamp is optional on edit. Three cases:
+    //   - undefined → leave the column untouched
+    //   - null      → explicitly clear (un-anchor the note)
+    //   - number    → set; must be non-negative finite AND a ready video
+    //                 must exist on the rehearsal. When the note already
+    //                 has a videoAssetId we use that; when it doesn't
+    //                 (note created before the video landed) we link it
+    //                 to the rehearsal's current videoAsset — the
+    //                 retro-anchor path the edit sheet's "Anchor to
+    //                 current time" button relies on.
+    let startTimestampMs: number | null | undefined;
+    // Defaults to undefined so the update spread skips the column when
+    // we're not retro-anchoring. Set to the rehearsal's videoAsset id
+    // only on the retro-anchor branch below.
+    let videoAssetIdUpdate: string | undefined;
+    const rawStart = body.startTimestampMs;
+    if (rawStart === null) {
+      startTimestampMs = null;
+    } else if (rawStart !== undefined) {
+      if (typeof rawStart !== "number" || !Number.isFinite(rawStart) || rawStart < 0) {
+        return apiError(
+          400,
+          "INVALID_START_TIMESTAMP_MS",
+          "startTimestampMs must be a non-negative number"
+        );
+      }
 
-    if (
-      typeof startTimestampMs !== "number" ||
-      !Number.isFinite(startTimestampMs) ||
-      startTimestampMs < 0
-    ) {
-      return apiError(
-        400,
-        "INVALID_START_TIMESTAMP_MS",
-        "startTimestampMs must be a non-negative number"
-      );
+      const rehearsalVideo = note.rehearsal.videoAsset;
+      if (note.videoAssetId === null) {
+        // Retro-anchor: note was created un-anchored (rehearsal had no
+        // video at the time, or video was mid-upload). If a ready video
+        // exists now, link the note to it as part of this same PATCH.
+        // If not, reject with an actionable message — anchoring requires
+        // a video to anchor against.
+        if (!rehearsalVideo || rehearsalVideo.status !== "READY") {
+          return apiError(
+            400,
+            "TIMESTAMP_REQUIRES_VIDEO",
+            "This rehearsal has no ready video to anchor the note against. Upload one first."
+          );
+        }
+        videoAssetIdUpdate = rehearsalVideo.id;
+      } else if (rehearsalVideo && rehearsalVideo.status !== "READY") {
+        // Defensive: note had a video link, but the rehearsal's video
+        // is no longer ready (e.g. failed reprocessing). Block anchoring
+        // until it's ready again to keep timestamp semantics honest.
+        return apiError(
+          409,
+          "VIDEO_NOT_READY",
+          "The rehearsal video isn't ready yet; can't update the anchor."
+        );
+      }
+      startTimestampMs = Math.floor(rawStart);
     }
 
     // Tag is optional. Three cases:
@@ -128,22 +177,40 @@ export async function PATCH(
     }
 
     let bodyText: string | null = note.bodyText;
-    let endTimestampMs: number | null = null;
+    let endTimestampMs: number | null | undefined;
 
     if (note.noteType === "VOICE") {
-      const candidateEndMs = body.endTimestampMs;
-      if (
-        typeof candidateEndMs !== "number" ||
-        !Number.isFinite(candidateEndMs) ||
-        candidateEndMs < startTimestampMs
-      ) {
+      // Voice timestamps are always a coordinated pair. Three valid
+      // request shapes:
+      //   undefined + undefined → leave both alone
+      //   null + null           → un-anchor (clear both)
+      //   number + number       → set both (end >= start)
+      // Anything else is a contradiction and we reject it.
+      const rawEnd = body.endTimestampMs;
+      if (rawStart === undefined && rawEnd === undefined) {
+        // Leave both alone — nothing to do.
+      } else if (rawStart === null && rawEnd === null) {
+        endTimestampMs = null;
+      } else if (typeof startTimestampMs === "number") {
+        if (
+          typeof rawEnd !== "number" ||
+          !Number.isFinite(rawEnd) ||
+          rawEnd < startTimestampMs
+        ) {
+          return apiError(
+            400,
+            "INVALID_END_TIMESTAMP_MS",
+            "endTimestampMs must be a number >= startTimestampMs"
+          );
+        }
+        endTimestampMs = Math.floor(rawEnd);
+      } else {
         return apiError(
           400,
-          "INVALID_END_TIMESTAMP_MS",
-          "endTimestampMs must be a number >= startTimestampMs"
+          "INVALID_TIMESTAMP_PAIR",
+          "Voice timestamps must be sent as a pair (both numbers, both null, or both omitted)"
         );
       }
-      endTimestampMs = Math.floor(candidateEndMs);
     } else {
       const candidateBody = body.bodyText?.trim();
       if (!candidateBody) {
@@ -212,8 +279,18 @@ export async function PATCH(
         where: { id: note.id },
         data: {
           bodyText,
-          startTimestampMs: Math.floor(startTimestampMs),
-          endTimestampMs,
+          // `undefined` = leave untouched, `null` = clear (un-anchor),
+          // number = set. Matches the timestamp PATCH semantics used by
+          // discussion edits.
+          ...(startTimestampMs !== undefined && { startTimestampMs }),
+          ...(endTimestampMs !== undefined && { endTimestampMs }),
+          // Only set on the retro-anchor branch — when an un-anchored
+          // note gets a numeric timestamp, we link it to the rehearsal's
+          // current videoAsset in the same write. All other PATCHes
+          // leave the column alone.
+          ...(videoAssetIdUpdate !== undefined && {
+            videoAssetId: videoAssetIdUpdate,
+          }),
           ...tagUpdate,
         },
       });

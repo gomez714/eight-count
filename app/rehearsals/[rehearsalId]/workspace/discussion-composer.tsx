@@ -54,29 +54,35 @@ export type DiscussionComposerProps = {
  * (discussions are team-wide), no tag picker (deferred to v1.5), and an
  * "anchor to current frame" toggle replaces the always-on timestamp pill.
  *
- * Voice always requires the anchor (per the API validation: voice
- * discussions require rehearsalId, videoAssetId, and both timestamps).
- * Switching to voice mode auto-enables the anchor; the toggle is
- * disabled while voice is selected.
+ * Voice mode is always available — a voice discussion needs a rehearsal
+ * (which the workspace always has) and an audio asset, both of which the
+ * recorder produces. When a video is also present, the recording is
+ * anchored against video time and plays back in sync; without a video,
+ * timestamps are sent as null and the audio plays standalone.
+ *
+ * The "anchor" toggle is video-gated: it can only flip on when there's
+ * a video to anchor to. In voice mode it tracks whatever the video
+ * state allows (anchored when video present, un-anchored otherwise).
  */
 export function DiscussionComposer(props: Readonly<DiscussionComposerProps>) {
   const { mode, isAnchored, videoAssetId } = props;
   const canAnchor = videoAssetId !== null;
-  const voiceAvailable = canAnchor;
-  const effectiveAnchored = mode === "VOICE" ? true : isAnchored && canAnchor;
+  // Voice mode follows the anchor when video is present, otherwise
+  // surfaces as un-anchored. Text mode honors the user's toggle but
+  // can only be anchored when there's actually a video.
+  const effectiveAnchored =
+    mode === "VOICE" ? canAnchor : isAnchored && canAnchor;
 
   return (
     <>
       <SubBar
         {...props}
         canAnchor={canAnchor}
-        voiceAvailable={voiceAvailable}
         effectiveAnchored={effectiveAnchored}
       />
       <div className="p-3">
         <ComposerBodySlot
           {...props}
-          voiceAvailable={voiceAvailable}
           effectiveAnchored={effectiveAnchored}
         />
       </div>
@@ -88,7 +94,6 @@ export function DiscussionComposer(props: Readonly<DiscussionComposerProps>) {
 
 type SubBarProps = DiscussionComposerProps & {
   canAnchor: boolean;
-  voiceAvailable: boolean;
   effectiveAnchored: boolean;
 };
 
@@ -102,7 +107,6 @@ function SubBar({
   isPending,
   disabled,
   canAnchor,
-  voiceAvailable,
   effectiveAnchored,
 }: Readonly<SubBarProps>) {
   const handleAnchorToggle = () => {
@@ -113,11 +117,7 @@ function SubBar({
 
   return (
     <div className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-3 py-2">
-      <ModeTabs
-        mode={mode}
-        onModeChange={onModeChange}
-        voiceAvailable={voiceAvailable}
-      />
+      <ModeTabs mode={mode} onModeChange={onModeChange} />
 
       <span aria-hidden className="h-4 w-px bg-border" />
 
@@ -152,7 +152,9 @@ function SubBar({
 
 function anchorTitle(mode: ComposerMode, effectiveAnchored: boolean): string {
   if (mode === "VOICE") {
-    return "Voice discussions are always anchored to the current frame.";
+    return effectiveAnchored
+      ? "Voice discussions anchor to the current frame when a video is loaded."
+      : "Voice recording will play standalone — no video to anchor against.";
   }
   if (effectiveAnchored) {
     return "Anchored to the current frame. Tap to scope to the whole rehearsal instead.";
@@ -165,14 +167,9 @@ function anchorTitle(mode: ComposerMode, effectiveAnchored: boolean): string {
 type ModeTabsProps = {
   mode: ComposerMode;
   onModeChange: (next: ComposerMode) => void;
-  voiceAvailable: boolean;
 };
 
-function ModeTabs({
-  mode,
-  onModeChange,
-  voiceAvailable,
-}: Readonly<ModeTabsProps>) {
+function ModeTabs({ mode, onModeChange }: Readonly<ModeTabsProps>) {
   return (
     <div
       className="inline-flex gap-1 rounded-md border bg-card p-0.5"
@@ -204,18 +201,11 @@ function ModeTabs({
         role="tab"
         aria-selected={mode === "VOICE"}
         onClick={() => onModeChange("VOICE")}
-        disabled={!voiceAvailable}
-        title={
-          voiceAvailable
-            ? undefined
-            : "Voice discussions require a ready rehearsal video."
-        }
         className={cn(
           "inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-xs font-medium transition-colors",
           mode === "VOICE"
             ? "text-background"
-            : "text-muted-foreground hover:text-foreground",
-          !voiceAvailable && "cursor-not-allowed opacity-50"
+            : "text-muted-foreground hover:text-foreground"
         )}
         style={
           mode === "VOICE"
@@ -280,7 +270,6 @@ function AnchorToggle({
 // ── Body slot ───────────────────────────────────────────────────────────
 
 type ComposerBodySlotProps = DiscussionComposerProps & {
-  voiceAvailable: boolean;
   effectiveAnchored: boolean;
 };
 
@@ -297,18 +286,14 @@ function VoiceBody({
   videoAssetId,
   videoRef,
   disabled,
-  voiceAvailable,
   onRecordingStateChange,
   onVoiceSaved,
 }: Readonly<ComposerBodySlotProps>) {
-  if (!voiceAvailable || !videoAssetId) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        Voice discussions need a ready rehearsal video to anchor to. Upload
-        or wait for the video to finish processing, then try again.
-      </p>
-    );
-  }
+  // Voice discussions work both with and without a video. With one,
+  // timestamps anchor the recording against video time and playback
+  // syncs. Without, the recording is "rehearsal-wide" — the audio
+  // plays standalone and the discussion shows the "No anchor" pill.
+  const hasVideo = videoAssetId !== null;
   return (
     <VoiceNoteRecorder
       rehearsalId={rehearsalId}
@@ -328,10 +313,17 @@ function VoiceBody({
           body: JSON.stringify({
             noteType: "VOICE",
             rehearsalId,
-            videoAssetId,
+            // Drop the video anchor + timestamps entirely when there's
+            // no video. The recorder produces 0 / elapsed values via
+            // its fallback path; sending those alongside a null
+            // videoAssetId would trip TIMESTAMP_REQUIRES_VIDEO. The API
+            // validates the inverse — voice discussions need either
+            // (videoAssetId + both timestamps) or (no video anchor at
+            // all).
+            ...(hasVideo
+              ? { videoAssetId, startTimestampMs, endTimestampMs }
+              : {}),
             audioAssetId,
-            startTimestampMs,
-            endTimestampMs,
           }),
         });
         const data = (await resp.json()) as CreateDiscussionResponse;

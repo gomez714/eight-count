@@ -17,31 +17,119 @@ import {
 import { isNoteTag, NOTE_TAGS, type NoteTag } from "@/lib/notes/tags";
 import { getRehearsalForUser } from "@/lib/rehearsals/get-rehearsal-for-user";
 
+const AUTHOR_ROLES = new Set(["ADMIN", "INSTRUCTOR", "ASSISTANT"]);
+
+type RawNoteBody = Partial<
+  CreateNoteRequest & {
+    bodyText?: string;
+    startTimestampMs?: number | null;
+    endTimestampMs?: number | null;
+    audioAssetId?: string;
+    noteType?: "TEXT" | "VOICE";
+  }
+>;
+
+type ValidationResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; status: number; code: string; message: string };
+
+function parseTag(body: RawNoteBody): ValidationResult<NoteTag | null> {
+  if (body.tag === undefined || body.tag === null) {
+    return { ok: true, value: null };
+  }
+  if (!isNoteTag(body.tag)) {
+    return {
+      ok: false,
+      status: 400,
+      code: "INVALID_TAG",
+      message: `tag must be one of: ${NOTE_TAGS.join("|")}`,
+    };
+  }
+  return { ok: true, value: body.tag };
+}
+
+/**
+ * Parse the optional start timestamp against the rehearsal's video state.
+ * - Absent / null → un-anchored note (returns `null`).
+ * - Number → must be a non-negative finite number, AND the rehearsal must
+ *   have a ready video. Returns the floored value.
+ */
+function parseStartTimestamp(
+  body: RawNoteBody,
+  videoIsReady: boolean
+): ValidationResult<number | null> {
+  const raw = body.startTimestampMs;
+  if (raw === undefined || raw === null) return { ok: true, value: null };
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+    return {
+      ok: false,
+      status: 400,
+      code: "INVALID_START_TIMESTAMP_MS",
+      message: "startTimestampMs must be a non-negative number",
+    };
+  }
+  if (!videoIsReady) {
+    return {
+      ok: false,
+      status: 400,
+      code: "TIMESTAMP_REQUIRES_VIDEO",
+      message: "A ready video is required to anchor a note to a timestamp.",
+    };
+  }
+  return { ok: true, value: Math.floor(raw) };
+}
+
+/**
+ * Voice timestamps come as a pair — both or neither. With a video they
+ * anchor the recording window against video time; without a video the
+ * audio plays standalone and both are null.
+ */
+function parseVoiceEndTimestamp(
+  body: RawNoteBody,
+  startTimestampMs: number | null
+): ValidationResult<number | null> {
+  const candidate = body.endTimestampMs;
+  if (startTimestampMs === null) {
+    if (candidate !== undefined && candidate !== null) {
+      return {
+        ok: false,
+        status: 400,
+        code: "END_TIMESTAMP_WITHOUT_START",
+        message: "endTimestampMs requires startTimestampMs",
+      };
+    }
+    return { ok: true, value: null };
+  }
+  if (
+    typeof candidate !== "number" ||
+    !Number.isFinite(candidate) ||
+    candidate < startTimestampMs
+  ) {
+    return {
+      ok: false,
+      status: 400,
+      code: "INVALID_END_TIMESTAMP_MS",
+      message: "endTimestampMs must be a number >= startTimestampMs",
+    };
+  }
+  return { ok: true, value: Math.floor(candidate) };
+}
+
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ rehearsalId: string }> }
 ) {
   try {
     const { userId } = await auth();
-
-    if (!userId) {
-      return apiError(401, "UNAUTHORIZED", "Unauthorized");
-    }
+    if (!userId) return apiError(401, "UNAUTHORIZED", "Unauthorized");
 
     const dbUser = await db.user.findUnique({
-      where: {
-        clerkUserId: userId,
-      },
+      where: { clerkUserId: userId },
     });
-
-    if (!dbUser) {
-      return apiError(401, "USER_NOT_FOUND", "User not found");
-    }
+    if (!dbUser) return apiError(401, "USER_NOT_FOUND", "User not found");
 
     const { rehearsalId } = await context.params;
-
     const rehearsal = await getRehearsalForUser(rehearsalId, dbUser.id);
-
     if (!rehearsal) {
       return apiError(
         404,
@@ -55,7 +143,6 @@ export async function POST(
     const callerMembership = rehearsal.project.team.members.find(
       (member) => member.userId === dbUser.id
     );
-    const AUTHOR_ROLES = new Set(["ADMIN", "INSTRUCTOR", "ASSISTANT"]);
     if (!callerMembership || !AUTHOR_ROLES.has(callerMembership.role)) {
       return apiError(
         403,
@@ -64,52 +151,22 @@ export async function POST(
       );
     }
 
-    const videoAsset = rehearsal.videoAsset;
-
-    if (videoAsset?.status !== "READY") {
-      return apiError(
-        409,
-        "VIDEO_NOT_READY",
-        "A ready video is required before adding notes."
-      );
-    }
-
-    const body = (await request.json()) as Partial<
-      CreateNoteRequest & {
-        bodyText?: string;
-        startTimestampMs?: number;
-        endTimestampMs?: number;
-        audioAssetId?: string;
-        noteType?: "TEXT" | "VOICE";
-      }
-    >;
-
+    const body = (await request.json()) as RawNoteBody;
     const noteType = body.noteType ?? "TEXT";
-    const startTimestampMs = body.startTimestampMs;
+    const videoAsset = rehearsal.videoAsset;
+    const videoIsReady = videoAsset?.status === "READY";
 
-    let tag: NoteTag | null = null;
-    if (body.tag !== undefined && body.tag !== null) {
-      if (!isNoteTag(body.tag)) {
-        return apiError(
-          400,
-          "INVALID_TAG",
-          `tag must be one of: ${NOTE_TAGS.join("|")}`
-        );
-      }
-      tag = body.tag;
+    const tagResult = parseTag(body);
+    if (!tagResult.ok) {
+      return apiError(tagResult.status, tagResult.code, tagResult.message);
     }
+    const tag = tagResult.value;
 
-    if (
-      typeof startTimestampMs !== "number" ||
-      !Number.isFinite(startTimestampMs) ||
-      startTimestampMs < 0
-    ) {
-      return apiError(
-        400,
-        "INVALID_START_TIMESTAMP_MS",
-        "startTimestampMs must be a non-negative number"
-      );
+    const startResult = parseStartTimestamp(body, videoIsReady);
+    if (!startResult.ok) {
+      return apiError(startResult.status, startResult.code, startResult.message);
     }
+    const startTimestampMs = startResult.value;
 
     let bodyText: string | null = null;
     let audioAssetIdToAttach: string | null = null;
@@ -117,8 +174,6 @@ export async function POST(
 
     if (noteType === "VOICE") {
       const candidateAudioAssetId = body.audioAssetId?.trim();
-      const candidateEndMs = body.endTimestampMs;
-
       if (!candidateAudioAssetId) {
         return apiError(
           400,
@@ -127,17 +182,11 @@ export async function POST(
         );
       }
 
-      if (
-        typeof candidateEndMs !== "number" ||
-        !Number.isFinite(candidateEndMs) ||
-        candidateEndMs < startTimestampMs
-      ) {
-        return apiError(
-          400,
-          "INVALID_END_TIMESTAMP_MS",
-          "endTimestampMs must be a number >= startTimestampMs"
-        );
+      const endResult = parseVoiceEndTimestamp(body, startTimestampMs);
+      if (!endResult.ok) {
+        return apiError(endResult.status, endResult.code, endResult.message);
       }
+      endTimestampMs = endResult.value;
 
       const audioAsset = await db.audioAsset.findFirst({
         where: {
@@ -148,7 +197,6 @@ export async function POST(
           note: null,
         },
       });
-
       if (!audioAsset) {
         return apiError(
           400,
@@ -156,9 +204,7 @@ export async function POST(
           "Audio asset not found, not ready, or already attached to a note"
         );
       }
-
       audioAssetIdToAttach = audioAsset.id;
-      endTimestampMs = Math.floor(candidateEndMs);
     } else {
       const candidateBody = body.bodyText?.trim();
       if (!candidateBody) {
@@ -168,7 +214,6 @@ export async function POST(
     }
 
     const targets = dedupeTargets(normalizeTargets(body));
-
     const teamMembers = rehearsal.project.team.members;
     const teamMemberUserIds = new Set(
       teamMembers.map((member) => member.userId)
@@ -204,15 +249,21 @@ export async function POST(
       groupUserIdsByGroupId
     );
 
+    // Persist videoAssetId only when the video is ready — anchored notes
+    // already passed the timestamp validation above, so this links them to
+    // the right asset. Un-anchored notes (no video yet, or mid-upload)
+    // store null and surface in the "Notes without anchor" group.
+    const videoAssetIdToAttach = videoIsReady ? videoAsset?.id ?? null : null;
+
     const note = await db.$transaction(async (tx) => {
       const createdNote = await tx.note.create({
         data: {
           rehearsalId: rehearsal.id,
-          videoAssetId: videoAsset.id,
+          videoAssetId: videoAssetIdToAttach,
           authorUserId: dbUser.id,
           noteType,
           bodyText,
-          startTimestampMs: Math.floor(startTimestampMs),
+          startTimestampMs,
           endTimestampMs,
           audioAssetId: audioAssetIdToAttach,
           tag,

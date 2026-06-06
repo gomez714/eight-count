@@ -22,10 +22,13 @@ const DISCUSSION_BODY_MAX = 4000
  *   - videoAssetId, when set, must reference the rehearsal's video
  *     AND rehearsalId must be set
  *   - timestamps may only be non-null when videoAssetId is set
- *   - voice (noteType=VOICE) requires rehearsalId, videoAssetId,
- *     audioAssetId, and both timestamps. Project-level voice is
- *     deliberately not supported in v1 — `AudioAsset.rehearsalId` is
- *     required at the schema level.
+ *   - voice (noteType=VOICE) requires rehearsalId + audioAssetId.
+ *     videoAssetId + timestamps are optional — a voice discussion can be
+ *     recorded against a rehearsal that has no video yet (the audio
+ *     plays standalone). When videoAssetId is set, both timestamps must
+ *     also be set so the anchor is consistent. Project-level voice is
+ *     still deliberately unsupported in v1 — `AudioAsset.rehearsalId`
+ *     is required at the schema level.
  */
 export async function POST(
   request: NextRequest,
@@ -147,25 +150,44 @@ export async function POST(
     const resolvedEndMs = endTimestampMs
 
     if (noteType === "VOICE") {
-      if (!rehearsalId || !videoAssetId) {
+      // Voice discussions always require a rehearsal anchor (because
+      // `AudioAsset.rehearsalId` is non-nullable at the schema level)
+      // and an audio asset. Video + timestamps are optional — no video
+      // means the audio plays standalone, no sync.
+      if (!rehearsalId) {
         return apiError(
           400,
-          "VOICE_REQUIRES_VIDEO",
-          "Voice discussions require a rehearsal with a video"
+          "VOICE_REQUIRES_REHEARSAL",
+          "Voice discussions require a rehearsal anchor"
         )
       }
-      if (!videoIsReady) {
+
+      // When the request *does* anchor against a video, the video must
+      // be ready (matches the Note rule), and the timestamp pair must be
+      // consistent (both numbers, end >= start).
+      if (videoAssetId !== null && !videoIsReady) {
         return apiError(
           409,
           "VIDEO_NOT_READY",
-          "A ready video is required for voice discussions"
+          "Video is still uploading — wait or omit videoAssetId to record standalone."
         )
       }
-      if (resolvedStartMs === null || resolvedEndMs === null) {
+      if (videoAssetId !== null) {
+        if (resolvedStartMs === null || resolvedEndMs === null) {
+          return apiError(
+            400,
+            "VOICE_TIMESTAMPS_REQUIRED",
+            "Voice discussions anchored to a video require both startTimestampMs and endTimestampMs"
+          )
+        }
+      } else if (resolvedStartMs !== null || resolvedEndMs !== null) {
+        // Defense-in-depth — the earlier TIMESTAMP_REQUIRES_VIDEO check
+        // already covers this, but be explicit so the voice path can't
+        // leak past it.
         return apiError(
           400,
-          "VOICE_TIMESTAMPS_REQUIRED",
-          "Voice discussions require both startTimestampMs and endTimestampMs"
+          "TIMESTAMP_REQUIRES_VIDEO",
+          "Timestamps require a videoAssetId"
         )
       }
 

@@ -78,21 +78,45 @@ export async function PATCH(
     }
     const startMs = parseTimestamp(body.startTimestampMs)
     const endMs = parseTimestamp(body.endTimestampMs)
-    if (
-      typeof startMs !== "number" ||
-      typeof endMs !== "number" ||
-      endMs < startMs
-    ) {
+
+    // Voice timestamps are a coordinated pair. Three valid request
+    // shapes (matches Note PATCH semantics):
+    //   undefined + undefined → leave both alone
+    //   null + null           → un-anchor (clear both)
+    //   number + number       → set both (end >= start). Only valid if
+    //                           the discussion is video-anchored.
+    let voiceData: { startTimestampMs?: number | null; endTimestampMs?: number | null } = {}
+    if (startMs === undefined && endMs === undefined) {
+      // No-op — leave both alone.
+    } else if (startMs === null && endMs === null) {
+      voiceData = { startTimestampMs: null, endTimestampMs: null }
+    } else if (typeof startMs === "number" && typeof endMs === "number") {
+      if (discussion.videoAssetId === null) {
+        return apiError(
+          400,
+          "TIMESTAMP_REQUIRES_VIDEO",
+          "Cannot anchor a video-less voice discussion via PATCH"
+        )
+      }
+      if (endMs < startMs) {
+        return apiError(
+          400,
+          "INVALID_TIMESTAMP_RANGE",
+          "endTimestampMs must be >= startTimestampMs"
+        )
+      }
+      voiceData = { startTimestampMs: startMs, endTimestampMs: endMs }
+    } else {
       return apiError(
         400,
-        "INVALID_TIMESTAMPS",
-        "Voice discussion edits require both timestamps with end >= start"
+        "INVALID_TIMESTAMP_PAIR",
+        "Voice timestamps must be sent as a pair (both numbers, both null, or both omitted)"
       )
     }
 
     const updated = await db.discussion.update({
       where: { id: discussionId },
-      data: { startTimestampMs: startMs, endTimestampMs: endMs },
+      data: voiceData,
     })
     return NextResponse.json<UpdateDiscussionResponse>({
       ok: true,

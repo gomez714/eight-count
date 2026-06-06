@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { AudienceChips } from "@/components/audience-chips";
 import { AvatarInitials } from "@/components/avatar-initials";
+import { NoteCreatedAtPill } from "@/components/note-created-at-pill";
 import { NoteRehearsalLink } from "@/components/note-rehearsal-link";
 import { ThreadAttachment } from "@/components/threads/thread-attachment";
 import { NoteTimestampPill } from "@/components/note-timestamp-pill";
@@ -102,10 +103,14 @@ export function AssignedNoteCard({
         {/* Top meta: rehearsal context + timestamp + tag + repeating + relative age */}
         <div className="flex flex-wrap items-center gap-2.5">
           <NoteRehearsalLink rehearsal={note.rehearsal} />
-          <NoteTimestampPill
-            timestampMs={note.startTimestampMs}
-            noteType={note.noteType}
-          />
+          {note.startTimestampMs === null ? (
+            <NoteCreatedAtPill createdAt={note.createdAt} />
+          ) : (
+            <NoteTimestampPill
+              timestampMs={note.startTimestampMs}
+              noteType={note.noteType}
+            />
+          )}
           {note.tag ? <TagChip tag={note.tag} /> : null}
           {row.repeating ? (
             <RepeatingChip

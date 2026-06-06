@@ -65,7 +65,12 @@ export type NoteItem = {
   id: string;
   noteType: "TEXT" | "VOICE";
   bodyText: string | null;
-  startTimestampMs: number;
+  /**
+   * Null when the note was created without a video anchor. Surfaces in
+   * the "Notes without anchor" group above the timeline-anchored list,
+   * and the row's timestamp pill is replaced with a relative-date pill.
+   */
+  startTimestampMs: number | null;
   endTimestampMs: number | null;
   tag: NoteTag | null;
   audioAsset: AudioAssetItem | null;
