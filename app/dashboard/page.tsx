@@ -16,8 +16,10 @@ import {
   isChecklistDismissed,
   parseOnboardingState,
 } from "@/lib/onboarding/state";
+import { getUiVariant } from "@/lib/ui/variant";
 
 import { DashboardMetaBand } from "./dashboard-meta-band";
+import { DashboardV2 } from "./dashboard-v2";
 import { OnboardingChecklist } from "./onboarding-checklist";
 import { TeamsSection } from "./teams-section";
 import type {
@@ -37,7 +39,11 @@ function pickFirstName(name: string | null): string | null {
   return first || null;
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ cursor?: string }>;
+}) {
   const { userId } = await auth();
   if (!userId) {
     redirect("/sign-in");
@@ -46,6 +52,15 @@ export default async function DashboardPage() {
   const dbUser = await ensureDbUser();
   if (!dbUser) {
     redirect("/sign-in");
+  }
+
+  // V2 dashboard (activity-led feed) — opt-in via the `ec_ui_variant`
+  // cookie. The V1 path below remains the production default until
+  // cutover. See `/dev/ui` to toggle for self/testers.
+  const variant = await getUiVariant();
+  if (variant === "v2") {
+    const params = searchParams ? await searchParams : {};
+    return <DashboardV2 dbUser={dbUser} cursor={params.cursor} />;
   }
 
   const [memberships, myAssignments, authoredNotes, unreadComments] =

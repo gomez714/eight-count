@@ -6,16 +6,33 @@ import type { TeamRowData } from "./types";
 
 type TeamsSectionProps = {
   teams: TeamRowData[];
+  /**
+   * V2 dashboard treatment — uses the small-caps eyebrow heading, drops
+   * the helper line, and adds an anchor target (`id="teams"`) so the
+   * meta-line's "N teams" link scrolls here. Visual contract for V1
+   * (the original tile-style dashboard) is unchanged.
+   */
+  compact?: boolean;
 };
 
-export function TeamsSection({ teams }: Readonly<TeamsSectionProps>) {
+export function TeamsSection({
+  teams,
+  compact = false,
+}: Readonly<TeamsSectionProps>) {
   if (teams.length === 0) {
     return (
-      <section className="flex flex-col gap-3">
+      <section
+        id={compact ? "teams" : undefined}
+        className="flex flex-col gap-3"
+      >
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-lg font-semibold tracking-tight sm:text-xl">
-            Your teams
-          </h2>
+          {compact ? (
+            <CompactHeading />
+          ) : (
+            <h2 className="text-lg font-semibold tracking-tight sm:text-xl">
+              Your teams
+            </h2>
+          )}
         </div>
         <EmptyState />
       </section>
@@ -23,16 +40,23 @@ export function TeamsSection({ teams }: Readonly<TeamsSectionProps>) {
   }
 
   return (
-    <section className="flex flex-col gap-3">
+    <section
+      id={compact ? "teams" : undefined}
+      className="flex flex-col gap-3"
+    >
       <div className="flex items-center justify-between gap-2">
-        <div className="flex flex-col gap-0.5">
-          <h2 className="text-lg font-semibold tracking-tight sm:text-xl">
-            Your teams
-          </h2>
-          <p className="hidden text-xs text-muted-foreground sm:block">
-            Workspaces you&apos;re a member of.
-          </p>
-        </div>
+        {compact ? (
+          <CompactHeading />
+        ) : (
+          <div className="flex flex-col gap-0.5">
+            <h2 className="text-lg font-semibold tracking-tight sm:text-xl">
+              Your teams
+            </h2>
+            <p className="hidden text-xs text-muted-foreground sm:block">
+              Workspaces you&apos;re a member of.
+            </p>
+          </div>
+        )}
         <NewTeamButton />
       </div>
 
@@ -42,6 +66,14 @@ export function TeamsSection({ teams }: Readonly<TeamsSectionProps>) {
         ))}
       </div>
     </section>
+  );
+}
+
+function CompactHeading() {
+  return (
+    <h2 className="text-[10.5px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+      Your teams
+    </h2>
   );
 }
 

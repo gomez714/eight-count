@@ -124,10 +124,13 @@
     --discussion-bg: oklch(0.965 0.025 268);
     --discussion-border: oklch(0.86 0.06 268);
 
-    /* Landing-page tokens. Pre-auth marketing surface forces light mode
-       (see app/page.tsx), so dark variants are intentionally not authored
-       in `.dark` below. TODO: author dark-mode variants if/when the
-       landing page ever needs to render against the dark theme. */
+    /* Surface tints — used by the landing page (which forces light mode)
+       AND by signed-in surfaces (dashboard activity feed, /my-notes
+       hybrid). Dark variants are authored in `.dark` below so the
+       layered surfaces work in both themes.
+
+       --cream / --cream-deep / --ink stay landing-only (force-light
+       is the only surface that needs them). */
     --surface-canvas: oklch(0.985 0.003 60);
     --surface-sunken: oklch(0.965 0.003 60);
     --surface-deep: oklch(0.945 0.003 60);
@@ -136,6 +139,10 @@
     --cream-deep: oklch(0.94 0.025 80);
     --ink: oklch(0.18 0.012 70);
 
+    /* Cinema — dark "video plate" palette. Used as the FrameThumb
+       backdrop wherever a note timestamp surfaces (workspace, /my-notes
+       hybrid, dashboard pin card). Authored in both :root and .dark so
+       the plate stays the deepest tone on any theme. */
     --cinema-bg: oklch(0.13 0.008 240);
     --cinema-card: oklch(0.18 0.012 240);
     --cinema-border: oklch(0.3 0.012 240);
@@ -211,6 +218,22 @@
     --discussion-accent: oklch(0.7 0.12 268);
     --discussion-bg: oklch(0.27 0.04 268);
     --discussion-border: oklch(0.4 0.07 268);
+
+    /* Surface tints — dark variants. Sit between --background (0.141)
+       and --card (0.21) so layered surfaces (activity-row hover,
+       sunken meta strips) read as "above the page, below the card." */
+    --surface-canvas: oklch(0.16 0.005 286);
+    --surface-sunken: oklch(0.19 0.005 286);
+    --surface-deep: oklch(0.235 0.006 286);
+
+    /* Cinema — dark variants. Pushed deeper than --background so the
+       frame plate still reads as the deepest tone on screen, with a
+       visibly lit border. */
+    --cinema-bg: oklch(0.1 0.008 240);
+    --cinema-card: oklch(0.16 0.012 240);
+    --cinema-border: oklch(0.28 0.015 240);
+    --cinema-fg: oklch(0.96 0.005 60);
+    --cinema-muted: oklch(0.6 0.012 240);
 }
 
 @layer base {
