@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 
 import { AppHeaderUserButton } from "@/components/app-header-user-button";
 import { BrandLockup } from "@/components/brand-lockup";
+import { FeedbackLauncher } from "@/components/feedback/feedback-launcher";
 import { TeamSwitcher } from "@/components/team-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { getCurrentDbUser } from "@/lib/auth/get-current-db-user";
@@ -59,6 +60,7 @@ export async function AppHeader() {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">
+        <FeedbackLauncher />
         <ThemeToggle />
         {isSignedIn ? (
           <AppHeaderUserButton />

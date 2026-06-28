@@ -5,6 +5,8 @@ import type { TeamRole } from "@/generated/prisma/client";
 import type { DigestPayload } from "@/lib/digest/build-digest";
 import { renderDigestEmail } from "@/lib/digest/render-email";
 import { signUnsubscribeToken } from "@/lib/digest/token";
+import type { FeedbackCategory } from "@/lib/feedback/categories";
+import { FEEDBACK_CATEGORY_LABELS } from "@/lib/feedback/categories";
 
 const ROLE_LABEL: Record<TeamRole, string> = {
   ADMIN: "Admin",
@@ -239,6 +241,129 @@ export async function sendDigestEmail(
       typeof error === "object" && error !== null && "message" in error
         ? String(error.message)
         : "Failed to send digest email."
+    );
+  }
+}
+
+export type SendFeedbackResponseEmailParams = {
+  toEmail: string;
+  toName: string | null;
+  category: FeedbackCategory;
+  originalBody: string;
+  response: string;
+};
+
+/**
+ * Replies to a feedback submitter with the admin's response. From
+ * address is the support inbox so the user can plain-reply to continue
+ * the thread (Reply-To is also set to it explicitly — some clients
+ * prefer one signal over the other).
+ *
+ * Plain text only — admin response text is operator-controlled and
+ * does not benefit from a templated layout. Keeps the email
+ * conversational rather than transactional.
+ */
+export async function sendFeedbackResponseEmail(
+  params: SendFeedbackResponseEmailParams
+): Promise<void> {
+  const categoryLabel = FEEDBACK_CATEGORY_LABELS[params.category];
+  const greeting = params.toName?.trim()
+    ? `Hi ${params.toName.trim().split(/\s+/)[0]},`
+    : "Hi,";
+
+  const subject = `Re: your ${categoryLabel.toLowerCase()} on Eight Count`;
+
+  const quotedOriginal = params.originalBody
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+
+  const text = [
+    greeting,
+    ``,
+    params.response,
+    ``,
+    `— Luis`,
+    ``,
+    `---`,
+    `You wrote:`,
+    quotedOriginal,
+    ``,
+    `Reply to this email if you'd like to continue the conversation.`,
+  ].join("\n");
+
+  const { error } = await getResend().emails.send({
+    from: getFromAddress(),
+    to: params.toEmail,
+    replyTo: SUPPORT_REPLY_TO,
+    subject,
+    text,
+  });
+
+  if (error) {
+    throw new Error(
+      typeof error === "object" && error !== null && "message" in error
+        ? String(error.message)
+        : "Failed to send feedback response."
+    );
+  }
+}
+
+export type SendFeedbackNotificationParams = {
+  feedbackId: string;
+  category: FeedbackCategory;
+  body: string;
+  pageUrl: string;
+  authorEmail: string;
+  authorName: string | null;
+};
+
+/**
+ * Notifies the operator (SUPPORT_REPLY_TO) when a new feedback row
+ * lands. Reply-To is set to the submitter's email so a plain "reply"
+ * routes directly to them — the email *is* the conversational
+ * channel during the beta (we don't ship an in-app "My feedback" page
+ * in v1). The admin surface at `/admin/feedback/{id}` is for triage +
+ * status updates; correspondence happens over email.
+ */
+export async function sendFeedbackNotification(
+  params: SendFeedbackNotificationParams
+): Promise<void> {
+  const appUrl = getAppUrl();
+  const triageUrl = `${appUrl}/admin/feedback/${params.feedbackId}`;
+  const authorDisplay = params.authorName?.trim() || params.authorEmail;
+  const categoryLabel = FEEDBACK_CATEGORY_LABELS[params.category];
+  const excerpt = params.body.length > 60
+    ? `${params.body.slice(0, 60).trimEnd()}…`
+    : params.body;
+
+  const subject = `[Feedback · ${categoryLabel}] ${authorDisplay} — ${excerpt}`;
+
+  const text = [
+    `New ${categoryLabel.toLowerCase()} from ${authorDisplay} (${params.authorEmail})`,
+    ``,
+    `On page: ${params.pageUrl}`,
+    ``,
+    params.body,
+    ``,
+    `---`,
+    `Triage: ${triageUrl}`,
+    `Reply to this email to respond to ${authorDisplay} directly.`,
+  ].join("\n");
+
+  const { error } = await getResend().emails.send({
+    from: getFromAddress(),
+    to: SUPPORT_REPLY_TO,
+    replyTo: params.authorEmail,
+    subject,
+    text,
+  });
+
+  if (error) {
+    throw new Error(
+      typeof error === "object" && error !== null && "message" in error
+        ? String(error.message)
+        : "Failed to send feedback notification."
     );
   }
 }

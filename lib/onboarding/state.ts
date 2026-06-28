@@ -1,7 +1,7 @@
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 
-export const TIP_GROUP_KEYS = ["workspace", "myNotes"] as const;
+export const TIP_GROUP_KEYS = ["workspace", "myNotes", "feedback"] as const;
 export type TipGroupKey = (typeof TIP_GROUP_KEYS)[number];
 
 export type OnboardingState = {

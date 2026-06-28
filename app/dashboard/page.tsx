@@ -14,8 +14,10 @@ import {
 } from "@/lib/onboarding/derive-checklist";
 import {
   isChecklistDismissed,
+  isTipGroupDismissed,
   parseOnboardingState,
 } from "@/lib/onboarding/state";
+import { TipSequence, type TipStep } from "@/components/onboarding/tip-sequence";
 
 import { DashboardMetaBand } from "./dashboard-meta-band";
 import { OnboardingChecklist } from "./onboarding-checklist";
@@ -28,6 +30,20 @@ import type {
 import { WorkTiles } from "./work-tiles";
 
 const AUTHOR_ROLES = new Set(["ADMIN", "INSTRUCTOR", "ASSISTANT"]);
+
+/**
+ * Single-step tour pointing at the global feedback launcher in the
+ * header. Fires once per user on the dashboard — the only signed-in
+ * surface guaranteed to be visited early in every account's lifecycle.
+ * Mirrors the `workspace` / `myNotes` tip-group pattern.
+ */
+const FEEDBACK_TIP_STEPS: TipStep[] = [
+  {
+    anchorSelector: "[data-onboarding-anchor='feedback-launcher']",
+    title: "Spot something off? Tell us.",
+    body: "Tap this icon anywhere in Eight Count to send a bug, idea, or question. We read every one — and reply.",
+  },
+];
 
 function pickFirstName(name: string | null): string | null {
   if (!name) return null;
@@ -220,6 +236,12 @@ export default async function DashboardPage() {
 
         <TeamsSection teams={teamRows} />
       </main>
+
+      <TipSequence
+        groupKey="feedback"
+        steps={FEEDBACK_TIP_STEPS}
+        initiallyDismissed={isTipGroupDismissed(onboardingState, "feedback")}
+      />
     </>
   );
 }

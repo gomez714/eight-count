@@ -4,7 +4,7 @@ import { RoleChip } from "../teams/[teamId]/role-chip";
 
 // NOTE: update this date whenever the policy changes — readers use it to
 // confirm they're seeing the current version.
-const LAST_UPDATED = "May 18, 2026";
+const LAST_UPDATED = "June 28, 2026";
 
 // Monitored personal address. When Eight Count gets its own domain and a
 // dedicated privacy@ inbox, swap this over and update the README's
@@ -88,6 +88,17 @@ export default function PrivacyPage() {
               email preferences
             </Link>
             , or unsubscribe one-click from any digest.
+          </li>
+          <li>
+            <strong className="font-semibold text-foreground">
+              Feedback you send
+            </strong>{" "}
+            — when you tap the feedback icon in the header to send a bug,
+            idea, question, or kind word, we store your message, the page
+            you were on when you sent it, your browser&apos;s user-agent
+            string, and your account name and email so we can reply. Nothing
+            else. Reach out at <ContactLink /> if you&apos;d like a
+            submission removed.
           </li>
         </ul>
       </Section>
@@ -330,7 +341,7 @@ function Header() {
           </h1>
           <p className="text-sm text-muted-foreground">
             Last updated{" "}
-            <time dateTime="2026-05-05">{LAST_UPDATED}</time>.
+            <time dateTime="2026-06-28">{LAST_UPDATED}</time>.
           </p>
         </div>
       </div>

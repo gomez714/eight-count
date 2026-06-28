@@ -84,6 +84,22 @@ enum ResourceType {
   // sharing the AudioAsset two-step upload pattern (upload-url → GCS PUT → complete).
 }
 
+enum FeedbackCategory {
+  BUG
+  IDEA
+  QUESTION
+  PRAISE
+}
+
+enum FeedbackStatus {
+  NEW
+  TRIAGED
+  IN_PROGRESS
+  SHIPPED
+  WONT_DO
+  DUPLICATE
+}
+
 model User {
   id          String  @id @default(cuid())
   clerkUserId String  @unique
@@ -136,6 +152,7 @@ model User {
   discussionReactions   DiscussionReaction[]   @relation("DiscussionReactionUser")
   discussionThreadViews DiscussionThreadView[] @relation("DiscussionThreadViewUser")
   createdResources      ProjectResource[]      @relation("ProjectResourceCreatedBy")
+  feedbackSubmissions   Feedback[]             @relation("FeedbackAuthor")
 }
 
 model Team {
@@ -154,6 +171,7 @@ model Team {
   members     TeamMember[]
   projects    Project[]
   invitations TeamInvitation[]
+  feedbacks   Feedback[]
 }
 
 model TeamInvitation {
@@ -215,6 +233,7 @@ model Project {
   groups      ProjectGroup[]
   discussions Discussion[]
   resources   ProjectResource[]
+  feedbacks   Feedback[]
 
   @@index([teamId])
   @@index([createdByUserId])
@@ -308,6 +327,7 @@ model Rehearsal {
   notes       Note[]
   discussions Discussion[]
   resources   ProjectResource[]
+  feedbacks   Feedback[]
 
   @@index([projectId])
   @@index([createdByUserId])
@@ -617,4 +637,51 @@ model DiscussionThreadView {
 
   @@id([discussionId, userId])
   @@index([userId])
+}
+
+/// In-app feedback submission. Captured via the header icon widget on
+/// any signed-in page. Body is required (5..2000 chars, enforced at the
+/// validation layer to match COMMENT_MAX_LENGTH); `pageUrl` is the path
+/// the user was on when they submitted; the optional team/project/rehearsal
+/// FKs are server-resolved from `pageUrl` (never trust client-attached
+/// IDs — see submitFeedback action). Anchor FKs use SetNull so a deleted
+/// project/rehearsal doesn't cascade the feedback row away — the report
+/// stays useful for triage even after the surface it referenced is gone.
+/// Mirrors the ProjectResource.rehearsalId cascade convention.
+///
+/// `adminResponse` + `respondedAt` are admin-set fields surfaced back to
+/// the submitter via email (no in-app "My feedback" page in v1).
+/// `internalNotes` is admin-only and never displayed to the submitter.
+model Feedback {
+  id           String           @id @default(cuid())
+  authorUserId String
+  category     FeedbackCategory
+  status       FeedbackStatus   @default(NEW)
+  body         String
+
+  pageUrl    String
+  userAgent  String?
+  appVersion String?
+
+  teamId      String?
+  projectId   String?
+  rehearsalId String?
+
+  internalNotes String?
+  adminResponse String?
+  respondedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author    User       @relation("FeedbackAuthor", fields: [authorUserId], references: [id], onDelete: Cascade)
+  team      Team?      @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  project   Project?   @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  rehearsal Rehearsal? @relation(fields: [rehearsalId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([authorUserId, createdAt])
+  @@index([teamId])
+  @@index([projectId])
+  @@index([rehearsalId])
 }

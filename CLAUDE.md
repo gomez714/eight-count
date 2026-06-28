@@ -38,6 +38,7 @@ Required in `.env`:
 - GCS: `GCS_BUCKET_NAME`, `GOOGLE_CLOUD_PROJECT_ID`, plus service account credentials
 - Email (team invitations): `RESEND_API_KEY`, `NEXT_PUBLIC_APP_URL` (absolute URL the invite-acceptance link is built from — e.g. `http://localhost:3000` locally, the deployed origin in prod), and optional `EMAIL_FROM` (e.g. `Eight Count <invites@yourdomain.com>`). Falls back to `Eight Count <onboarding@resend.dev>` which Resend only delivers to your own account email — verify a domain in Resend before inviting non-self addresses.
 - Transcription: `DEEPGRAM_API_KEY` (required for voice-note transcription) and optional `DEEPGRAM_MODEL` (defaults to `nova-3`). When unset, voice-note rows mark `transcriptStatus = FAILED` instead of crashing — production deployments should always set it; the route logs a loud `[transcription]` error if missing in `NODE_ENV=production`. See "Voice Note Transcription" below.
+- Admin (in-app feedback inbox): `ADMIN_EMAILS` — comma-separated allowlist of email addresses that can access `/admin/*`. Case-insensitive match against `User.email`. Non-admins (or unset env) get redirected to `/dashboard` rather than a 403 — the surface is intentionally unlisted. Driven by env so adding/removing admins requires no migration. See "In-app feedback widget" below.
 
 ## Tech Stack
 
@@ -1215,6 +1216,76 @@ The migration only adds the column. Marking existing active users as already-onb
 [scripts/backfill-onboarding-state.ts](scripts/backfill-onboarding-state.ts) — `npm run db:backfill-onboarding` (uses `tsx` as a devDep). Marks every user with prior activity (`TeamMember`, `Note`, or `NoteAssignment` row) as having dismissed the checklist and all tip groups. **Idempotent**: re-runs only update users whose state hasn't been backfilled yet (parsed `checklistDismissedAt` is empty).
 
 The script has a `SKIP_EMAILS` array at the top of the file, defaulted to test-account emails (currently `lgomez00714@gmail.com`). Anyone listed there is *not* marked as dismissed even if they have activity — useful for walking through onboarding with an account that already has rehearsals / notes / etc. **Clear that list before running in production**, otherwise listed users will see the tour despite being established users.
+
+## In-app feedback widget
+
+A low-friction channel for users to send bugs, ideas, questions, and praise from anywhere in the signed-in app, plus an unlisted admin inbox at `/admin/feedback` for the operator (you) to triage and reply. Designed for a small beta — single admin, email-as-conversation-channel, no public roadmap board, no in-app "my feedback" page.
+
+**Defining contrast with notes / discussions:**
+- **Cross-product, not team-scoped.** Lives at the user→app boundary, not inside a team's workspace. Anyone signed in can submit; only the operator (admin email allowlist) can triage.
+- **Email-as-channel.** Submission emails the operator with the submitter's address set as `replyTo` so plain "Reply" routes back. Operator's reply (sent from `/admin/feedback/{id}`) lands in the submitter's inbox with the operator's address as `replyTo`. The DB row is the triage state; the email is the conversation.
+- **No team / project chrome.** The widget surfaces from the global header, the admin surface lives under `/admin/*`, not `/teams/*`.
+
+### Data model
+
+One model + two enums. Optional anchor FKs (`teamId` / `projectId` / `rehearsalId`) use `SetNull` so a deleted project/rehearsal doesn't cascade the report away — the row stays useful for triage even after the surface it referenced is gone. Mirrors the `ProjectResource.rehearsalId` convention; contrast with `Discussion`'s `Cascade` (a discussion is *about* the rehearsal; a feedback report is *not*).
+
+| Model / Enum | Purpose |
+|---|---|
+| `Feedback` | One row per submission. `author` cascades from User; anchors `SetNull`. Indexes on `[status, createdAt]` (admin list) and `[authorUserId, createdAt]` (future "my feedback" page). |
+| `FeedbackCategory` | `BUG \| IDEA \| QUESTION \| PRAISE`. |
+| `FeedbackStatus` | `NEW \| TRIAGED \| IN_PROGRESS \| SHIPPED \| WONT_DO \| DUPLICATE`. Defaults `NEW`. |
+
+The schema has an `appVersion: String?` column that is **not yet wired up** — see [docs/plans/feedback-followups.md](docs/plans/feedback-followups.md) for the resolution path (either wire to `VERCEL_GIT_COMMIT_SHA` or drop in a follow-up migration).
+
+### Admin gating
+
+[lib/auth/is-app-admin.ts](lib/auth/is-app-admin.ts) — `isAppAdmin(email)` reads the `ADMIN_EMAILS` env var (comma-separated, case-insensitive). Distinct from team-admin role. Trade-off vs. a `User.isAppAdmin` column: env is mutable without a migration, right shape while the admin count is one or two. Promote to a column when editing env on every change becomes friction.
+
+[app/admin/layout.tsx](app/admin/layout.tsx) wraps every `/admin/*` route. Non-admins redirect to `/dashboard` rather than getting a 403 page — the surface is intentionally unlisted (no nav link, no breadcrumb, only reachable via direct URL or the email notification's deep-link).
+
+### Files
+
+| File | Responsibility |
+|---|---|
+| [lib/feedback/categories.ts](lib/feedback/categories.ts) | **Client-safe.** `FEEDBACK_CATEGORIES` const tuple, `FeedbackCategory` type, `FEEDBACK_CATEGORY_LABELS`, `FEEDBACK_CATEGORY_PROMPTS` (rotates the textarea placeholder by category), `FEEDBACK_CATEGORY_TOKENS` (maps each category to existing design-token groups — BUG → `--status-progress-*`, IDEA → primary teal, QUESTION → muted, PRAISE → `--note-voice-*`), `isFeedbackCategory` runtime guard, `FEEDBACK_BODY_MIN_LENGTH = 5`, `FEEDBACK_BODY_MAX_LENGTH = 2000`. Mirrors the literal Prisma enum (no Prisma import) — same pattern as `lib/notes/tags.ts`. |
+| [lib/feedback/resolve-feedback-context.ts](lib/feedback/resolve-feedback-context.ts) | **Server-only.** Parses `pageUrl` and walks rehearsal → project → team / project → team / team → membership. Returns `{ teamId, projectId, rehearsalId }` only for IDs the viewer actually has access to. **Load-bearing**: never trust client-attached IDs — a compromised client could otherwise pin feedback to teams the user doesn't belong to (poisoning the admin inbox or the team's history). Same architectural pattern as `resolveCurrentTeamId`. |
+| [lib/feedback/get-feedback-for-admin.ts](lib/feedback/get-feedback-for-admin.ts) | Admin list query, capped at 200, newest-first. No pagination in v1 — promote to cursor pagination if it grows hot. |
+| [lib/feedback/get-feedback-by-id-for-admin.ts](lib/feedback/get-feedback-by-id-for-admin.ts) | Admin detail query. No team-membership check — the route is gated by the layout via `isAppAdmin`, which guarantees the caller can see anything in the table. Structurally different from the `get*ForUser()` family. |
+| [app/feedback/feedback-actions.ts](app/feedback/feedback-actions.ts) | `submitFeedback` server action. Zod-validates, calls `resolveFeedbackContext`, inserts, fires admin email via `after()` so a Resend failure can't block the success state. |
+| [app/admin/feedback/admin-feedback-actions.ts](app/admin/feedback/admin-feedback-actions.ts) | `updateFeedbackStatus`, `saveInternalNotes`, `respondToFeedback`. All gate through a single `requireAdmin()` helper (ensures `ADMIN_EMAILS` rotation doesn't need a sweep). Response action fires the email via `after()`. **Does not auto-advance status on reply** — operator might send "what did you mean by X?" without flipping to SHIPPED. |
+| [lib/email/send.ts](lib/email/send.ts) | Extended with `sendFeedbackNotification` (to operator; `replyTo` = submitter so plain Reply works) and `sendFeedbackResponseEmail` (to submitter; quotes original message for context; ends with "Reply to this email if you'd like to continue"). |
+| [components/feedback/feedback-launcher.tsx](components/feedback/feedback-launcher.tsx) | Server-gated entry mounted in [components/app-header.tsx](components/app-header.tsx). Returns `null` for signed-out users so the icon never appears on landing / auth / invite / privacy pages. |
+| [components/feedback/feedback-launcher-client.tsx](components/feedback/feedback-launcher-client.tsx) | `MessageCircleQuestion` icon button between `ThemeToggle` and `UserButton`. Responsive Dialog (`≥ md`) vs. Vaul Drawer (mobile). Carries `data-onboarding-anchor="feedback-launcher"` for the dashboard tooltip pulse. |
+| [components/feedback/feedback-form.tsx](components/feedback/feedback-form.tsx) | Shared body for Dialog and Drawer. Segmented 4-button category picker with per-category accent tints from existing tokens, category-aware textarea placeholder, char counter (visible at 1800), `Cmd/Ctrl+Enter` to send, transparent context-preview line ("We'll include the page you're on..."), and a success card ("Got it — Luis will see this within a day.") that auto-dismisses after 4s. The success card stays in the dialog rather than closing immediately + sonner-toasting — the warmer in-form confirmation is critical for sustained engagement in a beta. |
+| [app/admin/feedback/page.tsx](app/admin/feedback/page.tsx) | Inbox list. Status filter pills (`ALL / NEW / TRIAGED / IN_PROGRESS / SHIPPED / WONT_DO / DUPLICATE`) with counts from a single `groupBy`. Rows: status + category chip + author + relative time + Replied indicator + body excerpt + page URL + breadcrumb. URL-synced via `?status=` (server-rendered Links, no client state). |
+| [app/admin/feedback/[feedbackId]/page.tsx](app/admin/feedback/[feedbackId]/page.tsx) | Detail view: header (category + inline status dropdown + replied indicator), submitter mailto link, full message, context grid (page URL, linkable team/project/rehearsal, collapsible user-agent), internal notes scratchpad, reply form. |
+| [app/admin/feedback/[feedbackId]/status-control.tsx](app/admin/feedback/[feedbackId]/status-control.tsx) | Radix Select dropdown for status changes; `useTransition` + sonner toast on success. |
+| [app/admin/feedback/[feedbackId]/internal-notes-form.tsx](app/admin/feedback/[feedbackId]/internal-notes-form.tsx) | Scratchpad with explicit Save button + "Unsaved" indicator while dirty. Admin-only field; never displayed to submitters. |
+| [app/admin/feedback/[feedbackId]/response-form.tsx](app/admin/feedback/[feedbackId]/response-form.tsx) | Reply composer. Detects "already replied" state (`previousResponse !== null`) and switches to amend mode with prior response pre-filled; button changes to "Send updated reply" so the operator knows the submitter gets a second email. |
+| [app/admin/feedback/feedback-status-chip.tsx](app/admin/feedback/feedback-status-chip.tsx) | Status pill using existing design tokens. Exports `FEEDBACK_STATUS_LABELS`. |
+| [app/admin/feedback/feedback-category-chip.tsx](app/admin/feedback/feedback-category-chip.tsx) | Category pill with icon + label, reusing `FEEDBACK_CATEGORY_TOKENS`. |
+
+### Tooltip pulse for discovery
+
+Single-step `TipSequence` mounted in [app/dashboard/page.tsx](app/dashboard/page.tsx) pointing at `[data-onboarding-anchor='feedback-launcher']`. Dashboard is the only signed-in surface every account visits early in its lifecycle. Uses the existing `feedback` tip-group key added to `TIP_GROUP_KEYS` in [lib/onboarding/state.ts](lib/onboarding/state.ts) — `parseOnboardingState`, `dismissTipGroup`, and `dismissTipGroupAction` all pick it up automatically with no new infrastructure. Existing users who completed the prior onboarding backfill will see this tip once on next dashboard visit (intentional — the feedback feature is new to them).
+
+### Permissions
+
+| Action | Operator (in `ADMIN_EMAILS`) | Any signed-in user | Signed-out |
+|---|:---:|:---:|:---:|
+| See feedback launcher in header | ✓ | ✓ | |
+| Submit feedback | ✓ | ✓ | |
+| Access `/admin/feedback` | ✓ | (redirect to /dashboard) | (redirect to sign-in) |
+| Update status / notes / reply | ✓ | | |
+
+### Privacy
+
+The privacy page lists exactly what's collected on each submission (message, page URL, user-agent, name, email — nothing else) under "What we store" with a contact link for deletion requests. See [app/privacy/page.tsx](app/privacy/page.tsx). The wording follows the link-don't-paraphrase discipline — names the fields explicitly rather than hand-waving.
+
+### Deferred (explicit non-goals for v1)
+
+Listed in [docs/plans/feedback-followups.md](docs/plans/feedback-followups.md). Headline items: email-delivery failure detection (claimed-success-when-Resend-rejected), `appVersion` column wiring, "my feedback" page for submitters, status auto-advance on reply, rate limiting, screenshot attachments, public roadmap board.
 
 ## Privacy page (`/privacy`)
 
